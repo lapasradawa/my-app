@@ -118,16 +118,39 @@ export function processExcel(buffer: ArrayBuffer): ProcessResult {
     containerMaps[name] = parseContainerSheet(workbook.Sheets[name])
   }
 
-  const rows: ResultRow[] = ciItems.map((item, idx) => {
-    const containers: Record<string, number> = {}
-    let totalInContainers = 0
+  // FIFO: group CI rows by code, track remaining qty per row
+  const ciByCode: Record<string, { rowIdx: number; remaining: number }[]> = {}
+  ciItems.forEach((item, idx) => {
+    if (!ciByCode[item.code]) ciByCode[item.code] = []
+    ciByCode[item.code].push({ rowIdx: idx, remaining: item.qty })
+  })
 
-    for (const name of containerNames) {
-      const qty = containerMaps[name][item.code] || 0
-      containers[name] = qty
-      totalInContainers += qty
+  // Initialize container assignments per CI row
+  const rowContainers: Record<number, Record<string, number>> = {}
+  ciItems.forEach((_, idx) => {
+    rowContainers[idx] = {}
+    for (const name of containerNames) rowContainers[idx][name] = 0
+  })
+
+  // For each container (in sheet order), distribute to CI rows FIFO
+  for (const containerName of containerNames) {
+    for (const [code, containerQty] of Object.entries(containerMaps[containerName])) {
+      const ciRows = ciByCode[code]
+      if (!ciRows) continue
+      let remaining = containerQty
+      for (const ciRow of ciRows) {
+        if (remaining <= 0) break
+        const take = Math.min(remaining, ciRow.remaining)
+        rowContainers[ciRow.rowIdx][containerName] += take
+        ciRow.remaining -= take
+        remaining -= take
+      }
     }
+  }
 
+  const rows: ResultRow[] = ciItems.map((item, idx) => {
+    const containers = rowContainers[idx]
+    const totalInContainers = Object.values(containers).reduce((s, v) => s + v, 0)
     return {
       no: idx + 1,
       code: item.code,
