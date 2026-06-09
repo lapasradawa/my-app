@@ -10,8 +10,6 @@ interface HistoryItem {
   invoice_no: string
   filename: string
   created_at: string
-  rows: ResultRow[]
-  container_names: string[]
 }
 
 export default function Home() {
@@ -23,6 +21,9 @@ export default function Home() {
   const [dragging, setDragging] = useState(false)
   const [history, setHistory] = useState<HistoryItem[]>([])
   const [saving, setSaving] = useState(false)
+  const [savedId, setSavedId] = useState<string | null>(null)
+  const [invoiceName, setInvoiceName] = useState('')
+  const [editingName, setEditingName] = useState(false)
 
   useEffect(() => {
     loadHistory()
@@ -45,45 +46,63 @@ export default function Home() {
     setLoading(true)
     setError(null)
     setResult(null)
+    setSavedId(null)
     setFilename(file.name)
     try {
       const buffer = await file.arrayBuffer()
       const data = processExcel(buffer)
       setResult(data)
-      // Save to Supabase
-      setSaving(true)
-      await supabase.from('invoices').insert({
-        invoice_no: data.invoiceNo || file.name,
-        filename: file.name,
-        rows: data.rows,
-        container_names: data.containerNames,
-      })
-      await loadHistory()
+      setInvoiceName(data.invoiceNo || file.name.replace(/\.xlsx?$/, ''))
     } catch (e) {
       setError(e instanceof Error ? e.message : 'เกิดข้อผิดพลาด')
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function handleSave() {
+    if (!result) return
+    setSaving(true)
+    try {
+      if (savedId) {
+        // Update existing record (rename)
+        await supabase.from('invoices').update({ invoice_no: invoiceName }).eq('id', savedId)
+      } else {
+        // Insert new record
+        const { data, error: err } = await supabase.from('invoices').insert({
+          invoice_no: invoiceName,
+          filename,
+          rows: result.rows,
+          container_names: result.containerNames,
+        }).select('id').single()
+        if (err) throw new Error(err.message)
+        if (data) setSavedId(data.id)
+      }
+      await loadHistory()
+      setEditingName(false)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'บันทึกไม่สำเร็จ')
+    } finally {
       setSaving(false)
     }
   }
 
   async function loadFromHistory(item: HistoryItem) {
-    const { data } = await supabase
-      .from('invoices')
-      .select('*')
-      .eq('id', item.id)
-      .single()
+    const { data } = await supabase.from('invoices').select('*').eq('id', item.id).single()
     if (data) {
       setResult({ rows: data.rows, containerNames: data.container_names, invoiceNo: data.invoice_no })
       setFilename(data.filename)
+      setInvoiceName(data.invoice_no)
+      setSavedId(data.id)
+      setEditingName(false)
     }
   }
 
   async function deleteHistory(id: string, e: React.MouseEvent) {
     e.stopPropagation()
     await supabase.from('invoices').delete().eq('id', id)
-    await loadHistory()
     setHistory(prev => prev.filter(h => h.id !== id))
+    if (savedId === id) reset()
   }
 
   function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -98,37 +117,32 @@ export default function Home() {
     if (file) handleFile(file)
   }
 
-  function onDragOver(e: React.DragEvent) {
-    e.preventDefault()
-    setDragging(true)
-  }
-
-  function onDragLeave() {
-    setDragging(false)
-  }
+  function onDragOver(e: React.DragEvent) { e.preventDefault(); setDragging(true) }
+  function onDragLeave() { setDragging(false) }
 
   function handleExport() {
     if (!result) return
-    exportToExcel(result.rows, result.containerNames, filename.replace('.xlsx', '') + '-PO-Matching.xlsx')
+    exportToExcel(result.rows, result.containerNames, invoiceName + '-PO-Matching.xlsx')
   }
 
   function reset() {
     setResult(null)
     setError(null)
     setFilename('')
+    setSavedId(null)
+    setInvoiceName('')
+    setEditingName(false)
     if (inputRef.current) inputRef.current.value = ''
   }
 
   const fmt = (n: number) => n === 0 ? '-' : n.toLocaleString()
-
-  const formatDate = (iso: string) => {
-    const d = new Date(iso)
-    return d.toLocaleDateString('th-TH', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-  }
+  const formatDate = (iso: string) => new Date(iso).toLocaleDateString('th-TH', {
+    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+  })
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
-      {/* Sidebar — History */}
+      {/* Sidebar */}
       <aside className="w-64 shrink-0 bg-white border-r border-gray-200 flex flex-col">
         <div className="p-4 border-b border-gray-200">
           <h2 className="font-semibold text-gray-800 text-sm">ประวัติ Invoice</h2>
@@ -141,7 +155,9 @@ export default function Home() {
               <button
                 key={item.id}
                 onClick={() => loadFromHistory(item)}
-                className="w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-100 group"
+                className={`w-full text-left px-4 py-3 border-b border-gray-100 group transition-colors ${
+                  savedId === item.id ? 'bg-blue-50' : 'hover:bg-gray-50'
+                }`}
               >
                 <div className="flex items-start justify-between gap-1">
                   <div className="min-w-0">
@@ -170,7 +186,7 @@ export default function Home() {
         </div>
       </aside>
 
-      {/* Main content */}
+      {/* Main */}
       <div className="flex-1 p-6 overflow-auto">
         <div className="max-w-screen-xl mx-auto">
           <div className="mb-6">
@@ -178,7 +194,6 @@ export default function Home() {
             <p className="text-sm text-gray-500 mt-1">อัปโหลดไฟล์ Excel เพื่อ match สินค้าในแต่ละตู้กับ PO</p>
           </div>
 
-          {/* Upload area */}
           {!result && !loading && (
             <div
               className={`border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-colors ${
@@ -197,38 +212,64 @@ export default function Home() {
             </div>
           )}
 
-          {loading && (
-            <div className="text-center py-12 text-gray-500">กำลังประมวลผล...</div>
-          )}
+          {loading && <div className="text-center py-12 text-gray-500">กำลังประมวลผล...</div>}
 
           {error && (
             <div className="mt-4 bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
               {error}
-              <button onClick={reset} className="ml-3 underline">ลองใหม่</button>
+              <button onClick={() => setError(null)} className="ml-3 underline">ปิด</button>
             </div>
           )}
 
           {result && (
             <>
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  {result.invoiceNo && (
-                    <span className="text-base font-semibold text-gray-800 mr-3">Invoice: {result.invoiceNo}</span>
+              {/* Invoice name bar */}
+              <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 mb-4 flex items-center gap-3 flex-wrap">
+                <div className="flex items-center gap-2 flex-1 min-w-0">
+                  <span className="text-sm text-gray-500 shrink-0">Invoice:</span>
+                  {editingName ? (
+                    <input
+                      autoFocus
+                      value={invoiceName}
+                      onChange={e => setInvoiceName(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && handleSave()}
+                      className="border border-blue-400 rounded px-2 py-1 text-sm flex-1 outline-none"
+                    />
+                  ) : (
+                    <span
+                      className="text-sm font-semibold text-gray-800 cursor-pointer hover:text-blue-600 truncate"
+                      onClick={() => setEditingName(true)}
+                      title="คลิกเพื่อแก้ไขชื่อ"
+                    >
+                      {invoiceName || '-'}
+                    </span>
                   )}
-                  <span className="text-sm text-gray-500">{filename}</span>
-                  <span className="ml-3 text-sm text-gray-400">
-                    {result.rows.length} รายการ | {result.containerNames.length} ตู้
-                  </span>
-                  {saving && <span className="ml-3 text-xs text-blue-500">กำลังบันทึก...</span>}
+                  <button
+                    onClick={() => setEditingName(v => !v)}
+                    className="text-xs text-gray-400 hover:text-blue-500 shrink-0"
+                  >
+                    {editingName ? 'ยกเลิก' : 'แก้ไข'}
+                  </button>
                 </div>
-                <button
-                  onClick={handleExport}
-                  className="px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors"
-                >
-                  Export Excel
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-sm text-gray-400">{result.rows.length} รายการ | {result.containerNames.length} ตู้</span>
+                  <button
+                    onClick={handleSave}
+                    disabled={saving}
+                    className="px-4 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                  >
+                    {saving ? 'กำลังบันทึก...' : savedId ? 'บันทึก (อัปเดต)' : 'บันทึก'}
+                  </button>
+                  <button
+                    onClick={handleExport}
+                    className="px-4 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors"
+                  >
+                    Export Excel
+                  </button>
+                </div>
               </div>
 
+              {/* Table */}
               <div className="overflow-auto rounded-xl border border-gray-200 bg-white shadow-sm">
                 <table className="text-sm w-full border-collapse">
                   <thead>
@@ -266,17 +307,13 @@ export default function Home() {
                   <tfoot>
                     <tr className="bg-gray-50 font-semibold text-gray-700 border-t-2 border-gray-200">
                       <td colSpan={4} className="px-3 py-2 text-right">รวม</td>
-                      <td className="px-3 py-2 text-right">
-                        {result.rows.reduce((s, r) => s + r.qty, 0).toLocaleString()}
-                      </td>
+                      <td className="px-3 py-2 text-right">{result.rows.reduce((s, r) => s + r.qty, 0).toLocaleString()}</td>
                       {result.containerNames.map(name => (
                         <td key={name} className="px-3 py-2 text-right">
                           {result.rows.reduce((s, r) => s + (r.containers[name] || 0), 0).toLocaleString()}
                         </td>
                       ))}
-                      <td className="px-3 py-2 text-right">
-                        {result.rows.reduce((s, r) => s + r.left, 0).toLocaleString()}
-                      </td>
+                      <td className="px-3 py-2 text-right">{result.rows.reduce((s, r) => s + r.left, 0).toLocaleString()}</td>
                     </tr>
                   </tfoot>
                 </table>
