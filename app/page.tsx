@@ -135,7 +135,7 @@ export default function Home() {
               <table className="text-sm w-full border-collapse">
                 <thead>
                   <tr className="bg-gray-100 text-gray-700">
-                    <th className="px-3 py-2 text-center border-b border-gray-200 whitespace-nowrap">N</th>
+                    <th className="px-3 py-2 text-center border-b border-gray-200 whitespace-nowrap">No.</th>
                     <th className="px-3 py-2 text-left border-b border-gray-200 whitespace-nowrap min-w-[180px]">Code</th>
                     <th className="px-3 py-2 text-left border-b border-gray-200 min-w-[300px]">Description</th>
                     <th className="px-3 py-2 text-left border-b border-gray-200 whitespace-nowrap min-w-[200px]">PO</th>

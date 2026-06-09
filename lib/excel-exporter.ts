@@ -3,7 +3,7 @@ import { saveAs } from 'file-saver'
 import type { ResultRow } from './excel-parser'
 
 export function exportToExcel(rows: ResultRow[], containerNames: string[], filename = 'PO-Matching-Result.xlsx') {
-  const headers = ['N', 'Code', 'Description', 'PO', 'QTY', ...containerNames, 'LEFT']
+  const headers = ['No.', 'Code', 'Description', 'PO', 'QTY', ...containerNames, 'LEFT']
 
   const data = rows.map(row => [
     row.no,
