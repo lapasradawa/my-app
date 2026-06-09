@@ -13,6 +13,7 @@ export interface ResultRow {
 export interface ProcessResult {
   rows: ResultRow[]
   containerNames: string[]
+  invoiceNo: string
 }
 
 function findHeaderRowIndex(rows: unknown[][], keyword: string): number {
@@ -101,6 +102,21 @@ function parseContainerSheet(sheet: XLSX.WorkSheet): Record<string, number> {
   return result
 }
 
+function extractInvoiceNo(sheet: XLSX.WorkSheet): string {
+  const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' })
+  for (let i = 0; i < Math.min(rows.length, 20); i++) {
+    const row = rows[i] as unknown[]
+    for (let j = 0; j < row.length; j++) {
+      const cell = String(row[j] || '')
+      if (cell.toLowerCase().includes('invoice no')) {
+        const next = String(row[j + 1] || '').trim()
+        if (next) return next
+      }
+    }
+  }
+  return ''
+}
+
 export function processExcel(buffer: ArrayBuffer): ProcessResult {
   const workbook = XLSX.read(buffer, { type: 'array' })
 
@@ -111,6 +127,7 @@ export function processExcel(buffer: ArrayBuffer): ProcessResult {
 
   const containerNames = workbook.SheetNames.filter(n => n !== ciSheetName && n !== plSheetName)
 
+  const invoiceNo = extractInvoiceNo(workbook.Sheets[ciSheetName])
   const ciItems = parseCISheet(workbook.Sheets[ciSheetName])
 
   const containerMaps: Record<string, Record<string, number>> = {}
@@ -162,5 +179,5 @@ export function processExcel(buffer: ArrayBuffer): ProcessResult {
     }
   })
 
-  return { rows, containerNames }
+  return { rows, containerNames, invoiceNo }
 }
