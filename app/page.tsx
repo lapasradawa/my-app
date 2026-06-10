@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
 import { processExcel, type ResultRow, type ProcessResult } from '@/lib/excel-parser'
 import { exportToExcel } from '@/lib/excel-exporter'
 import { supabase } from '@/lib/supabase'
@@ -141,7 +142,15 @@ export default function Home() {
   })
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+      {/* Nav */}
+      <nav className="bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-4 shrink-0">
+        <span className="font-bold text-gray-800 text-sm">Import PO</span>
+        <span className="text-gray-300">|</span>
+        <Link href="/" className="text-sm text-blue-600 font-semibold">PO Matching</Link>
+        <Link href="/dashboard" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">Dashboard</Link>
+      </nav>
+      <div className="flex flex-1 overflow-hidden">
       {/* Sidebar */}
       <aside className="w-64 shrink-0 bg-white border-r border-gray-200 flex flex-col">
         <div className="p-4 border-b border-gray-200">
@@ -321,6 +330,7 @@ export default function Home() {
             </>
           )}
         </div>
+      </div>
       </div>
     </div>
   )
