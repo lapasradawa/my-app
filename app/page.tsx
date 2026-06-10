@@ -5,6 +5,9 @@ import Link from 'next/link'
 import { processExcel, type ResultRow, type ProcessResult } from '@/lib/excel-parser'
 import { exportToExcel } from '@/lib/excel-exporter'
 import { supabase } from '@/lib/supabase'
+import { isUnlocked } from '@/lib/auth'
+import LockButton from '@/components/LockButton'
+import PasswordModal from '@/components/PasswordModal'
 
 interface HistoryItem {
   id: string
@@ -25,8 +28,12 @@ export default function Home() {
   const [savedId, setSavedId] = useState<string | null>(null)
   const [invoiceName, setInvoiceName] = useState('')
   const [editingName, setEditingName] = useState(false)
+  const [unlocked, setUnlocked] = useState(false)
+  const [showPasswordModal, setShowPasswordModal] = useState(false)
+  const [pendingAction, setPendingAction] = useState<(() => void) | null>(null)
 
   useEffect(() => {
+    setUnlocked(isUnlocked())
     loadHistory()
   }, [])
 
@@ -58,6 +65,15 @@ export default function Home() {
       setError(e instanceof Error ? e.message : 'เกิดข้อผิดพลาด')
     } finally {
       setLoading(false)
+    }
+  }
+
+  function requireUnlock(action: () => void) {
+    if (isUnlocked()) {
+      action()
+    } else {
+      setPendingAction(() => action)
+      setShowPasswordModal(true)
     }
   }
 
@@ -149,7 +165,16 @@ export default function Home() {
         <span className="text-gray-300">|</span>
         <Link href="/" className="text-sm text-blue-600 font-semibold">PO Matching</Link>
         <Link href="/dashboard" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">Dashboard</Link>
+        <div className="ml-auto">
+          <LockButton onUnlock={() => setUnlocked(true)} onLock={() => setUnlocked(false)} />
+        </div>
       </nav>
+      {showPasswordModal && (
+        <PasswordModal
+          onSuccess={() => { setUnlocked(true); setShowPasswordModal(false); pendingAction?.(); setPendingAction(null) }}
+          onCancel={() => { setShowPasswordModal(false); setPendingAction(null) }}
+        />
+      )}
       <div className="flex flex-1 overflow-hidden">
       {/* Sidebar */}
       <aside className="w-64 shrink-0 bg-white border-r border-gray-200 flex flex-col">
@@ -263,7 +288,7 @@ export default function Home() {
                 <div className="flex items-center gap-2 shrink-0">
                   <span className="text-sm text-gray-400">{result.rows.length} รายการ | {result.containerNames.length} ตู้</span>
                   <button
-                    onClick={handleSave}
+                    onClick={() => requireUnlock(handleSave)}
                     disabled={saving}
                     className="px-4 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
                   >

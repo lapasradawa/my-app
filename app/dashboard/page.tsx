@@ -4,6 +4,9 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import type { ResultRow } from '@/lib/excel-parser'
+import { isUnlocked } from '@/lib/auth'
+import LockButton from '@/components/LockButton'
+import PasswordModal from '@/components/PasswordModal'
 
 const STATUSES = ['อยู่ที่จีน', 'On board', 'ถึงคลัง'] as const
 type Status = typeof STATUSES[number]
@@ -67,8 +70,16 @@ export default function DashboardPage() {
   const [searchCode, setSearchCode] = useState('')
   const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null)
   const [searching, setSearching] = useState(false)
+  const [unlocked, setUnlocked] = useState(false)
+  const [showPasswordModal, setShowPasswordModal] = useState(false)
+  const [pendingAction, setPendingAction] = useState<(() => void) | null>(null)
 
-  useEffect(() => { loadInvoices() }, [])
+  useEffect(() => { loadInvoices(); setUnlocked(isUnlocked()) }, [])
+
+  function requireUnlock(action: () => void) {
+    if (isUnlocked()) { action() }
+    else { setPendingAction(() => action); setShowPasswordModal(true) }
+  }
 
   async function loadInvoices() {
     setLoading(true)
@@ -168,7 +179,16 @@ export default function DashboardPage() {
         <span className="text-gray-300">|</span>
         <Link href="/" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">PO Matching</Link>
         <Link href="/dashboard" className="text-sm text-blue-600 font-semibold">Dashboard</Link>
+        <div className="ml-auto">
+          <LockButton onUnlock={() => setUnlocked(true)} onLock={() => setUnlocked(false)} />
+        </div>
       </nav>
+      {showPasswordModal && (
+        <PasswordModal
+          onSuccess={() => { setUnlocked(true); setShowPasswordModal(false); pendingAction?.(); setPendingAction(null) }}
+          onCancel={() => { setShowPasswordModal(false); setPendingAction(null) }}
+        />
+      )}
 
       <div className="max-w-6xl mx-auto px-6 py-8">
         <div className="mb-6">
@@ -290,16 +310,22 @@ export default function DashboardPage() {
                       <td className="px-4 py-3 text-gray-500 text-xs max-w-[140px] truncate">{inv.filename || '-'}</td>
                       <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">{formatDate(inv.created_at)}</td>
                       <td className="px-4 py-3">
-                        <select
-                          value={e.status}
-                          onChange={ev => setField(inv.id, 'status', ev.target.value as Status)}
-                          className={`text-xs font-medium px-2 py-1 rounded-full border cursor-pointer outline-none ${STATUS_STYLE[e.status]}`}
-                        >
-                          {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-                        </select>
+                        {unlocked ? (
+                          <select
+                            value={e.status}
+                            onChange={ev => setField(inv.id, 'status', ev.target.value as Status)}
+                            className={`text-xs font-medium px-2 py-1 rounded-full border cursor-pointer outline-none ${STATUS_STYLE[e.status]}`}
+                          >
+                            {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                          </select>
+                        ) : (
+                          <span className={`text-xs font-medium px-2 py-1 rounded-full border ${STATUS_STYLE[(inv.status as Status) || 'อยู่ที่จีน']}`}>
+                            {(inv.status as Status) || 'อยู่ที่จีน'}
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3">
-                        {showDate ? (
+                        {unlocked && showDate ? (
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <input
                               type="date"
@@ -314,33 +340,32 @@ export default function DashboardPage() {
                               min={e.estimated_arrival || undefined}
                               onChange={ev => setField(inv.id, 'estimated_arrival_end', ev.target.value)}
                               className="text-xs border border-gray-300 rounded px-2 py-1 outline-none focus:border-blue-400 text-gray-700"
-                              placeholder="ถ้าวันเดียวไม่ต้องกรอก"
                             />
                             {e.estimated_arrival_end && (
-                              <button
-                                onClick={() => setField(inv.id, 'estimated_arrival_end', '')}
-                                className="text-gray-300 hover:text-gray-500 text-xs"
-                                title="ล้างวันสุดท้าย"
-                              >✕</button>
+                              <button onClick={() => setField(inv.id, 'estimated_arrival_end', '')} className="text-gray-300 hover:text-gray-500 text-xs">✕</button>
                             )}
                           </div>
                         ) : (
-                          <span className="text-xs text-gray-400 italic">—</span>
+                          <span className="text-xs text-gray-600">
+                            {fmtRange(inv.estimated_arrival, inv.estimated_arrival_end) || '—'}
+                          </span>
                         )}
                       </td>
                       <td className="px-4 py-3">
-                        {saved[inv.id] ? (
-                          <span className="text-xs text-green-600 font-medium">✓ บันทึกแล้ว</span>
-                        ) : (
-                          <button
-                            onClick={() => saveRow(inv.id)}
-                            disabled={saving[inv.id] || !isDirty(inv)}
-                            className={`text-xs px-3 py-1 rounded-lg transition-colors ${
-                              isDirty(inv) ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-100 text-gray-400 cursor-default'
-                            }`}
-                          >
-                            {saving[inv.id] ? 'บันทึก...' : 'บันทึก'}
-                          </button>
+                        {unlocked && (
+                          saved[inv.id] ? (
+                            <span className="text-xs text-green-600 font-medium">✓ บันทึกแล้ว</span>
+                          ) : (
+                            <button
+                              onClick={() => requireUnlock(() => saveRow(inv.id))}
+                              disabled={saving[inv.id] || !isDirty(inv)}
+                              className={`text-xs px-3 py-1 rounded-lg transition-colors ${
+                                isDirty(inv) ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-100 text-gray-400 cursor-default'
+                              }`}
+                            >
+                              {saving[inv.id] ? 'บันทึก...' : 'บันทึก'}
+                            </button>
+                          )
                         )}
                       </td>
                     </tr>
