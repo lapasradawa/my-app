@@ -127,7 +127,7 @@ export default function DashboardPage() {
     const { data } = await supabase
       .from('invoices')
       .select('id, invoice_no, filename, created_at, status, estimated_arrival, estimated_arrival_end, bl_date, payment_status, payment_date, supplier')
-      .order('created_at', { ascending: false })
+      .order('estimated_arrival', { ascending: false, nullsFirst: false })
     if (data) {
       setInvoices(data as Invoice[])
       const initial: Record<string, LocalEdit> = {}
