@@ -652,7 +652,7 @@ export default function InvoiceDetailPage() {
               {invoice.rows.map((row: ResultRow) => (
                 <tr key={row.no} className="group border-b border-gray-100 last:border-0">
                   <td className="px-3 py-2 text-center text-gray-500 sticky z-10 bg-white group-hover:bg-gray-50" style={{ left: 0 }}>{row.no}</td>
-                  <td className="px-3 py-2 font-mono text-xs sticky z-10 bg-white group-hover:bg-gray-50" style={{ left: L.code }}>{row.code}</td>
+                  <td className="px-3 py-2 font-mono text-xs text-gray-900 sticky z-10 bg-white group-hover:bg-gray-50" style={{ left: L.code }}>{row.code}</td>
                   <td className="px-3 py-2 text-gray-700 sticky z-10 bg-white group-hover:bg-gray-50" style={{ left: L.desc }}>{row.description}</td>
                   <td className="px-3 py-2 text-gray-600 sticky z-10 bg-white group-hover:bg-gray-50" style={{ left: L.po }}>{row.po}</td>
                   <td className="px-3 py-2 text-right font-medium sticky z-10 bg-white group-hover:bg-gray-50 shadow-[2px_0_5px_rgba(0,0,0,0.07)]" style={{ left: L.qty }}>{row.qty.toLocaleString()}</td>

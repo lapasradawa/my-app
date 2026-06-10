@@ -326,7 +326,7 @@ export default function Home() {
                     {result.rows.map((row: ResultRow) => (
                       <tr key={row.no} className="hover:bg-gray-50 border-b border-gray-100 last:border-0">
                         <td className="px-3 py-2 text-center text-gray-500">{row.no}</td>
-                        <td className="px-3 py-2 font-mono text-xs">{row.code}</td>
+                        <td className="px-3 py-2 font-mono text-xs text-gray-900">{row.code}</td>
                         <td className="px-3 py-2 text-gray-700">{row.description}</td>
                         <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{row.po}</td>
                         <td className="px-3 py-2 text-right font-medium">{row.qty.toLocaleString()}</td>
