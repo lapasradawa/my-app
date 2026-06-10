@@ -48,6 +48,28 @@ interface Invoice {
   status: Status | null
   estimated_arrival: string | null
   estimated_arrival_end: string | null
+  bl_date: string | null
+  payment_status: string | null
+  payment_date: string | null
+}
+
+function computeDueDate(blDate: string | null): Date | null {
+  if (!blDate) return null
+  const d = new Date(blDate)
+  d.setDate(d.getDate() + 30)
+  return d
+}
+
+function getPaymentLabel(payment_status: string | null, bl_date: string | null): { label: string; colorClass: string } {
+  if (payment_status === 'paid') return { label: 'จ่ายแล้ว', colorClass: 'bg-green-100 text-green-800' }
+  const due = computeDueDate(bl_date)
+  if (!due) return { label: '—', colorClass: 'bg-gray-100 text-gray-400' }
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const dueDay = new Date(due); dueDay.setHours(0, 0, 0, 0)
+  const diff = Math.ceil((dueDay.getTime() - today.getTime()) / 86400000)
+  if (diff < 0) return { label: 'Overdue', colorClass: 'bg-red-100 text-red-700' }
+  if (diff <= 3) return { label: 'ใกล้ถึง due date', colorClass: 'bg-yellow-100 text-yellow-800' }
+  return { label: 'ยังไม่จ่าย', colorClass: 'bg-gray-100 text-gray-500' }
 }
 
 interface LocalEdit {
@@ -102,7 +124,7 @@ export default function DashboardPage() {
     setLoading(true)
     const { data } = await supabase
       .from('invoices')
-      .select('id, invoice_no, filename, created_at, status, estimated_arrival, estimated_arrival_end')
+      .select('id, invoice_no, filename, created_at, status, estimated_arrival, estimated_arrival_end, bl_date, payment_status, payment_date')
       .order('created_at', { ascending: false })
     if (data) {
       setInvoices(data as Invoice[])
@@ -316,6 +338,8 @@ export default function DashboardPage() {
                   <th className="px-4 py-3 text-left font-medium">วันที่บันทึก</th>
                   <th className="px-4 py-3 text-left font-medium">สถานะ</th>
                   <th className="px-4 py-3 text-left font-medium">ประมาณการเข้าคลัง</th>
+                  <th className="px-4 py-3 text-left font-medium whitespace-nowrap">Due Date</th>
+                  <th className="px-4 py-3 text-left font-medium whitespace-nowrap">สถานะจ่าย</th>
                   <th className="px-4 py-3 w-28"></th>
                 </tr>
               </thead>
@@ -373,6 +397,24 @@ export default function DashboardPage() {
                             {fmtRange(inv.estimated_arrival, inv.estimated_arrival_end) || '—'}
                           </span>
                         )}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-600">
+                        {(() => {
+                          const due = computeDueDate(inv.bl_date)
+                          if (!due) return <span className="text-gray-300">—</span>
+                          return due.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+                        })()}
+                      </td>
+                      <td className="px-4 py-3">
+                        {(() => {
+                          const p = getPaymentLabel(inv.payment_status, inv.bl_date)
+                          if (p.label === '—') return <span className="text-gray-300 text-xs">—</span>
+                          return (
+                            <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${p.colorClass}`}>
+                              {p.label}
+                            </span>
+                          )
+                        })()}
                       </td>
                       <td className="px-4 py-3">
                         {unlocked && (
