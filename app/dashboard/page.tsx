@@ -51,6 +51,7 @@ interface Invoice {
   bl_date: string | null
   payment_status: string | null
   payment_date: string | null
+  supplier: string | null
 }
 
 function computeDueDate(blDate: string | null): Date | null {
@@ -76,6 +77,7 @@ interface LocalEdit {
   status: Status
   estimated_arrival: string
   estimated_arrival_end: string
+  supplier: string
 }
 
 interface SearchResult {
@@ -124,7 +126,7 @@ export default function DashboardPage() {
     setLoading(true)
     const { data } = await supabase
       .from('invoices')
-      .select('id, invoice_no, filename, created_at, status, estimated_arrival, estimated_arrival_end, bl_date, payment_status, payment_date')
+      .select('id, invoice_no, filename, created_at, status, estimated_arrival, estimated_arrival_end, bl_date, payment_status, payment_date, supplier')
       .order('created_at', { ascending: false })
     if (data) {
       setInvoices(data as Invoice[])
@@ -134,6 +136,7 @@ export default function DashboardPage() {
           status: (inv.status as Status) || 'อยู่ที่จีน',
           estimated_arrival: inv.estimated_arrival || '',
           estimated_arrival_end: inv.estimated_arrival_end || '',
+          supplier: inv.supplier || '',
         }
       }
       setEdits(initial)
@@ -151,7 +154,8 @@ export default function DashboardPage() {
     return (
       e.status !== ((inv.status as Status) || 'อยู่ที่จีน') ||
       e.estimated_arrival !== (inv.estimated_arrival || '') ||
-      e.estimated_arrival_end !== (inv.estimated_arrival_end || '')
+      e.estimated_arrival_end !== (inv.estimated_arrival_end || '') ||
+      e.supplier !== (inv.supplier || '')
     )
   }
 
@@ -164,12 +168,14 @@ export default function DashboardPage() {
       status: e.status,
       estimated_arrival: noDate ? null : (e.estimated_arrival || null),
       estimated_arrival_end: noDate ? null : (e.estimated_arrival_end || null),
+      supplier: e.supplier || null,
     }).eq('id', id)
     setInvoices(prev => prev.map(inv => inv.id === id ? {
       ...inv,
       status: e.status,
       estimated_arrival: noDate ? null : (e.estimated_arrival || null),
       estimated_arrival_end: noDate ? null : (e.estimated_arrival_end || null),
+      supplier: e.supplier || null,
     } : inv))
     setSaving(s => ({ ...s, [id]: false }))
     setSaved(s => ({ ...s, [id]: true }))
@@ -335,6 +341,7 @@ export default function DashboardPage() {
               <thead>
                 <tr className="bg-gray-50 text-gray-600 border-b border-gray-200">
                   <th className="px-4 py-3 text-left font-medium">Invoice No.</th>
+                  <th className="px-4 py-3 text-left font-medium">Supplier</th>
                   <th className="px-4 py-3 text-left font-medium">วันที่บันทึก</th>
                   <th className="px-4 py-3 text-left font-medium">สถานะ</th>
                   <th className="px-4 py-3 text-left font-medium">ประมาณการเข้าคลัง</th>
@@ -354,6 +361,19 @@ export default function DashboardPage() {
                         <Link href={`/dashboard/${inv.id}`} className="font-semibold text-blue-600 hover:text-blue-800 hover:underline">
                           {inv.invoice_no || '-'}
                         </Link>
+                      </td>
+                      <td className="px-4 py-3">
+                        {unlocked ? (
+                          <input
+                            type="text"
+                            value={edits[inv.id]?.supplier ?? ''}
+                            onChange={ev => setField(inv.id, 'supplier', ev.target.value)}
+                            placeholder="ใส่ชื่อ supplier"
+                            className="text-xs border border-gray-200 rounded px-2 py-1 outline-none focus:border-blue-400 w-36 text-gray-700"
+                          />
+                        ) : (
+                          <span className="text-xs text-gray-700">{inv.supplier || <span className="text-gray-300">—</span>}</span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">{formatDate(inv.created_at)}</td>
                       <td className="px-4 py-3">

@@ -18,69 +18,85 @@ export interface ProcessResult {
   currency: string
 }
 
-function findHeaderRowIndex(rows: unknown[][], keyword: string): number {
+function findHeaderRowIndex(rows: unknown[][], ...keywords: string[]): number {
   for (let i = 0; i < rows.length; i++) {
-    if ((rows[i] as unknown[]).some(cell => typeof cell === 'string' && cell.includes(keyword))) {
-      return i
+    const row = rows[i] as unknown[]
+    for (const kw of keywords) {
+      if (row.some(cell => typeof cell === 'string' && cell.toLowerCase().includes(kw.toLowerCase()))) {
+        return i
+      }
     }
   }
   return -1
 }
 
-function findColIndex(row: unknown[], keyword: string): number {
-  return row.findIndex(cell => typeof cell === 'string' && cell.toUpperCase().includes(keyword.toUpperCase()))
+function findColIndex(row: unknown[], ...keywords: string[]): number {
+  for (const kw of keywords) {
+    const idx = row.findIndex(cell => typeof cell === 'string' && cell.toUpperCase().includes(kw.toUpperCase()))
+    if (idx !== -1) return idx
+  }
+  return -1
+}
+
+// Exact match (used for short column names like "PO" to avoid false positives)
+function findExactColIndex(row: unknown[], keyword: string): number {
+  return row.findIndex(cell => typeof cell === 'string' && cell.trim().toUpperCase() === keyword.toUpperCase())
 }
 
 function parseCISheet(sheet: XLSX.WorkSheet): { code: string; description: string; qty: number; marks: string }[] {
   const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' })
 
-  const headerIdx = findHeaderRowIndex(rows, 'Fixture code')
-  if (headerIdx === -1) throw new Error('ไม่พบ header "Fixture code" ในชีท CI')
+  // Support YONGGUAN ("Fixture code") and LITELON ("Product Code", "Item no") formats
+  const headerIdx = findHeaderRowIndex(rows, 'Fixture code', 'Product Code', 'Item no')
+  if (headerIdx === -1) throw new Error('ไม่พบ header ในชีท CI (Fixture code / Product Code / Item no)')
 
   const header = rows[headerIdx] as unknown[]
-  const codeCol = findColIndex(header, 'Fixture')
-  const descCol = findColIndex(header, 'DESCRIPTION')
-  const qtyCol = findColIndex(header, 'QTY')
-  const marksCol = findColIndex(header, 'MARKS')
+  const codeCol = findColIndex(header, 'Fixture', 'Product Code', 'Item no', 'Code')
+  const qtyCol = findColIndex(header, 'QTY', 'Qty', 'Quantity')
 
-  if (codeCol === -1) throw new Error('ไม่พบคอลัมน์ Fixture code ในชีท CI')
+  // PO: try exact "PO" first (LITELON added column), then MARKS-based (YONGGUAN)
+  let marksCol = findExactColIndex(header, 'PO')
+  if (marksCol === -1) marksCol = findColIndex(header, 'MARKS', 'Shipping Marks', 'Shipping')
+
+  const descCol = findColIndex(header, 'DESCRIPTION', 'Description')
+
+  if (codeCol === -1) throw new Error('ไม่พบคอลัมน์ Code ในชีท CI')
   if (qtyCol === -1) throw new Error('ไม่พบคอลัมน์ QTY ในชีท CI')
-  if (marksCol === -1) throw new Error('ไม่พบคอลัมน์ MARKS ในชีท CI')
 
   const items: { code: string; description: string; qty: number; marks: string }[] = []
 
   for (let i = headerIdx + 1; i < rows.length; i++) {
     const row = rows[i] as unknown[]
-    const code = row[codeCol]
-
-    if (!code || typeof code !== 'string' || code.trim() === '') continue
+    const rawCode = row[codeCol]
+    if (!rawCode || typeof rawCode !== 'string' || rawCode.trim() === '') continue
+    const code = rawCode.trim()
     if (code.toUpperCase().includes('TOTAL') || code.toUpperCase().includes('COUNTRY')) break
 
     const qty = typeof row[qtyCol] === 'number' ? (row[qtyCol] as number) : parseFloat(String(row[qtyCol])) || 0
-    const marks = String(row[marksCol] || '').replace(/\n/g, ' ').trim()
+    const marks = marksCol !== -1 ? String(row[marksCol] || '').replace(/\n/g, ' ').trim() : ''
     const desc = descCol !== -1 ? String(row[descCol] || '').trim() : ''
 
     if (qty > 0) {
-      items.push({ code: code.trim(), description: desc, qty, marks })
+      items.push({ code, description: desc, qty, marks })
     }
   }
 
   return items
 }
 
+// YONGGUAN format: each container is a separate sheet
 function parseContainerSheet(sheet: XLSX.WorkSheet): Record<string, number> {
   const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' })
 
-  const headerIdx = findHeaderRowIndex(rows, 'Fixture code')
+  const headerIdx = findHeaderRowIndex(rows, 'Fixture code', 'Product Code', 'Item no')
   if (headerIdx === -1) return {}
 
   const header = rows[headerIdx] as unknown[]
-  const codeCol = findColIndex(header, 'Fixture')
+  const codeCol = findColIndex(header, 'Fixture', 'Product Code', 'Item no')
 
-  // QTY might not be in header row — check current and next row
-  let qtyCol = findColIndex(header, 'QTY')
+  let qtyCol = findColIndex(header, 'QTY', 'Qty', 'Quantity')
   if (qtyCol === -1 && headerIdx + 1 < rows.length) {
-    qtyCol = findColIndex(rows[headerIdx + 1] as unknown[], 'QTY')
+    qtyCol = findColIndex(rows[headerIdx + 1] as unknown[], 'QTY', 'Qty', 'Quantity')
   }
 
   if (codeCol === -1 || qtyCol === -1) return {}
@@ -90,12 +106,10 @@ function parseContainerSheet(sheet: XLSX.WorkSheet): Record<string, number> {
   for (let i = headerIdx + 1; i < rows.length; i++) {
     const row = rows[i] as unknown[]
     const code = row[codeCol]
-
     if (!code || typeof code !== 'string' || code.trim() === '') continue
     if (code.toUpperCase().includes('COUNTRY') || code.toUpperCase().includes('SHIPPING')) break
 
     const qty = typeof row[qtyCol] === 'number' ? (row[qtyCol] as number) : parseFloat(String(row[qtyCol])) || 0
-
     if (qty > 0) {
       result[code.trim()] = (result[code.trim()] || 0) + qty
     }
@@ -104,13 +118,85 @@ function parseContainerSheet(sheet: XLSX.WorkSheet): Record<string, number> {
   return result
 }
 
+const CNTR_RE = /#\d+-Cntr-([A-Z0-9]+)/i
+
+// Check if a sheet contains LITELON-style inline container markers
+function hasCombinedPLMarkers(sheet: XLSX.WorkSheet): boolean {
+  const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' })
+  for (let i = 0; i < Math.min(rows.length, 80); i++) {
+    for (const cell of rows[i] as unknown[]) {
+      if (CNTR_RE.test(String(cell || ''))) return true
+    }
+  }
+  return false
+}
+
+// LITELON format: single PL sheet with inline container markers "#N-Cntr-XXXX/Seal-..."
+function parseCombinedPLSheet(sheet: XLSX.WorkSheet): { containerNames: string[]; containerMaps: Record<string, Record<string, number>> } {
+  const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' })
+
+  const containerMaps: Record<string, Record<string, number>> = {}
+  const containerNames: string[] = []
+  let currentContainer = ''
+
+  // Detect code and qty column positions from header row
+  let codeCol = 1  // default: column B
+  let qtyCol = 2   // default: column C
+
+  for (let i = 0; i < Math.min(rows.length, 15); i++) {
+    const lower = (rows[i] as unknown[]).map(c => String(c || '').toLowerCase())
+    const itemIdx = lower.findIndex(c => c.includes('item no') || c.includes('product code'))
+    if (itemIdx !== -1) {
+      codeCol = itemIdx
+      for (let j = itemIdx + 1; j < lower.length; j++) {
+        if (lower[j].includes('qty') || lower[j].includes('pcs') || lower[j].includes('quantity')) {
+          qtyCol = j
+          break
+        }
+      }
+      break
+    }
+  }
+
+  for (const row of rows as unknown[][]) {
+    // Scan every cell for container marker
+    let isMarker = false
+    for (const cell of row) {
+      const match = String(cell || '').match(CNTR_RE)
+      if (match) {
+        currentContainer = match[1].toUpperCase()
+        if (!containerMaps[currentContainer]) {
+          containerMaps[currentContainer] = {}
+          containerNames.push(currentContainer)
+        }
+        isMarker = true
+        break
+      }
+    }
+    if (isMarker || !currentContainer) continue
+
+    const code = String(row[codeCol] || '').trim()
+    if (!code) continue
+    if (/item no|product code/i.test(code)) continue  // header row
+    if (!/^[A-Z0-9]/i.test(code)) continue             // must start alphanumeric
+    if (code.toUpperCase().includes('TOTAL')) continue
+
+    const qtyRaw = row[qtyCol]
+    const qty = typeof qtyRaw === 'number' ? (qtyRaw as number) : parseFloat(String(qtyRaw || '')) || 0
+    if (qty > 0) {
+      containerMaps[currentContainer][code] = (containerMaps[currentContainer][code] || 0) + qty
+    }
+  }
+
+  return { containerNames, containerMaps }
+}
+
 function extractTotalAndCurrency(sheet: XLSX.WorkSheet): { totalAmount: number; currency: string } {
   const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' })
 
   let currency = ''
   let totalAmount = 0
 
-  // Scan header rows for currency code
   for (let i = 0; i < Math.min(rows.length, 20); i++) {
     for (const cell of rows[i] as unknown[]) {
       const s = String(cell || '')
@@ -124,24 +210,20 @@ function extractTotalAndCurrency(sheet: XLSX.WorkSheet): { totalAmount: number; 
     if (currency) break
   }
 
-  // Find TOTAL row (search from bottom up)
   for (let i = rows.length - 1; i >= 0; i--) {
     const row = rows[i] as unknown[]
     const joined = row.map(c => String(c || '').toUpperCase()).join(' ')
     if (!joined.includes('TOTAL') && !joined.includes('合计') && !joined.includes('AMOUNT IN')) continue
 
-    // Get last numeric value in row
     for (let j = row.length - 1; j >= 0; j--) {
       const cell = row[j]
       const cellStr = String(cell || '')
-
       if (!currency) {
         if (/¥|￥/.test(cellStr)) currency = 'CNY'
         else if (/\$/.test(cellStr)) currency = 'USD'
         else if (/€/.test(cellStr)) currency = 'EUR'
         else if (/£/.test(cellStr)) currency = 'GBP'
       }
-
       const num = typeof cell === 'number' ? cell : parseFloat(cellStr.replace(/[^0-9.]/g, ''))
       if (!isNaN(num) && num > 10) {
         totalAmount = num
@@ -160,7 +242,10 @@ function extractInvoiceNo(sheet: XLSX.WorkSheet): string {
     const row = rows[i] as unknown[]
     for (let j = 0; j < row.length; j++) {
       const cell = String(row[j] || '')
-      if (cell.toLowerCase().includes('invoice no')) {
+      // Match "invoice no" and LITELON typo "invoive no"
+      if (/invoice\s*no|invoive\s*no/i.test(cell)) {
+        const match = cell.match(/invo\w+\s*no\.?:?\s*(.+)/i)
+        if (match && match[1].trim()) return match[1].trim()
         const next = String(row[j + 1] || '').trim()
         if (next) return next
       }
@@ -173,15 +258,13 @@ export function processExcel(buffer: ArrayBuffer): ProcessResult {
   const workbook = XLSX.read(buffer, { type: 'array' })
 
   const ciSheetName = workbook.SheetNames.find(n => n.toUpperCase() === 'CI')
-  const plSheetName = workbook.SheetNames.find(n => n.toUpperCase() === 'PL')
-
   if (!ciSheetName) throw new Error('ไม่พบชีท CI ในไฟล์ Excel')
 
-  const containerNames = workbook.SheetNames.filter(n => {
-    if (n === ciSheetName || n === plSheetName) return false
+  // Separate container sheets (YONGGUAN style): non-CI, non-standard sheets
+  const EXCLUDE = ['CI', 'PL', 'SUMMARY', 'COVER', 'INDEX', 'SHEET']
+  const separateContainerSheets = workbook.SheetNames.filter(n => {
     const upper = n.toUpperCase()
-    // exclude common non-container sheets
-    if (['SUMMARY', 'COVER', 'INDEX', 'SHEET'].some(k => upper.includes(k))) return false
+    if (EXCLUDE.some(k => upper === k || upper.includes(k))) return false
     return true
   })
 
@@ -189,26 +272,46 @@ export function processExcel(buffer: ArrayBuffer): ProcessResult {
   const { totalAmount, currency } = extractTotalAndCurrency(workbook.Sheets[ciSheetName])
   const ciItems = parseCISheet(workbook.Sheets[ciSheetName])
 
-  const containerMaps: Record<string, Record<string, number>> = {}
-  for (const name of containerNames) {
-    containerMaps[name] = parseContainerSheet(workbook.Sheets[name])
+  let containerNames: string[]
+  let containerMaps: Record<string, Record<string, number>>
+
+  if (separateContainerSheets.length > 0) {
+    // YONGGUAN format: separate sheet per container
+    containerNames = separateContainerSheets
+    containerMaps = {}
+    for (const name of containerNames) {
+      containerMaps[name] = parseContainerSheet(workbook.Sheets[name])
+    }
+  } else {
+    // LITELON format: find any sheet that has inline container markers (#N-Cntr-...)
+    // Sheet may be named "PL", "Sheet1", or anything else
+    const combinedSheet = workbook.SheetNames
+      .filter(n => n !== ciSheetName)
+      .find(n => hasCombinedPLMarkers(workbook.Sheets[n]))
+
+    if (combinedSheet) {
+      const parsed = parseCombinedPLSheet(workbook.Sheets[combinedSheet])
+      containerNames = parsed.containerNames
+      containerMaps = parsed.containerMaps
+    } else {
+      containerNames = []
+      containerMaps = {}
+    }
   }
 
-  // FIFO: group CI rows by code, track remaining qty per row
+  // FIFO matching
   const ciByCode: Record<string, { rowIdx: number; remaining: number }[]> = {}
   ciItems.forEach((item, idx) => {
     if (!ciByCode[item.code]) ciByCode[item.code] = []
     ciByCode[item.code].push({ rowIdx: idx, remaining: item.qty })
   })
 
-  // Initialize container assignments per CI row
   const rowContainers: Record<number, Record<string, number>> = {}
   ciItems.forEach((_, idx) => {
     rowContainers[idx] = {}
     for (const name of containerNames) rowContainers[idx][name] = 0
   })
 
-  // For each container (in sheet order), distribute to CI rows FIFO
   for (const containerName of containerNames) {
     for (const [code, containerQty] of Object.entries(containerMaps[containerName])) {
       const ciRows = ciByCode[code]
