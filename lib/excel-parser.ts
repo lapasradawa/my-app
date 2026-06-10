@@ -118,7 +118,8 @@ function parseContainerSheet(sheet: XLSX.WorkSheet): Record<string, number> {
   return result
 }
 
-const CNTR_RE = /#\d+-Cntr-([A-Z0-9]+)/i
+// Matches both "#1-Cntr-FCIU6571413/..." and "Cntr-TIIU044096/..." formats
+const CNTR_RE = /(?:#\d+-)?Cntr-([A-Z][A-Z0-9]+)/i
 
 // Check if a sheet contains LITELON-style inline container markers
 function hasCombinedPLMarkers(sheet: XLSX.WorkSheet): boolean {
@@ -131,7 +132,7 @@ function hasCombinedPLMarkers(sheet: XLSX.WorkSheet): boolean {
   return false
 }
 
-// LITELON format: single PL sheet with inline container markers "#N-Cntr-XXXX/Seal-..."
+// LITELON format: single PL sheet with inline container markers (e.g. "#1-Cntr-FCIU6571413/..." or "Cntr-TIIU044096/...")
 function parseCombinedPLSheet(sheet: XLSX.WorkSheet): { containerNames: string[]; containerMaps: Record<string, Record<string, number>> } {
   const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' })
 
