@@ -99,6 +99,12 @@ export default function InvoiceDetailPage() {
   const [showPW, setShowPW] = useState(false)
   const [pwCallback, setPwCallback] = useState<(() => void) | null>(null)
 
+  // Total amount edit
+  const [editTotal, setEditTotal] = useState(false)
+  const [totalInput, setTotalInput] = useState('')
+  const [currencyInput, setCurrencyInput] = useState('')
+  const [savingTotal, setSavingTotal] = useState(false)
+
   // B/L date edit
   const [editBL, setEditBL] = useState(false)
   const [blInput, setBlInput] = useState('')
@@ -125,6 +131,17 @@ export default function InvoiceDetailPage() {
   function requireUnlock(action: () => void) {
     if (isUnlocked()) { action() }
     else { setPwCallback(() => action); setShowPW(true) }
+  }
+
+  // Save total amount
+  async function saveTotalAmount() {
+    const num = parseFloat(totalInput.replace(/,/g, ''))
+    if (isNaN(num) || !invoice) return
+    setSavingTotal(true)
+    await supabase.from('invoices').update({ total_amount: num, currency: currencyInput || null }).eq('id', id)
+    setInvoice(prev => prev ? { ...prev, total_amount: num, currency: currencyInput || null } : prev)
+    setEditTotal(false)
+    setSavingTotal(false)
   }
 
   // Save B/L date
@@ -308,15 +325,56 @@ export default function InvoiceDetailPage() {
           {/* Total amount */}
           <div className="bg-white rounded-xl border border-gray-200 p-4">
             <p className="text-xs text-gray-400 mb-1">ยอดรวม Invoice</p>
-            {invoice.total_amount ? (
-              <>
-                <p className="text-lg font-bold text-gray-900">
-                  {invoice.total_amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </p>
-                <p className="text-xs text-gray-500">{invoice.currency || ''}</p>
-              </>
+            {editTotal ? (
+              <div className="flex flex-col gap-1">
+                <input
+                  autoFocus type="text" value={totalInput}
+                  onChange={e => setTotalInput(e.target.value)}
+                  placeholder="เช่น 424527.01"
+                  className="border border-gray-300 rounded px-2 py-1 text-sm outline-none focus:border-blue-400 w-full"
+                />
+                <input
+                  type="text" value={currencyInput}
+                  onChange={e => setCurrencyInput(e.target.value.toUpperCase())}
+                  placeholder="สกุลเงิน เช่น CNY"
+                  className="border border-gray-300 rounded px-2 py-1 text-sm outline-none focus:border-blue-400 w-full"
+                />
+                <div className="flex gap-1 mt-1">
+                  <button
+                    onClick={saveTotalAmount}
+                    disabled={savingTotal || !totalInput}
+                    className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    บันทึก
+                  </button>
+                  <button onClick={() => setEditTotal(false)} className="text-xs px-2 py-1 text-gray-500 hover:bg-gray-100 rounded">
+                    ยกเลิก
+                  </button>
+                </div>
+              </div>
             ) : (
-              <p className="text-sm text-gray-400">-</p>
+              <>
+                {invoice.total_amount ? (
+                  <>
+                    <p className="text-lg font-bold text-gray-900">
+                      {invoice.total_amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                    <p className="text-xs text-gray-500">{invoice.currency || ''}</p>
+                  </>
+                ) : (
+                  <p className="text-sm text-gray-400">-</p>
+                )}
+                <button
+                  onClick={() => requireUnlock(() => {
+                    setTotalInput(invoice.total_amount ? String(invoice.total_amount) : '')
+                    setCurrencyInput(invoice.currency || '')
+                    setEditTotal(true)
+                  })}
+                  className="text-xs text-blue-500 hover:text-blue-700 mt-1"
+                >
+                  {invoice.total_amount ? 'แก้ไข' : '+ ใส่ยอดเงิน'}
+                </button>
+              </>
             )}
           </div>
 
