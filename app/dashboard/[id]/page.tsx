@@ -115,7 +115,7 @@ export default function InvoiceDetailPage() {
   // Payment modal
   const [showPayModal, setShowPayModal] = useState(false)
   const [payDate, setPayDate] = useState('')
-  const [payFile, setPayFile] = useState<File | null>(null)
+  const [payFiles, setPayFiles] = useState<File[]>([])
   const [uploadingPay, setUploadingPay] = useState(false)
   const payFileRef = useRef<HTMLInputElement>(null)
 
@@ -162,40 +162,50 @@ export default function InvoiceDetailPage() {
     setSavingBL(false)
   }
 
-  // Save payment
+  function parseProofUrls(raw: string | null): string[] {
+    if (!raw) return []
+    try { const arr = JSON.parse(raw); if (Array.isArray(arr)) return arr } catch {}
+    return [raw]
+  }
+
+  // Save payment — uploads all selected files and merges with existing proof URLs
   async function savePayment() {
     if (!payDate || !invoice) return
     setUploadingPay(true)
     try {
-      let proofUrl: string | null = null
+      const existing = parseProofUrls(invoice.payment_proof_url)
+      const newUrls: string[] = []
 
-      if (payFile) {
-        const ext = payFile.name.split('.').pop()
-        const path = `${id}/proof-${Date.now()}.${ext}`
+      for (const file of payFiles) {
+        const ext = file.name.split('.').pop()
+        const path = `${id}/proof-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
         const { error: uploadErr } = await supabase.storage
           .from('payment-proofs')
-          .upload(path, payFile, { upsert: true })
+          .upload(path, file, { upsert: true })
         if (!uploadErr) {
           const { data: urlData } = supabase.storage.from('payment-proofs').getPublicUrl(path)
-          proofUrl = urlData.publicUrl
+          newUrls.push(urlData.publicUrl)
         }
       }
+
+      const allUrls = [...existing, ...newUrls]
+      const proofValue = allUrls.length > 0 ? JSON.stringify(allUrls) : null
 
       await supabase.from('invoices').update({
         payment_status: 'paid',
         payment_date: payDate,
-        payment_proof_url: proofUrl,
+        payment_proof_url: proofValue,
       }).eq('id', id)
 
       setInvoice(prev => prev ? {
         ...prev,
         payment_status: 'paid',
         payment_date: payDate,
-        payment_proof_url: proofUrl,
+        payment_proof_url: proofValue,
       } : prev)
       setShowPayModal(false)
       setPayDate('')
-      setPayFile(null)
+      setPayFiles([])
     } finally {
       setUploadingPay(false)
     }
@@ -279,20 +289,35 @@ export default function InvoiceDetailPage() {
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm mb-3 outline-none focus:border-blue-400"
             />
             <label className="block text-sm text-gray-600 mb-1">แนบหลักฐานการจ่าย (PDF/รูปภาพ)</label>
+            {payFiles.length > 0 && (
+              <ul className="mb-2 space-y-1">
+                {payFiles.map((f, i) => (
+                  <li key={i} className="flex items-center justify-between text-xs bg-blue-50 rounded px-2 py-1">
+                    <span className="text-blue-700 truncate">{f.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => setPayFiles(prev => prev.filter((_, j) => j !== i))}
+                      className="ml-2 text-gray-400 hover:text-red-500"
+                    >✕</button>
+                  </li>
+                ))}
+              </ul>
+            )}
             <div
-              className="border-2 border-dashed border-gray-200 rounded-lg p-4 text-center cursor-pointer hover:border-blue-300 mb-4"
+              className="border-2 border-dashed border-gray-200 rounded-lg p-3 text-center cursor-pointer hover:border-blue-300 mb-4"
               onClick={() => payFileRef.current?.click()}
             >
-              {payFile ? (
-                <p className="text-sm text-blue-600">{payFile.name}</p>
-              ) : (
-                <p className="text-sm text-gray-400">คลิกเพื่อเลือกไฟล์</p>
-              )}
+              <p className="text-sm text-gray-400">+ คลิกเพื่อเพิ่มไฟล์</p>
               <input
                 ref={payFileRef} type="file"
                 accept=".pdf,.jpg,.jpeg,.png"
+                multiple
                 className="hidden"
-                onChange={e => setPayFile(e.target.files?.[0] || null)}
+                onChange={e => {
+                  const files = Array.from(e.target.files || [])
+                  setPayFiles(prev => [...prev, ...files])
+                  e.target.value = ''
+                }}
               />
             </div>
             <div className="flex gap-2 justify-between">
@@ -305,7 +330,7 @@ export default function InvoiceDetailPage() {
                     payment_proof_url: null,
                   }).eq('id', id)
                   setInvoice(prev => prev ? { ...prev, payment_status: 'unpaid', payment_date: null, payment_proof_url: null } : prev)
-                  setShowPayModal(false); setPayDate(''); setPayFile(null)
+                  setShowPayModal(false); setPayDate(''); setPayFiles([])
                 }}
                 className="px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 rounded-lg"
               >
@@ -313,7 +338,7 @@ export default function InvoiceDetailPage() {
               </button>
               <div className="flex gap-2">
                 <button
-                  onClick={() => { setShowPayModal(false); setPayDate(''); setPayFile(null) }}
+                  onClick={() => { setShowPayModal(false); setPayDate(''); setPayFiles([]) }}
                   className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg"
                 >
                   ยกเลิก
@@ -462,8 +487,14 @@ export default function InvoiceDetailPage() {
             {invoice.bl_date && (
               <p className="text-xs text-gray-400 mt-1">
                 {(() => {
-                  const today = new Date(); today.setHours(0, 0, 0, 0)
                   const d = new Date(dueDate!); d.setHours(0, 0, 0, 0)
+                  if (invoice.payment_status === 'paid' && invoice.payment_date) {
+                    const paid = new Date(invoice.payment_date); paid.setHours(0, 0, 0, 0)
+                    const late = Math.ceil((paid.getTime() - d.getTime()) / 86400000)
+                    if (late > 0) return <span className="text-red-500">เกิน {late} วัน</span>
+                    return null
+                  }
+                  const today = new Date(); today.setHours(0, 0, 0, 0)
                   const diff = Math.ceil((d.getTime() - today.getTime()) / 86400000)
                   if (diff < 0) return <span className="text-red-500">เกิน {Math.abs(diff)} วัน</span>
                   if (diff === 0) return <span className="text-orange-500">ครบกำหนดวันนี้</span>
@@ -482,19 +513,21 @@ export default function InvoiceDetailPage() {
             {invoice.payment_status === 'paid' ? (
               <div className="space-y-0.5">
                 <p className="text-xs text-gray-500">จ่ายวันที่ {fmtDate(invoice.payment_date)}</p>
-                {invoice.payment_proof_url && (
+                {parseProofUrls(invoice.payment_proof_url).map((url, i, arr) => (
                   <a
-                    href={invoice.payment_proof_url}
+                    key={i}
+                    href={url}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-xs text-blue-500 hover:underline block"
                   >
-                    ดูหลักฐาน →
+                    ดูหลักฐาน{arr.length > 1 ? ` ${i + 1}` : ''} →
                   </a>
-                )}
+                ))}
                 <button
                   onClick={() => requireUnlock(() => {
                     setPayDate(invoice.payment_date || '')
+                    setPayFiles([])
                     setShowPayModal(true)
                   })}
                   className="text-xs text-gray-400 hover:text-gray-600 mt-1 block"
@@ -506,7 +539,7 @@ export default function InvoiceDetailPage() {
               <button
                 onClick={() => requireUnlock(() => {
                   setPayDate('')
-                  setPayFile(null)
+                  setPayFiles([])
                   setShowPayModal(true)
                 })}
                 className="text-xs px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors block"
