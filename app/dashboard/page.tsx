@@ -27,11 +27,13 @@ interface Invoice {
   created_at: string
   status: Status | null
   estimated_arrival: string | null
+  estimated_arrival_end: string | null
 }
 
 interface LocalEdit {
   status: Status
   estimated_arrival: string
+  estimated_arrival_end: string
 }
 
 interface SearchResult {
@@ -39,8 +41,21 @@ interface SearchResult {
   invoice_no: string
   status: string
   estimated_arrival: string | null
+  estimated_arrival_end: string | null
   totalQty: number
   matchingRows: { no: number; code: string; po: string; qty: number }[]
+}
+
+function fmtDate(d: string | null): string {
+  if (!d) return ''
+  const [y, m, day] = d.split('-')
+  return `${day}/${m}/${y}`
+}
+
+function fmtRange(start: string | null, end: string | null): string {
+  if (!start) return '—'
+  if (!end || end === start) return fmtDate(start)
+  return `${fmtDate(start)} – ${fmtDate(end)}`
 }
 
 export default function DashboardPage() {
@@ -59,7 +74,7 @@ export default function DashboardPage() {
     setLoading(true)
     const { data } = await supabase
       .from('invoices')
-      .select('id, invoice_no, filename, created_at, status, estimated_arrival')
+      .select('id, invoice_no, filename, created_at, status, estimated_arrival, estimated_arrival_end')
       .order('created_at', { ascending: false })
     if (data) {
       setInvoices(data as Invoice[])
@@ -68,6 +83,7 @@ export default function DashboardPage() {
         initial[inv.id] = {
           status: (inv.status as Status) || 'อยู่ที่จีน',
           estimated_arrival: inv.estimated_arrival || '',
+          estimated_arrival_end: inv.estimated_arrival_end || '',
         }
       }
       setEdits(initial)
@@ -82,23 +98,29 @@ export default function DashboardPage() {
   function isDirty(inv: Invoice) {
     const e = edits[inv.id]
     if (!e) return false
-    const origStatus = (inv.status as Status) || 'อยู่ที่จีน'
-    const origDate = inv.estimated_arrival || ''
-    return e.status !== origStatus || e.estimated_arrival !== origDate
+    return (
+      e.status !== ((inv.status as Status) || 'อยู่ที่จีน') ||
+      e.estimated_arrival !== (inv.estimated_arrival || '') ||
+      e.estimated_arrival_end !== (inv.estimated_arrival_end || '')
+    )
   }
 
   async function saveRow(id: string) {
     const e = edits[id]
     if (!e) return
     setSaving(s => ({ ...s, [id]: true }))
+    const noDate = e.status === 'อยู่ที่จีน'
     await supabase.from('invoices').update({
       status: e.status,
-      estimated_arrival: e.status === 'อยู่ที่จีน' ? null : (e.estimated_arrival || null),
+      estimated_arrival: noDate ? null : (e.estimated_arrival || null),
+      estimated_arrival_end: noDate ? null : (e.estimated_arrival_end || null),
     }).eq('id', id)
-    setInvoices(prev => prev.map(inv => inv.id === id
-      ? { ...inv, status: e.status, estimated_arrival: e.status === 'อยู่ที่จีน' ? null : (e.estimated_arrival || null) }
-      : inv
-    ))
+    setInvoices(prev => prev.map(inv => inv.id === id ? {
+      ...inv,
+      status: e.status,
+      estimated_arrival: noDate ? null : (e.estimated_arrival || null),
+      estimated_arrival_end: noDate ? null : (e.estimated_arrival_end || null),
+    } : inv))
     setSaving(s => ({ ...s, [id]: false }))
     setSaved(s => ({ ...s, [id]: true }))
     setTimeout(() => setSaved(s => ({ ...s, [id]: false })), 2000)
@@ -108,12 +130,6 @@ export default function DashboardPage() {
     day: '2-digit', month: 'short', year: 'numeric'
   })
 
-  const formatArrival = (d: string | null) => {
-    if (!d) return '-'
-    const [y, m, day] = d.split('-')
-    return `${day}/${m}/${y}`
-  }
-
   async function handleSearch() {
     const term = searchCode.trim()
     if (!term) return
@@ -121,7 +137,7 @@ export default function DashboardPage() {
     setSearchResults(null)
     const { data } = await supabase
       .from('invoices')
-      .select('id, invoice_no, status, estimated_arrival, rows')
+      .select('id, invoice_no, status, estimated_arrival, estimated_arrival_end, rows')
     if (data) {
       const results: SearchResult[] = []
       for (const inv of data) {
@@ -134,6 +150,7 @@ export default function DashboardPage() {
             invoice_no: inv.invoice_no,
             status: (inv.status as string) || 'อยู่ที่จีน',
             estimated_arrival: inv.estimated_arrival,
+            estimated_arrival_end: inv.estimated_arrival_end,
             totalQty: matching.reduce((s, r) => s + r.qty, 0),
             matchingRows: matching.map(r => ({ no: r.no, code: r.code, po: r.po, qty: r.qty })),
           })
@@ -188,7 +205,6 @@ export default function DashboardPage() {
             )}
           </div>
 
-          {/* Search Results */}
           {searchResults !== null && (
             <div className="mt-4">
               {searchResults.length === 0 ? (
@@ -200,17 +216,16 @@ export default function DashboardPage() {
                     {searchResults.map(r => (
                       <div key={r.id} className="border border-gray-100 rounded-lg p-3 bg-gray-50">
                         <div className="flex items-center gap-3 mb-2 flex-wrap">
-                          <Link
-                            href={`/dashboard/${r.id}`}
-                            className="font-semibold text-blue-600 hover:underline text-sm"
-                          >
+                          <Link href={`/dashboard/${r.id}`} className="font-semibold text-blue-600 hover:underline text-sm">
                             {r.invoice_no}
                           </Link>
                           <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${STATUS_BADGE[r.status] || 'bg-gray-100 text-gray-700'}`}>
                             {r.status}
                           </span>
                           {r.estimated_arrival && (
-                            <span className="text-xs text-gray-500">เข้าคลัง: {formatArrival(r.estimated_arrival)}</span>
+                            <span className="text-xs text-gray-500">
+                              เข้าคลัง: <strong>{fmtRange(r.estimated_arrival, r.estimated_arrival_end)}</strong>
+                            </span>
                           )}
                           <span className="text-xs text-gray-500 ml-auto">รวม QTY: <strong>{r.totalQty.toLocaleString()}</strong></span>
                         </div>
@@ -241,12 +256,12 @@ export default function DashboardPage() {
           )}
         </div>
 
+        {/* Invoice Table */}
         {loading ? (
           <div className="text-center py-12 text-gray-400">กำลังโหลด...</div>
         ) : invoices.length === 0 ? (
           <div className="text-center py-12 text-gray-400">
-            ยังไม่มี Invoice —{' '}
-            <Link href="/" className="text-blue-600 underline">ไปอัปโหลด</Link>
+            ยังไม่มี Invoice — <Link href="/" className="text-blue-600 underline">ไปอัปโหลด</Link>
           </div>
         ) : (
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
@@ -258,24 +273,21 @@ export default function DashboardPage() {
                   <th className="px-4 py-3 text-left font-medium">วันที่บันทึก</th>
                   <th className="px-4 py-3 text-left font-medium">สถานะ</th>
                   <th className="px-4 py-3 text-left font-medium">ประมาณการเข้าคลัง</th>
-                  <th className="px-4 py-3 text-left font-medium w-28"></th>
+                  <th className="px-4 py-3 w-28"></th>
                 </tr>
               </thead>
               <tbody>
                 {invoices.map((inv) => {
-                  const e = edits[inv.id] || { status: 'อยู่ที่จีน' as Status, estimated_arrival: '' }
+                  const e = edits[inv.id] || { status: 'อยู่ที่จีน' as Status, estimated_arrival: '', estimated_arrival_end: '' }
                   const showDate = e.status === 'On board' || e.status === 'ถึงคลัง'
                   return (
                     <tr key={inv.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50/60 transition-colors">
                       <td className="px-4 py-3">
-                        <Link
-                          href={`/dashboard/${inv.id}`}
-                          className="font-semibold text-blue-600 hover:text-blue-800 hover:underline"
-                        >
+                        <Link href={`/dashboard/${inv.id}`} className="font-semibold text-blue-600 hover:text-blue-800 hover:underline">
                           {inv.invoice_no || '-'}
                         </Link>
                       </td>
-                      <td className="px-4 py-3 text-gray-500 text-xs max-w-[160px] truncate">{inv.filename || '-'}</td>
+                      <td className="px-4 py-3 text-gray-500 text-xs max-w-[140px] truncate">{inv.filename || '-'}</td>
                       <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">{formatDate(inv.created_at)}</td>
                       <td className="px-4 py-3">
                         <select
@@ -288,12 +300,30 @@ export default function DashboardPage() {
                       </td>
                       <td className="px-4 py-3">
                         {showDate ? (
-                          <input
-                            type="date"
-                            value={e.estimated_arrival}
-                            onChange={ev => setField(inv.id, 'estimated_arrival', ev.target.value)}
-                            className="text-xs border border-gray-300 rounded px-2 py-1 outline-none focus:border-blue-400 text-gray-700"
-                          />
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <input
+                              type="date"
+                              value={e.estimated_arrival}
+                              onChange={ev => setField(inv.id, 'estimated_arrival', ev.target.value)}
+                              className="text-xs border border-gray-300 rounded px-2 py-1 outline-none focus:border-blue-400 text-gray-700"
+                            />
+                            <span className="text-xs text-gray-400">–</span>
+                            <input
+                              type="date"
+                              value={e.estimated_arrival_end}
+                              min={e.estimated_arrival || undefined}
+                              onChange={ev => setField(inv.id, 'estimated_arrival_end', ev.target.value)}
+                              className="text-xs border border-gray-300 rounded px-2 py-1 outline-none focus:border-blue-400 text-gray-700"
+                              placeholder="ถ้าวันเดียวไม่ต้องกรอก"
+                            />
+                            {e.estimated_arrival_end && (
+                              <button
+                                onClick={() => setField(inv.id, 'estimated_arrival_end', '')}
+                                className="text-gray-300 hover:text-gray-500 text-xs"
+                                title="ล้างวันสุดท้าย"
+                              >✕</button>
+                            )}
+                          </div>
                         ) : (
                           <span className="text-xs text-gray-400 italic">—</span>
                         )}
@@ -306,9 +336,7 @@ export default function DashboardPage() {
                             onClick={() => saveRow(inv.id)}
                             disabled={saving[inv.id] || !isDirty(inv)}
                             className={`text-xs px-3 py-1 rounded-lg transition-colors ${
-                              isDirty(inv)
-                                ? 'bg-blue-600 text-white hover:bg-blue-700'
-                                : 'bg-gray-100 text-gray-400 cursor-default'
+                              isDirty(inv) ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-100 text-gray-400 cursor-default'
                             }`}
                           >
                             {saving[inv.id] ? 'บันทึก...' : 'บันทึก'}
@@ -329,7 +357,7 @@ export default function DashboardPage() {
             {STATUSES.map(s => {
               const count = invoices.filter(inv => ((inv.status as Status) || 'อยู่ที่จีน') === s).length
               return (
-                <div key={s} className={`rounded-xl p-4 border ${STATUS_STYLE[s].replace('text-', 'border-').split(' ')[2]} bg-white`}>
+                <div key={s} className="rounded-xl p-4 border border-gray-200 bg-white">
                   <p className="text-2xl font-bold text-gray-800">{count}</p>
                   <p className="text-sm text-gray-600 mt-1">{s}</p>
                 </div>
