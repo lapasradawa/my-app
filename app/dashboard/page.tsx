@@ -208,9 +208,16 @@ export default function DashboardPage() {
       )}
 
       <div className="max-w-6xl mx-auto px-6 py-8">
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-          <p className="text-sm text-gray-500 mt-1">ติดตามสถานะและวันที่ประมาณการเข้าคลัง</p>
+        <div className="mb-6 flex items-end justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+            <p className="text-sm text-gray-500 mt-1">ติดตามสถานะและวันที่ประมาณการเข้าคลัง</p>
+          </div>
+          <p className="text-sm text-gray-500">
+            วันนี้: <span className="font-semibold text-gray-700">
+              {new Date().toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+            </span>
+          </p>
         </div>
 
         {/* Item Code Search */}
@@ -306,7 +313,6 @@ export default function DashboardPage() {
               <thead>
                 <tr className="bg-gray-50 text-gray-600 border-b border-gray-200">
                   <th className="px-4 py-3 text-left font-medium">Invoice No.</th>
-                  <th className="px-4 py-3 text-left font-medium">ไฟล์</th>
                   <th className="px-4 py-3 text-left font-medium">วันที่บันทึก</th>
                   <th className="px-4 py-3 text-left font-medium">สถานะ</th>
                   <th className="px-4 py-3 text-left font-medium">ประมาณการเข้าคลัง</th>
@@ -325,7 +331,6 @@ export default function DashboardPage() {
                           {inv.invoice_no || '-'}
                         </Link>
                       </td>
-                      <td className="px-4 py-3 text-gray-500 text-xs max-w-[140px] truncate">{inv.filename || '-'}</td>
                       <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">{formatDate(inv.created_at)}</td>
                       <td className="px-4 py-3">
                         {unlocked && displaySt !== 'เข้าคลังแล้ว' ? (
