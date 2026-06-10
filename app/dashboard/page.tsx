@@ -341,11 +341,11 @@ export default function DashboardPage() {
                 <tr className="bg-gray-50 text-gray-600 border-b border-gray-200">
                   <th className="px-4 py-3 text-left font-medium">Invoice No.</th>
                   <th className="px-4 py-3 text-left font-medium">Supplier</th>
-                  <th className="px-4 py-3 text-left font-medium">วันที่บันทึก</th>
                   <th className="px-4 py-3 text-left font-medium">สถานะ</th>
                   <th className="px-4 py-3 text-left font-medium">ประมาณการเข้าคลัง</th>
                   <th className="px-4 py-3 text-left font-medium whitespace-nowrap">Due Date</th>
                   <th className="px-4 py-3 text-left font-medium whitespace-nowrap">สถานะจ่าย</th>
+                  <th className="px-4 py-3 text-left font-medium whitespace-nowrap">วันที่บันทึก</th>
                   <th className="px-4 py-3 w-28"></th>
                 </tr>
               </thead>
@@ -374,7 +374,6 @@ export default function DashboardPage() {
                           <span className="text-xs text-gray-700">{inv.supplier || <span className="text-gray-300">—</span>}</span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">{formatDate(inv.created_at)}</td>
                       <td className="px-4 py-3">
                         {unlocked && displaySt !== 'เข้าคลังแล้ว' ? (
                           <select
@@ -435,6 +434,7 @@ export default function DashboardPage() {
                           )
                         })()}
                       </td>
+                      <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">{formatDate(inv.created_at)}</td>
                       <td className="px-4 py-3">
                         {unlocked && (
                           saved[inv.id] ? (
