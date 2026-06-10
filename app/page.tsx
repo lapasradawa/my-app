@@ -117,8 +117,7 @@ export default function Home() {
     }
   }
 
-  async function deleteHistory(id: string, e: React.MouseEvent) {
-    e.stopPropagation()
+  async function deleteHistory(id: string) {
     await supabase.from('invoices').delete().eq('id', id)
     setHistory(prev => prev.filter(h => h.id !== id))
     if (savedId === id) reset()
@@ -202,7 +201,7 @@ export default function Home() {
                     <p className="text-xs text-gray-400 mt-0.5">{formatDate(item.created_at)}</p>
                   </div>
                   <span
-                    onClick={(e) => deleteHistory(item.id, e)}
+                    onClick={(e) => { e.stopPropagation(); requireUnlock(() => deleteHistory(item.id)) }}
                     className="text-gray-300 hover:text-red-400 text-xs mt-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
                   >
                     ✕
