@@ -14,6 +14,8 @@ export interface ProcessResult {
   rows: ResultRow[]
   containerNames: string[]
   invoiceNo: string
+  totalAmount: number
+  currency: string
 }
 
 function findHeaderRowIndex(rows: unknown[][], keyword: string): number {
@@ -102,6 +104,56 @@ function parseContainerSheet(sheet: XLSX.WorkSheet): Record<string, number> {
   return result
 }
 
+function extractTotalAndCurrency(sheet: XLSX.WorkSheet): { totalAmount: number; currency: string } {
+  const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' })
+
+  let currency = ''
+  let totalAmount = 0
+
+  // Scan header rows for currency code
+  for (let i = 0; i < Math.min(rows.length, 20); i++) {
+    for (const cell of rows[i] as unknown[]) {
+      const s = String(cell || '')
+      if (/\bCNY\b|\bRMB\b|人民币/.test(s)) { currency = 'CNY'; break }
+      if (/\bUSD\b|\bUS\$/.test(s)) { currency = 'USD'; break }
+      if (/\bEUR\b/.test(s)) { currency = 'EUR'; break }
+      if (/\bJPY\b/.test(s)) { currency = 'JPY'; break }
+      if (/\bGBP\b/.test(s)) { currency = 'GBP'; break }
+      if (/\bTHB\b/.test(s)) { currency = 'THB'; break }
+    }
+    if (currency) break
+  }
+
+  // Find TOTAL row (search from bottom up)
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const row = rows[i] as unknown[]
+    const joined = row.map(c => String(c || '').toUpperCase()).join(' ')
+    if (!joined.includes('TOTAL') && !joined.includes('合计') && !joined.includes('AMOUNT IN')) continue
+
+    // Get last numeric value in row
+    for (let j = row.length - 1; j >= 0; j--) {
+      const cell = row[j]
+      const cellStr = String(cell || '')
+
+      if (!currency) {
+        if (/¥|￥/.test(cellStr)) currency = 'CNY'
+        else if (/\$/.test(cellStr)) currency = 'USD'
+        else if (/€/.test(cellStr)) currency = 'EUR'
+        else if (/£/.test(cellStr)) currency = 'GBP'
+      }
+
+      const num = typeof cell === 'number' ? cell : parseFloat(cellStr.replace(/[^0-9.]/g, ''))
+      if (!isNaN(num) && num > 10) {
+        totalAmount = num
+        break
+      }
+    }
+    if (totalAmount > 0) break
+  }
+
+  return { totalAmount, currency }
+}
+
 function extractInvoiceNo(sheet: XLSX.WorkSheet): string {
   const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' })
   for (let i = 0; i < Math.min(rows.length, 20); i++) {
@@ -134,6 +186,7 @@ export function processExcel(buffer: ArrayBuffer): ProcessResult {
   })
 
   const invoiceNo = extractInvoiceNo(workbook.Sheets[ciSheetName])
+  const { totalAmount, currency } = extractTotalAndCurrency(workbook.Sheets[ciSheetName])
   const ciItems = parseCISheet(workbook.Sheets[ciSheetName])
 
   const containerMaps: Record<string, Record<string, number>> = {}
@@ -185,5 +238,5 @@ export function processExcel(buffer: ArrayBuffer): ProcessResult {
     }
   })
 
-  return { rows, containerNames, invoiceNo }
+  return { rows, containerNames, invoiceNo, totalAmount, currency }
 }

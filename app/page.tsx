@@ -91,6 +91,8 @@ export default function Home() {
           filename,
           rows: result.rows,
           container_names: result.containerNames,
+          total_amount: result.totalAmount || null,
+          currency: result.currency || null,
         }).select('id').single()
         if (err) throw new Error(err.message)
         if (data) setSavedId(data.id)
@@ -107,7 +109,7 @@ export default function Home() {
   async function loadFromHistory(item: HistoryItem) {
     const { data } = await supabase.from('invoices').select('*').eq('id', item.id).single()
     if (data) {
-      setResult({ rows: data.rows, containerNames: data.container_names, invoiceNo: data.invoice_no })
+      setResult({ rows: data.rows, containerNames: data.container_names, invoiceNo: data.invoice_no, totalAmount: data.total_amount || 0, currency: data.currency || '' })
       setFilename(data.filename)
       setInvoiceName(data.invoice_no)
       setSavedId(data.id)
