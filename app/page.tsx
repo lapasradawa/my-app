@@ -291,7 +291,9 @@ export default function Home() {
                       {result.containerNames.map(name => (
                         <th key={name} className="px-3 py-2 text-right border-b border-gray-200 whitespace-nowrap">{name}</th>
                       ))}
-                      <th className="px-3 py-2 text-right border-b border-gray-200 whitespace-nowrap">LEFT</th>
+                      {result.containerNames.length > 0 && (
+                        <th className="px-3 py-2 text-right border-b border-gray-200 whitespace-nowrap">LEFT</th>
+                      )}
                     </tr>
                   </thead>
                   <tbody>
@@ -307,9 +309,11 @@ export default function Home() {
                             {fmt(row.containers[name])}
                           </td>
                         ))}
-                        <td className={`px-3 py-2 text-right font-medium ${row.left > 0 ? 'text-orange-600' : 'text-gray-400'}`}>
-                          {fmt(row.left)}
-                        </td>
+                        {result.containerNames.length > 0 && (
+                          <td className={`px-3 py-2 text-right font-medium ${row.left > 0 ? 'text-orange-600' : 'text-gray-400'}`}>
+                            {fmt(row.left)}
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -322,7 +326,9 @@ export default function Home() {
                           {result.rows.reduce((s, r) => s + (r.containers[name] || 0), 0).toLocaleString()}
                         </td>
                       ))}
-                      <td className="px-3 py-2 text-right">{result.rows.reduce((s, r) => s + r.left, 0).toLocaleString()}</td>
+                      {result.containerNames.length > 0 && (
+                        <td className="px-3 py-2 text-right">{result.rows.reduce((s, r) => s + r.left, 0).toLocaleString()}</td>
+                      )}
                     </tr>
                   </tfoot>
                 </table>

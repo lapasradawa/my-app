@@ -125,7 +125,13 @@ export function processExcel(buffer: ArrayBuffer): ProcessResult {
 
   if (!ciSheetName) throw new Error('ไม่พบชีท CI ในไฟล์ Excel')
 
-  const containerNames = workbook.SheetNames.filter(n => n !== ciSheetName && n !== plSheetName)
+  const containerNames = workbook.SheetNames.filter(n => {
+    if (n === ciSheetName || n === plSheetName) return false
+    const upper = n.toUpperCase()
+    // exclude common non-container sheets
+    if (['SUMMARY', 'COVER', 'INDEX', 'SHEET'].some(k => upper.includes(k))) return false
+    return true
+  })
 
   const invoiceNo = extractInvoiceNo(workbook.Sheets[ciSheetName])
   const ciItems = parseCISheet(workbook.Sheets[ciSheetName])
