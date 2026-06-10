@@ -30,6 +30,8 @@ interface Invoice {
   payment_status: string | null
   payment_date: string | null
   payment_proof_url: string | null
+  baikon_url: string | null
+  bl_doc_url: string | null
 }
 
 function computeDueDate(blDate: string | null): Date | null {
@@ -117,6 +119,12 @@ export default function InvoiceDetailPage() {
   const [uploadingPay, setUploadingPay] = useState(false)
   const payFileRef = useRef<HTMLInputElement>(null)
 
+  // Document uploads
+  const [uploadingBaikon, setUploadingBaikon] = useState(false)
+  const [uploadingBlDoc, setUploadingBlDoc] = useState(false)
+  const baikonRef = useRef<HTMLInputElement>(null)
+  const blDocRef = useRef<HTMLInputElement>(null)
+
   useEffect(() => {
     setUnlocked(isUnlocked())
     load()
@@ -190,6 +198,24 @@ export default function InvoiceDetailPage() {
       setPayFile(null)
     } finally {
       setUploadingPay(false)
+    }
+  }
+
+  async function uploadDoc(file: File, type: 'baikon' | 'bl') {
+    const setUploading = type === 'baikon' ? setUploadingBaikon : setUploadingBlDoc
+    setUploading(true)
+    try {
+      const ext = file.name.split('.').pop()
+      const path = `${id}/${type}-${Date.now()}.${ext}`
+      const { error } = await supabase.storage.from('payment-proofs').upload(path, file, { upsert: true })
+      if (error) return
+      const { data: urlData } = supabase.storage.from('payment-proofs').getPublicUrl(path)
+      const url = urlData.publicUrl
+      const field = type === 'baikon' ? 'baikon_url' : 'bl_doc_url'
+      await supabase.from('invoices').update({ [field]: url }).eq('id', id)
+      setInvoice(prev => prev ? { ...prev, [field]: url } : prev)
+    } finally {
+      setUploading(false)
     }
   }
 
@@ -478,6 +504,79 @@ export default function InvoiceDetailPage() {
                 Submit Payment
               </button>
             )}
+          </div>
+        </div>
+
+        {/* Documents */}
+        <div className="grid grid-cols-2 gap-4 mb-6">
+          {/* ใบขน */}
+          <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <p className="text-xs text-gray-400 mb-2">เอกสารใบขน</p>
+            {invoice.baikon_url ? (
+              <div className="flex flex-col gap-2">
+                <a
+                  href={invoice.baikon_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-800 font-medium"
+                >
+                  <span>📄</span> ดู / ดาวน์โหลด ใบขน
+                </a>
+                <button
+                  onClick={() => requireUnlock(() => baikonRef.current?.click())}
+                  className="text-xs text-gray-400 hover:text-gray-600 self-start"
+                >
+                  {uploadingBaikon ? 'กำลังอัปโหลด...' : 'เปลี่ยนไฟล์'}
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => requireUnlock(() => baikonRef.current?.click())}
+                disabled={uploadingBaikon}
+                className="flex items-center gap-2 border-2 border-dashed border-gray-200 rounded-lg px-4 py-3 text-sm text-gray-400 hover:border-blue-300 hover:text-blue-500 w-full justify-center transition-colors disabled:opacity-50"
+              >
+                {uploadingBaikon ? 'กำลังอัปโหลด...' : '+ อัปโหลดใบขน (PDF)'}
+              </button>
+            )}
+            <input
+              ref={baikonRef} type="file" accept=".pdf" className="hidden"
+              onChange={e => { const f = e.target.files?.[0]; if (f) uploadDoc(f, 'baikon') }}
+            />
+          </div>
+
+          {/* B/L Document */}
+          <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <p className="text-xs text-gray-400 mb-2">เอกสาร B/L</p>
+            {invoice.bl_doc_url ? (
+              <div className="flex flex-col gap-2">
+                <a
+                  href={invoice.bl_doc_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-800 font-medium"
+                >
+                  <span>📄</span> ดู / ดาวน์โหลด B/L
+                </a>
+                <button
+                  onClick={() => requireUnlock(() => blDocRef.current?.click())}
+                  className="text-xs text-gray-400 hover:text-gray-600 self-start"
+                >
+                  {uploadingBlDoc ? 'กำลังอัปโหลด...' : 'เปลี่ยนไฟล์'}
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => requireUnlock(() => blDocRef.current?.click())}
+                disabled={uploadingBlDoc}
+                className="flex items-center gap-2 border-2 border-dashed border-gray-200 rounded-lg px-4 py-3 text-sm text-gray-400 hover:border-blue-300 hover:text-blue-500 w-full justify-center transition-colors disabled:opacity-50"
+              >
+                {uploadingBlDoc ? 'กำลังอัปโหลด...' : '+ อัปโหลด B/L (PDF)'}
+              </button>
+            )}
+            <input
+              ref={blDocRef} type="file" accept=".pdf" className="hidden"
+              onChange={e => { const f = e.target.files?.[0]; if (f) uploadDoc(f, 'bl') }}
+            />
           </div>
         </div>
 
