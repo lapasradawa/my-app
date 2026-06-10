@@ -92,8 +92,7 @@ interface SearchResult {
 
 function fmtDate(d: string | null): string {
   if (!d) return ''
-  const [y, m, day] = d.split('-')
-  return `${day}/${m}/${y}`
+  return new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
 function fmtRange(start: string | null, end: string | null): string {
