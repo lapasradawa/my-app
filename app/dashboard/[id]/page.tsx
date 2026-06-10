@@ -5,11 +5,14 @@ import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import type { ResultRow } from '@/lib/excel-parser'
+import { exportToExcel } from '@/lib/excel-exporter'
 
 const STATUS_STYLE: Record<string, string> = {
   'อยู่ที่จีน': 'bg-yellow-100 text-yellow-800',
   'On board': 'bg-blue-100 text-blue-800',
-  'ถึงคลัง': 'bg-green-100 text-green-800',
+  'ถึงไทย กำลังเข้าคลัง': 'bg-orange-100 text-orange-800',
+  'ถึงคลัง': 'bg-orange-100 text-orange-800',
+  'เข้าคลังแล้ว': 'bg-green-100 text-green-800',
 }
 
 export default function InvoiceDetailPage() {
@@ -75,12 +78,20 @@ export default function InvoiceDetailPage() {
               {invoice.rows.length} รายการ · {invoice.container_names.length} ตู้ ({invoice.container_names.join(', ')})
             </p>
           </div>
-          <Link
-            href="/dashboard"
-            className="text-sm text-gray-500 hover:text-gray-800 border border-gray-200 px-3 py-1.5 rounded-lg transition-colors"
-          >
-            ← กลับ Dashboard
-          </Link>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => exportToExcel(invoice.rows, invoice.container_names, invoice.invoice_no + '-PO-Matching.xlsx')}
+              className="px-4 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors"
+            >
+              Export Excel
+            </button>
+            <Link
+              href="/dashboard"
+              className="text-sm text-gray-500 hover:text-gray-800 border border-gray-200 px-3 py-1.5 rounded-lg transition-colors"
+            >
+              ← กลับ Dashboard
+            </Link>
+          </div>
         </div>
 
         {/* Table */}

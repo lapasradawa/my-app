@@ -215,7 +215,7 @@ export default function DashboardPage() {
           </div>
           <p className="text-sm text-gray-500">
             วันนี้: <span className="font-semibold text-gray-700">
-              {new Date().toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+              {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
             </span>
           </p>
         </div>
