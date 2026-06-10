@@ -343,9 +343,9 @@ export default function DashboardPage() {
                   <th className="px-4 py-3 text-left font-medium">Supplier</th>
                   <th className="px-4 py-3 text-left font-medium">สถานะ</th>
                   <th className="px-4 py-3 text-left font-medium">ประมาณการเข้าคลัง</th>
+                  <th className="px-4 py-3 text-left font-medium whitespace-nowrap">วันที่บันทึก</th>
                   <th className="px-4 py-3 text-left font-medium whitespace-nowrap">Due Date</th>
                   <th className="px-4 py-3 text-left font-medium whitespace-nowrap">สถานะจ่าย</th>
-                  <th className="px-4 py-3 text-left font-medium whitespace-nowrap">วันที่บันทึก</th>
                   <th className="px-4 py-3 w-28"></th>
                 </tr>
               </thead>
@@ -416,6 +416,7 @@ export default function DashboardPage() {
                           </span>
                         )}
                       </td>
+                      <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">{formatDate(inv.created_at)}</td>
                       <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-600">
                         {(() => {
                           const due = computeDueDate(inv.bl_date)
@@ -434,7 +435,6 @@ export default function DashboardPage() {
                           )
                         })()}
                       </td>
-                      <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">{formatDate(inv.created_at)}</td>
                       <td className="px-4 py-3">
                         {unlocked && (
                           saved[inv.id] ? (
