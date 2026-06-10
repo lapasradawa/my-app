@@ -417,7 +417,7 @@ export default function InvoiceDetailPage() {
                 })}
                 className="text-xs px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors block"
               >
-                จ่ายแล้ว
+                Submit Payment
               </button>
             )}
           </div>
