@@ -242,20 +242,37 @@ export default function InvoiceDetailPage() {
                 onChange={e => setPayFile(e.target.files?.[0] || null)}
               />
             </div>
-            <div className="flex gap-2 justify-end">
+            <div className="flex gap-2 justify-between">
               <button
-                onClick={() => { setShowPayModal(false); setPayDate(''); setPayFile(null) }}
-                className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg"
+                onClick={async () => {
+                  if (!confirm('ล้างข้อมูลการจ่ายเงินทั้งหมด?')) return
+                  await supabase.from('invoices').update({
+                    payment_status: 'unpaid',
+                    payment_date: null,
+                    payment_proof_url: null,
+                  }).eq('id', id)
+                  setInvoice(prev => prev ? { ...prev, payment_status: 'unpaid', payment_date: null, payment_proof_url: null } : prev)
+                  setShowPayModal(false); setPayDate(''); setPayFile(null)
+                }}
+                className="px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 rounded-lg"
               >
-                ยกเลิก
+                ล้างข้อมูล
               </button>
-              <button
-                onClick={savePayment}
-                disabled={!payDate || uploadingPay}
-                className="px-4 py-1.5 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
-              >
-                {uploadingPay ? 'กำลังบันทึก...' : 'บันทึก'}
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { setShowPayModal(false); setPayDate(''); setPayFile(null) }}
+                  className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  onClick={savePayment}
+                  disabled={!payDate || uploadingPay}
+                  className="px-4 py-1.5 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+                >
+                  {uploadingPay ? 'กำลังบันทึก...' : 'บันทึก'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
