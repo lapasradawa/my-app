@@ -580,30 +580,30 @@ export default function InvoiceDetailPage() {
           </div>
         </div>
 
-        {/* Table */}
-        <div className="overflow-auto rounded-xl border border-gray-200 bg-white shadow-sm">
-          <table className="text-sm w-full border-collapse">
+        {/* Table — sticky header, footer, and left columns (No/Code/Desc/PO/QTY) */}
+        <div className="overflow-auto rounded-xl border border-gray-200 bg-white shadow-sm max-h-[calc(100vh-380px)]">
+          <table className="text-sm border-collapse">
             <thead>
-              <tr className="bg-gray-100 text-gray-700">
-                <th className="px-3 py-2 text-center border-b border-gray-200 whitespace-nowrap">No.</th>
-                <th className="px-3 py-2 text-left border-b border-gray-200 whitespace-nowrap min-w-[180px]">Code</th>
-                <th className="px-3 py-2 text-left border-b border-gray-200 min-w-[280px]">Description</th>
-                <th className="px-3 py-2 text-left border-b border-gray-200 whitespace-nowrap">PO</th>
-                <th className="px-3 py-2 text-right border-b border-gray-200 whitespace-nowrap">QTY</th>
+              <tr className="bg-gray-100 text-gray-700 text-left">
+                <th className="px-3 py-2 text-center border-b border-gray-200 sticky top-0 left-0 z-30 bg-gray-100 w-[40px]">No.</th>
+                <th className="px-3 py-2 border-b border-gray-200 whitespace-nowrap sticky top-0 left-[40px] z-30 bg-gray-100 w-[180px]">Code</th>
+                <th className="px-3 py-2 border-b border-gray-200 sticky top-0 left-[220px] z-30 bg-gray-100 w-[240px]">Description</th>
+                <th className="px-3 py-2 border-b border-gray-200 whitespace-nowrap sticky top-0 left-[460px] z-30 bg-gray-100 w-[128px]">PO</th>
+                <th className="px-3 py-2 text-right border-b border-gray-200 whitespace-nowrap sticky top-0 left-[588px] z-30 bg-gray-100 w-[72px] shadow-[2px_0_4px_rgba(0,0,0,0.07)]">QTY</th>
                 {invoice.container_names.map(name => (
-                  <th key={name} className="px-3 py-2 text-right border-b border-gray-200 whitespace-nowrap">{name}</th>
+                  <th key={name} className="px-3 py-2 text-right border-b border-gray-200 whitespace-nowrap sticky top-0 z-20 bg-gray-100">{name}</th>
                 ))}
-                <th className="px-3 py-2 text-right border-b border-gray-200 whitespace-nowrap">LEFT</th>
+                <th className="px-3 py-2 text-right border-b border-gray-200 whitespace-nowrap sticky top-0 z-20 bg-gray-100">LEFT</th>
               </tr>
             </thead>
             <tbody>
               {invoice.rows.map((row: ResultRow) => (
-                <tr key={row.no} className="hover:bg-gray-50 border-b border-gray-100 last:border-0">
-                  <td className="px-3 py-2 text-center text-gray-500">{row.no}</td>
-                  <td className="px-3 py-2 font-mono text-xs">{row.code}</td>
-                  <td className="px-3 py-2 text-gray-700">{row.description}</td>
-                  <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{row.po}</td>
-                  <td className="px-3 py-2 text-right font-medium">{row.qty.toLocaleString()}</td>
+                <tr key={row.no} className="group border-b border-gray-100 last:border-0">
+                  <td className="px-3 py-2 text-center text-gray-500 sticky left-0 z-10 bg-white group-hover:bg-gray-50 w-[40px]">{row.no}</td>
+                  <td className="px-3 py-2 font-mono text-xs sticky left-[40px] z-10 bg-white group-hover:bg-gray-50 w-[180px]">{row.code}</td>
+                  <td className="px-3 py-2 text-gray-700 sticky left-[220px] z-10 bg-white group-hover:bg-gray-50 w-[240px]">{row.description}</td>
+                  <td className="px-3 py-2 text-gray-600 whitespace-nowrap sticky left-[460px] z-10 bg-white group-hover:bg-gray-50 w-[128px]">{row.po}</td>
+                  <td className="px-3 py-2 text-right font-medium sticky left-[588px] z-10 bg-white group-hover:bg-gray-50 w-[72px] shadow-[2px_0_4px_rgba(0,0,0,0.07)]">{row.qty.toLocaleString()}</td>
                   {invoice.container_names.map(name => (
                     <td key={name} className="px-3 py-2 text-right text-gray-500">
                       {fmt(row.containers[name] || 0)}
@@ -616,9 +616,12 @@ export default function InvoiceDetailPage() {
               ))}
             </tbody>
             <tfoot>
-              <tr className="bg-gray-50 font-semibold text-gray-700 border-t-2 border-gray-200">
-                <td colSpan={4} className="px-3 py-2 text-right">รวม</td>
-                <td className="px-3 py-2 text-right">{invoice.rows.reduce((s, r) => s + r.qty, 0).toLocaleString()}</td>
+              <tr className="bg-gray-50 font-semibold text-gray-700 border-t-2 border-gray-200 sticky bottom-0 z-20">
+                <td className="px-3 py-2 sticky left-0 bg-gray-50 z-20 w-[40px]"></td>
+                <td className="px-3 py-2 sticky left-[40px] bg-gray-50 z-20 w-[180px]"></td>
+                <td className="px-3 py-2 sticky left-[220px] bg-gray-50 z-20 w-[240px]"></td>
+                <td className="px-3 py-2 text-right sticky left-[460px] bg-gray-50 z-20 w-[128px]">รวม</td>
+                <td className="px-3 py-2 text-right sticky left-[588px] bg-gray-50 z-20 w-[72px] shadow-[2px_0_4px_rgba(0,0,0,0.07)]">{invoice.rows.reduce((s, r) => s + r.qty, 0).toLocaleString()}</td>
                 {invoice.container_names.map(name => (
                   <td key={name} className="px-3 py-2 text-right">
                     {invoice.rows.reduce((s, r) => s + (r.containers[name] || 0), 0).toLocaleString()}
