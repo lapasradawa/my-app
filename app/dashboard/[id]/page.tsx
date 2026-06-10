@@ -580,30 +580,41 @@ export default function InvoiceDetailPage() {
           </div>
         </div>
 
-        {/* Table — sticky header, footer, and left columns (No/Code/Desc/PO/QTY) */}
+        {/* Table — sticky header/footer + frozen left columns */}
         <div className="overflow-auto rounded-xl border border-gray-200 bg-white shadow-sm max-h-[calc(100vh-380px)]">
-          <table className="text-sm border-collapse">
+          <table className="text-sm border-collapse table-fixed">
+            {/* Explicit col widths — must match sticky left values below */}
+            <colgroup>
+              <col style={{ width: 40 }} />
+              <col style={{ width: 180 }} />
+              <col style={{ width: 260 }} />
+              <col style={{ width: 130 }} />
+              <col style={{ width: 72 }} />
+              {invoice.container_names.map(name => <col key={name} style={{ width: 100 }} />)}
+              <col style={{ width: 80 }} />
+            </colgroup>
             <thead>
               <tr className="bg-gray-100 text-gray-700 text-left">
-                <th className="px-3 py-2 text-center border-b border-gray-200 sticky top-0 left-0 z-30 bg-gray-100 w-[40px]">No.</th>
-                <th className="px-3 py-2 border-b border-gray-200 whitespace-nowrap sticky top-0 left-[40px] z-30 bg-gray-100 w-[180px]">Code</th>
-                <th className="px-3 py-2 border-b border-gray-200 sticky top-0 left-[220px] z-30 bg-gray-100 w-[240px]">Description</th>
-                <th className="px-3 py-2 border-b border-gray-200 whitespace-nowrap sticky top-0 left-[460px] z-30 bg-gray-100 w-[128px]">PO</th>
-                <th className="px-3 py-2 text-right border-b border-gray-200 whitespace-nowrap sticky top-0 left-[588px] z-30 bg-gray-100 w-[72px] shadow-[2px_0_4px_rgba(0,0,0,0.07)]">QTY</th>
+                {/* Sticky: left values = sum of preceding col widths (40,180,260,130,72) */}
+                <th className="px-3 py-2 text-center border-b border-gray-200 sticky top-0 left-0 z-30 bg-gray-100">No.</th>
+                <th className="px-3 py-2 border-b border-gray-200 sticky top-0 left-[40px] z-30 bg-gray-100 whitespace-nowrap">Code</th>
+                <th className="px-3 py-2 border-b border-gray-200 sticky top-0 left-[220px] z-30 bg-gray-100">Description</th>
+                <th className="px-3 py-2 border-b border-gray-200 sticky top-0 left-[480px] z-30 bg-gray-100 whitespace-nowrap">PO</th>
+                <th className="px-3 py-2 text-right border-b border-gray-200 sticky top-0 left-[610px] z-30 bg-gray-100 shadow-[2px_0_4px_rgba(0,0,0,0.08)]">QTY</th>
                 {invoice.container_names.map(name => (
                   <th key={name} className="px-3 py-2 text-right border-b border-gray-200 whitespace-nowrap sticky top-0 z-20 bg-gray-100">{name}</th>
                 ))}
-                <th className="px-3 py-2 text-right border-b border-gray-200 whitespace-nowrap sticky top-0 z-20 bg-gray-100">LEFT</th>
+                <th className="px-3 py-2 text-right border-b border-gray-200 sticky top-0 z-20 bg-gray-100">LEFT</th>
               </tr>
             </thead>
             <tbody>
               {invoice.rows.map((row: ResultRow) => (
                 <tr key={row.no} className="group border-b border-gray-100 last:border-0">
-                  <td className="px-3 py-2 text-center text-gray-500 sticky left-0 z-10 bg-white group-hover:bg-gray-50 w-[40px]">{row.no}</td>
-                  <td className="px-3 py-2 font-mono text-xs sticky left-[40px] z-10 bg-white group-hover:bg-gray-50 w-[180px]">{row.code}</td>
-                  <td className="px-3 py-2 text-gray-700 sticky left-[220px] z-10 bg-white group-hover:bg-gray-50 w-[240px]">{row.description}</td>
-                  <td className="px-3 py-2 text-gray-600 whitespace-nowrap sticky left-[460px] z-10 bg-white group-hover:bg-gray-50 w-[128px]">{row.po}</td>
-                  <td className="px-3 py-2 text-right font-medium sticky left-[588px] z-10 bg-white group-hover:bg-gray-50 w-[72px] shadow-[2px_0_4px_rgba(0,0,0,0.07)]">{row.qty.toLocaleString()}</td>
+                  <td className="px-3 py-2 text-center text-gray-500 sticky left-0 z-10 bg-white group-hover:bg-gray-50">{row.no}</td>
+                  <td className="px-3 py-2 font-mono text-xs break-all sticky left-[40px] z-10 bg-white group-hover:bg-gray-50">{row.code}</td>
+                  <td className="px-3 py-2 text-gray-700 sticky left-[220px] z-10 bg-white group-hover:bg-gray-50">{row.description}</td>
+                  <td className="px-3 py-2 text-gray-600 sticky left-[480px] z-10 bg-white group-hover:bg-gray-50 whitespace-nowrap overflow-hidden text-ellipsis">{row.po}</td>
+                  <td className="px-3 py-2 text-right font-medium sticky left-[610px] z-10 bg-white group-hover:bg-gray-50 shadow-[2px_0_4px_rgba(0,0,0,0.08)]">{row.qty.toLocaleString()}</td>
                   {invoice.container_names.map(name => (
                     <td key={name} className="px-3 py-2 text-right text-gray-500">
                       {fmt(row.containers[name] || 0)}
@@ -617,11 +628,11 @@ export default function InvoiceDetailPage() {
             </tbody>
             <tfoot>
               <tr className="bg-gray-50 font-semibold text-gray-700 border-t-2 border-gray-200 sticky bottom-0 z-20">
-                <td className="px-3 py-2 sticky left-0 bg-gray-50 z-20 w-[40px]"></td>
-                <td className="px-3 py-2 sticky left-[40px] bg-gray-50 z-20 w-[180px]"></td>
-                <td className="px-3 py-2 sticky left-[220px] bg-gray-50 z-20 w-[240px]"></td>
-                <td className="px-3 py-2 text-right sticky left-[460px] bg-gray-50 z-20 w-[128px]">รวม</td>
-                <td className="px-3 py-2 text-right sticky left-[588px] bg-gray-50 z-20 w-[72px] shadow-[2px_0_4px_rgba(0,0,0,0.07)]">{invoice.rows.reduce((s, r) => s + r.qty, 0).toLocaleString()}</td>
+                <td className="px-3 py-2 sticky left-0 bg-gray-50 z-20"></td>
+                <td className="px-3 py-2 sticky left-[40px] bg-gray-50 z-20"></td>
+                <td className="px-3 py-2 sticky left-[220px] bg-gray-50 z-20"></td>
+                <td className="px-3 py-2 text-right sticky left-[480px] bg-gray-50 z-20">รวม</td>
+                <td className="px-3 py-2 text-right sticky left-[610px] bg-gray-50 z-20 shadow-[2px_0_4px_rgba(0,0,0,0.08)]">{invoice.rows.reduce((s, r) => s + r.qty, 0).toLocaleString()}</td>
                 {invoice.container_names.map(name => (
                   <td key={name} className="px-3 py-2 text-right">
                     {invoice.rows.reduce((s, r) => s + (r.containers[name] || 0), 0).toLocaleString()}
