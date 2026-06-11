@@ -351,7 +351,7 @@ export default function DashboardPage() {
                   <th className="px-4 py-3 text-left font-medium">Invoice No.</th>
                   <th className="px-4 py-3 text-left font-medium">Supplier</th>
                   <th className="px-4 py-3 text-left font-medium whitespace-nowrap">สถานะ</th>
-                  <th className="px-4 py-3 text-left font-medium whitespace-nowrap">วันที่ถึงท่าเรือไทย (ETA)</th>
+                  <th className="px-4 py-3 text-left font-medium">วันที่ถึงท่าเรือไทย<br/>(ETA)</th>
                   <th className="px-4 py-3 text-left font-medium">ประมาณการเข้าคลัง</th>
                   <th className="px-4 py-3 text-left font-medium whitespace-nowrap">วันที่บันทึก</th>
                   <th className="px-4 py-3 text-left font-medium whitespace-nowrap">Due Date</th>
