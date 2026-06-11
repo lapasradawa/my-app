@@ -345,18 +345,18 @@ export default function DashboardPage() {
           </div>
         ) : (
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-auto max-h-[calc(100vh-320px)]">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-fixed">
               <thead className="sticky top-0 z-10">
                 <tr className="bg-gray-50 text-gray-600 border-b border-gray-200">
-                  <th className="px-4 py-3 text-left font-medium">Invoice No.</th>
-                  <th className="px-4 py-3 text-left font-medium">Supplier</th>
-                  <th className="px-4 py-3 text-left font-medium whitespace-nowrap">สถานะ</th>
-                  <th className="px-4 py-3 text-left font-medium"><span className="whitespace-nowrap">วันที่ถึงท่าเรือไทย</span><br/>(ETA)</th>
-                  <th className="px-4 py-3 text-left font-medium">ประมาณการเข้าคลัง</th>
-                  <th className="px-4 py-3 text-left font-medium whitespace-nowrap">วันที่บันทึก</th>
-                  <th className="px-4 py-3 text-left font-medium whitespace-nowrap">Due Date</th>
-                  <th className="px-4 py-3 text-left font-medium whitespace-nowrap">สถานะจ่าย</th>
-                  <th className="px-4 py-3 w-28"></th>
+                  <th className="px-4 py-3 text-left font-medium w-[13%]">Invoice No.</th>
+                  <th className="px-4 py-3 text-left font-medium w-[10%]">Supplier</th>
+                  <th className="px-4 py-3 text-left font-medium w-[11%]">สถานะ</th>
+                  <th className="px-4 py-3 text-left font-medium w-[11%]"><span className="whitespace-nowrap">วันที่ถึงท่าเรือไทย</span><br/>(ETA)</th>
+                  <th className="px-4 py-3 text-left font-medium w-[18%]">ประมาณการเข้าคลัง</th>
+                  <th className="px-4 py-3 text-left font-medium w-[11%]">วันที่บันทึก</th>
+                  <th className="px-4 py-3 text-left font-medium w-[10%]">Due Date</th>
+                  <th className="px-4 py-3 text-left font-medium w-[11%]">สถานะจ่าย</th>
+                  <th className="px-4 py-3 w-[8%]"></th>
                 </tr>
               </thead>
               <tbody>
