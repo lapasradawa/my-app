@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import * as XLSX from 'xlsx'
@@ -19,8 +19,9 @@ function monthLabel(d: string): string {
   return new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
 }
 
-function yearOf(d: string): number {
-  return new Date(d + 'T00:00:00').getFullYear()
+function monthKey(d: string): string {
+  const dt = new Date(d + 'T00:00:00')
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`
 }
 
 function compute(inv: InvRow) {
@@ -30,8 +31,7 @@ function compute(inv: InvRow) {
     inv.total_amount != null && inv.exchange_rate != null
       ? inv.total_amount * inv.exchange_rate
       : null
-  const pct5 = actualThb != null ? actualThb * 0.05 : null
-  return { fobCny, fobUsd, actualThb, pct5 }
+  return { fobCny, fobUsd, actualThb }
 }
 
 function sumN(nums: (number | null)[]): number | null {
@@ -55,6 +55,8 @@ function Cell({ v, gray }: { v: string; gray?: boolean }) {
 export default function ReportPage() {
   const [rows, setRows] = useState<InvRow[]>([])
   const [loading, setLoading] = useState(true)
+  const [selectedMonths, setSelectedMonths] = useState<Set<string>>(new Set())
+  const [invoiceSearch, setInvoiceSearch] = useState('')
 
   useEffect(() => { load() }, [])
 
@@ -63,64 +65,89 @@ export default function ReportPage() {
       .from('invoices')
       .select('invoice_no, estimated_arrival, total_amount, currency, exchange_rate, cost_saving, cost_saving_pct')
       .order('estimated_arrival', { ascending: true, nullsFirst: false })
-    setRows((data ?? []) as InvRow[])
+    const fetched = (data ?? []) as InvRow[]
+    setRows(fetched)
+    const keys = new Set<string>()
+    for (const inv of fetched) {
+      if (inv.estimated_arrival) keys.add(monthKey(inv.estimated_arrival))
+    }
+    setSelectedMonths(keys)
     setLoading(false)
   }
 
-  // Build grouped structure: year → months → rows
-  const grouped: { year: number; months: { label: string; rows: InvRow[] }[] }[] = []
-  for (const inv of rows) {
-    if (!inv.estimated_arrival) continue
-    const year = yearOf(inv.estimated_arrival)
-    const month = monthLabel(inv.estimated_arrival)
-    let yg = grouped.find(g => g.year === year)
-    if (!yg) { yg = { year, months: [] }; grouped.push(yg) }
-    let mg = yg.months.find(m => m.label === month)
-    if (!mg) { mg = { label: month, rows: [] }; yg.months.push(mg) }
-    mg.rows.push(inv)
+  const allMonths = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const inv of rows) {
+      if (!inv.estimated_arrival) continue
+      const k = monthKey(inv.estimated_arrival)
+      if (!map.has(k)) map.set(k, monthLabel(inv.estimated_arrival))
+    }
+    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]))
+  }, [rows])
+
+  const grouped = useMemo(() => {
+    const result: { key: string; label: string; rows: InvRow[] }[] = []
+    for (const inv of rows) {
+      if (!inv.estimated_arrival) continue
+      const k = monthKey(inv.estimated_arrival)
+      if (!selectedMonths.has(k)) continue
+      const q = invoiceSearch.trim().toLowerCase()
+      if (q && !inv.invoice_no.toLowerCase().includes(q)) continue
+      let mg = result.find(m => m.key === k)
+      if (!mg) {
+        mg = { key: k, label: monthLabel(inv.estimated_arrival), rows: [] }
+        result.push(mg)
+      }
+      mg.rows.push(inv)
+    }
+    return result
+  }, [rows, selectedMonths, invoiceSearch])
+
+  const allVisible = grouped.flatMap(m => m.rows)
+  const allVisC = allVisible.map(compute)
+  const grandTotal = {
+    fobCny: sumN(allVisC.map(c => c.fobCny)),
+    fobUsd: sumN(allVisC.map(c => c.fobUsd)),
+    actualThb: sumN(allVisC.map(c => c.actualThb)),
+    costSaving: sumN(allVisible.map(r => r.cost_saving)),
   }
 
-  const allWithDate = rows.filter(r => r.estimated_arrival)
-  const allC = allWithDate.map(compute)
-  const grandTotal = {
-    fobCny: sumN(allC.map(c => c.fobCny)),
-    fobUsd: sumN(allC.map(c => c.fobUsd)),
-    actualThb: sumN(allC.map(c => c.actualThb)),
-    pct5: sumN(allC.map(c => c.pct5)),
-    costSaving: sumN(allWithDate.map(r => r.cost_saving)),
+  function toggleMonth(k: string) {
+    setSelectedMonths(prev => {
+      const next = new Set(prev)
+      if (next.has(k)) next.delete(k); else next.add(k)
+      return next
+    })
   }
+
+  function selectAll() { setSelectedMonths(new Set(allMonths.map(m => m[0]))) }
+  function clearAll() { setSelectedMonths(new Set()) }
 
   function exportExcel() {
-    const header = ['เข้าคลัง MONTH', 'Invoice No.', 'FOB CNY', 'FOB USD', 'Actual FOB THB (Finance)', '5% for RBS CH', 'Cost saving (THB)', 'Cost saving (%)']
+    const header = ['เข้าคลัง MONTH', 'Invoice No.', 'FOB CNY', 'FOB USD', 'Actual FOB THB (Finance)', 'Cost saving (THB)', 'Cost saving (%)']
     const aoa: (string | number | null)[][] = [header]
 
-    for (const yg of grouped) {
-      const yRows = yg.months.flatMap(m => m.rows)
-      const yC = yRows.map(compute)
-      for (const mg of yg.months) {
-        const mC = mg.rows.map(compute)
-        mg.rows.forEach((inv, i) => {
-          const c = mC[i]
-          aoa.push([
-            i === 0 ? mg.label : '',
-            inv.invoice_no,
-            c.fobCny, c.fobUsd, c.actualThb, c.pct5,
-            inv.cost_saving,
-            inv.cost_saving_pct != null ? inv.cost_saving_pct / 100 : null,
-          ])
-        })
-        aoa.push([mg.label + ' Total', '', sumN(mC.map(c => c.fobCny)), sumN(mC.map(c => c.fobUsd)), sumN(mC.map(c => c.actualThb)), sumN(mC.map(c => c.pct5)), sumN(mg.rows.map(r => r.cost_saving)), null])
-      }
-      aoa.push([String(yg.year) + ' Total', '', sumN(yC.map(c => c.fobCny)), sumN(yC.map(c => c.fobUsd)), sumN(yC.map(c => c.actualThb)), sumN(yC.map(c => c.pct5)), sumN(yRows.map(r => r.cost_saving)), null])
+    for (const mg of grouped) {
+      const mC = mg.rows.map(compute)
+      mg.rows.forEach((inv, i) => {
+        const c = mC[i]
+        aoa.push([
+          i === 0 ? mg.label : '',
+          inv.invoice_no,
+          c.fobCny, c.fobUsd, c.actualThb,
+          inv.cost_saving,
+          inv.cost_saving_pct != null ? inv.cost_saving_pct / 100 : null,
+        ])
+      })
+      aoa.push([mg.label + ' Total', '', sumN(mC.map(c => c.fobCny)), sumN(mC.map(c => c.fobUsd)), sumN(mC.map(c => c.actualThb)), sumN(mg.rows.map(r => r.cost_saving)), null])
     }
 
-    aoa.push([`GRAND TOTAL`, '', grandTotal.fobCny, grandTotal.fobUsd, grandTotal.actualThb, grandTotal.pct5, grandTotal.costSaving, null])
+    aoa.push([`GRAND TOTAL`, '', grandTotal.fobCny, grandTotal.fobUsd, grandTotal.actualThb, grandTotal.costSaving, null])
 
     const ws = XLSX.utils.aoa_to_sheet(aoa)
-    // Number format for numeric columns
     const numFmt = '#,##0.00'
-    const numCols = [2, 3, 4, 5, 6]
-    const pctCol = 7
+    const numCols = [2, 3, 4, 5]
+    const pctCol = 6
     const range = XLSX.utils.decode_range(ws['!ref'] || 'A1')
     for (let r = 1; r <= range.e.r; r++) {
       numCols.forEach(c => {
@@ -130,7 +157,7 @@ export default function ReportPage() {
       const pctAddr = XLSX.utils.encode_cell({ r, c: pctCol })
       if (ws[pctAddr] && typeof ws[pctAddr].v === 'number') ws[pctAddr].z = '0.00%'
     }
-    ws['!cols'] = [{ wch: 20 }, { wch: 22 }, { wch: 16 }, { wch: 14 }, { wch: 24 }, { wch: 16 }, { wch: 18 }, { wch: 14 }]
+    ws['!cols'] = [{ wch: 20 }, { wch: 22 }, { wch: 16 }, { wch: 14 }, { wch: 24 }, { wch: 18 }, { wch: 14 }]
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Report')
     XLSX.writeFile(wb, `Import_Report_${new Date().toISOString().slice(0, 10)}.xlsx`)
@@ -166,6 +193,48 @@ export default function ReportPage() {
           </button>
         </div>
 
+        {/* Filters */}
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 mb-4 space-y-3">
+          <div>
+            <div className="flex items-center gap-3 mb-2">
+              <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">เดือน</span>
+              <button onClick={selectAll} className="text-xs text-blue-600 hover:underline">เลือกทั้งหมด</button>
+              <button onClick={clearAll} className="text-xs text-gray-400 hover:underline">ยกเลิกทั้งหมด</button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {allMonths.map(([k, label]) => {
+                const active = selectedMonths.has(k)
+                return (
+                  <button
+                    key={k}
+                    onClick={() => toggleMonth(k)}
+                    className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                      active
+                        ? 'bg-amber-400 border-amber-400 text-gray-900'
+                        : 'bg-white border-gray-300 text-gray-500 hover:border-amber-300'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide whitespace-nowrap">Invoice No.</span>
+            <input
+              type="text"
+              value={invoiceSearch}
+              onChange={e => setInvoiceSearch(e.target.value)}
+              placeholder="ค้นหา Invoice..."
+              className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-gray-800 w-64 focus:outline-none focus:ring-2 focus:ring-amber-300"
+            />
+            {invoiceSearch && (
+              <button onClick={() => setInvoiceSearch('')} className="text-xs text-gray-400 hover:text-gray-700">ล้าง</button>
+            )}
+          </div>
+        </div>
+
         <div className="bg-white rounded-xl border border-gray-200 overflow-auto shadow-sm">
           <table className="text-sm border-collapse w-full">
             <thead>
@@ -175,71 +244,55 @@ export default function ReportPage() {
                 <th className={th}>FOB CNY</th>
                 <th className={th}>FOB USD</th>
                 <th className={th}>Actual FOB THB (Finance)</th>
-                <th className={th}>5% for RBS CH</th>
                 <th className={`${th} bg-amber-500`}>Cost saving (THB)</th>
                 <th className={`${th} bg-amber-500`}>Cost saving (%)</th>
               </tr>
             </thead>
             <tbody>
-              {grouped.flatMap(yg => {
-                const yRows = yg.months.flatMap(m => m.rows)
-                const yC = yRows.map(compute)
-                const monthRows = yg.months.flatMap(mg => {
-                  const mC = mg.rows.map(compute)
-                  const mFobCny = sumN(mC.map(c => c.fobCny))
-                  const mFobUsd = sumN(mC.map(c => c.fobUsd))
-                  const mActual = sumN(mC.map(c => c.actualThb))
-                  const mPct5 = sumN(mC.map(c => c.pct5))
-                  const mCost = sumN(mg.rows.map(r => r.cost_saving))
+              {grouped.flatMap(mg => {
+                const mC = mg.rows.map(compute)
+                const mFobCny = sumN(mC.map(c => c.fobCny))
+                const mFobUsd = sumN(mC.map(c => c.fobUsd))
+                const mActual = sumN(mC.map(c => c.actualThb))
+                const mCost = sumN(mg.rows.map(r => r.cost_saving))
 
-                  return [
-                    ...mg.rows.map((inv, i) => {
-                      const c = mC[i]
-                      return (
-                        <tr key={`${mg.label}-${inv.invoice_no}`} className="border-b border-gray-100 hover:bg-gray-50">
-                          <td className="px-3 py-2 border border-gray-200 text-gray-700 whitespace-nowrap">
-                            {i === 0 ? mg.label : ''}
-                          </td>
-                          <td className="px-3 py-2 border border-gray-200 text-blue-600 font-medium whitespace-nowrap">{inv.invoice_no}</td>
-                          <Cell v={fmt(c.fobCny)} gray={c.fobCny == null} />
-                          <Cell v={fmt(c.fobUsd)} gray={c.fobUsd == null} />
-                          <Cell v={fmt(c.actualThb)} gray={c.actualThb == null} />
-                          <Cell v={fmt(c.pct5)} gray={c.pct5 == null} />
-                          <td className="px-3 py-2 border border-gray-200 text-right text-gray-700">
-                            {inv.cost_saving != null ? fmt(inv.cost_saving) : <span className="text-gray-300">—</span>}
-                          </td>
-                          <td className="px-3 py-2 border border-gray-200 text-right text-gray-700">
-                            {inv.cost_saving_pct != null ? `${inv.cost_saving_pct}%` : <span className="text-gray-300">—</span>}
-                          </td>
-                        </tr>
-                      )
-                    }),
-                    <tr key={`${mg.label}-total`} className="bg-amber-50 font-semibold text-gray-800">
-                      <td className="px-3 py-2 border border-amber-200 text-amber-900 whitespace-nowrap">{mg.label} Total</td>
-                      <td className="px-3 py-2 border border-amber-200"></td>
-                      <td className="px-3 py-2 border border-amber-200 text-right">{fmt(mFobCny)}</td>
-                      <td className="px-3 py-2 border border-amber-200 text-right">{fmt(mFobUsd)}</td>
-                      <td className="px-3 py-2 border border-amber-200 text-right">{fmt(mActual)}</td>
-                      <td className="px-3 py-2 border border-amber-200 text-right">{fmt(mPct5)}</td>
-                      <td className="px-3 py-2 border border-amber-200 text-right">{fmt(mCost)}</td>
-                      <td className="px-3 py-2 border border-amber-200"></td>
-                    </tr>,
-                  ]
-                })
                 return [
-                  ...monthRows,
-                  <tr key={`year-${yg.year}`} className="bg-blue-100 font-bold text-blue-900 border-t-2 border-blue-300">
-                    <td className="px-3 py-2 border border-blue-200 whitespace-nowrap">{yg.year} Total</td>
-                    <td className="px-3 py-2 border border-blue-200"></td>
-                    <td className="px-3 py-2 border border-blue-200 text-right">{fmt(sumN(yC.map(c => c.fobCny)))}</td>
-                    <td className="px-3 py-2 border border-blue-200 text-right">{fmt(sumN(yC.map(c => c.fobUsd)))}</td>
-                    <td className="px-3 py-2 border border-blue-200 text-right">{fmt(sumN(yC.map(c => c.actualThb)))}</td>
-                    <td className="px-3 py-2 border border-blue-200 text-right">{fmt(sumN(yC.map(c => c.pct5)))}</td>
-                    <td className="px-3 py-2 border border-blue-200 text-right">{fmt(sumN(yRows.map(r => r.cost_saving)))}</td>
-                    <td className="px-3 py-2 border border-blue-200"></td>
+                  ...mg.rows.map((inv, i) => {
+                    const c = mC[i]
+                    return (
+                      <tr key={`${mg.key}-${inv.invoice_no}`} className="border-b border-gray-100 hover:bg-gray-50">
+                        <td className="px-3 py-2 border border-gray-200 text-gray-700 whitespace-nowrap">
+                          {i === 0 ? mg.label : ''}
+                        </td>
+                        <td className="px-3 py-2 border border-gray-200 text-blue-600 font-medium whitespace-nowrap">{inv.invoice_no}</td>
+                        <Cell v={fmt(c.fobCny)} gray={c.fobCny == null} />
+                        <Cell v={fmt(c.fobUsd)} gray={c.fobUsd == null} />
+                        <Cell v={fmt(c.actualThb)} gray={c.actualThb == null} />
+                        <td className="px-3 py-2 border border-gray-200 text-right text-gray-700">
+                          {inv.cost_saving != null ? fmt(inv.cost_saving) : <span className="text-gray-300">—</span>}
+                        </td>
+                        <td className="px-3 py-2 border border-gray-200 text-right text-gray-700">
+                          {inv.cost_saving_pct != null ? `${inv.cost_saving_pct}%` : <span className="text-gray-300">—</span>}
+                        </td>
+                      </tr>
+                    )
+                  }),
+                  <tr key={`${mg.key}-total`} className="bg-amber-50 font-semibold text-gray-800">
+                    <td className="px-3 py-2 border border-amber-200 text-amber-900 whitespace-nowrap">{mg.label} Total</td>
+                    <td className="px-3 py-2 border border-amber-200"></td>
+                    <td className="px-3 py-2 border border-amber-200 text-right">{fmt(mFobCny)}</td>
+                    <td className="px-3 py-2 border border-amber-200 text-right">{fmt(mFobUsd)}</td>
+                    <td className="px-3 py-2 border border-amber-200 text-right">{fmt(mActual)}</td>
+                    <td className="px-3 py-2 border border-amber-200 text-right">{fmt(mCost)}</td>
+                    <td className="px-3 py-2 border border-amber-200"></td>
                   </tr>,
                 ]
               })}
+              {grouped.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-8 text-center text-gray-400 text-sm">ไม่มีข้อมูลที่ตรงกับตัวกรอง</td>
+                </tr>
+              )}
               <tr className="bg-purple-700 text-white font-bold border-t-2 border-purple-800">
                 <td className="px-3 py-2.5 border border-purple-600 whitespace-nowrap">
                   GRAND TOTAL {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}
@@ -248,9 +301,8 @@ export default function ReportPage() {
                 <td className="px-3 py-2.5 border border-purple-600 text-right">{fmt(grandTotal.fobCny)}</td>
                 <td className="px-3 py-2.5 border border-purple-600 text-right">{fmt(grandTotal.fobUsd)}</td>
                 <td className="px-3 py-2.5 border border-purple-600 text-right">{fmt(grandTotal.actualThb)}</td>
-                <td className="px-3 py-2.5 border border-purple-600 text-right">{fmt(grandTotal.pct5)}</td>
                 <td className="px-3 py-2.5 border border-purple-600 text-right">{fmt(grandTotal.costSaving)}</td>
-                <td className="px-3 py-2.5 border border-purple-600"></td>
+                <td className="px-3 py-2.5 border border-purple-600 text-right"></td>
               </tr>
             </tbody>
           </table>
