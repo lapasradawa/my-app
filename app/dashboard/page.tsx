@@ -48,6 +48,7 @@ interface Invoice {
   status: Status | null
   estimated_arrival: string | null
   estimated_arrival_end: string | null
+  eta_date: string | null
   bl_date: string | null
   payment_status: string | null
   payment_date: string | null
@@ -77,6 +78,7 @@ interface LocalEdit {
   status: Status
   estimated_arrival: string
   estimated_arrival_end: string
+  eta_date: string
   supplier: string
 }
 
@@ -125,7 +127,7 @@ export default function DashboardPage() {
     setLoading(true)
     const { data } = await supabase
       .from('invoices')
-      .select('id, invoice_no, filename, created_at, status, estimated_arrival, estimated_arrival_end, bl_date, payment_status, payment_date, supplier')
+      .select('id, invoice_no, filename, created_at, status, estimated_arrival, estimated_arrival_end, eta_date, bl_date, payment_status, payment_date, supplier')
       .order('estimated_arrival', { ascending: false, nullsFirst: false })
     if (data) {
       setInvoices(data as Invoice[])
@@ -135,6 +137,7 @@ export default function DashboardPage() {
           status: (inv.status as Status) || 'อยู่ที่จีน',
           estimated_arrival: inv.estimated_arrival || '',
           estimated_arrival_end: inv.estimated_arrival_end || '',
+          eta_date: inv.eta_date || '',
           supplier: inv.supplier || '',
         }
       }
@@ -154,6 +157,7 @@ export default function DashboardPage() {
       e.status !== ((inv.status as Status) || 'อยู่ที่จีน') ||
       e.estimated_arrival !== (inv.estimated_arrival || '') ||
       e.estimated_arrival_end !== (inv.estimated_arrival_end || '') ||
+      e.eta_date !== (inv.eta_date || '') ||
       e.supplier !== (inv.supplier || '')
     )
   }
@@ -167,6 +171,7 @@ export default function DashboardPage() {
       status: e.status,
       estimated_arrival: noDate ? null : (e.estimated_arrival || null),
       estimated_arrival_end: noDate ? null : (e.estimated_arrival_end || null),
+      eta_date: e.eta_date || null,
       supplier: e.supplier || null,
     }).eq('id', id)
     setInvoices(prev => prev.map(inv => inv.id === id ? {
@@ -174,6 +179,7 @@ export default function DashboardPage() {
       status: e.status,
       estimated_arrival: noDate ? null : (e.estimated_arrival || null),
       estimated_arrival_end: noDate ? null : (e.estimated_arrival_end || null),
+      eta_date: e.eta_date || null,
       supplier: e.supplier || null,
     } : inv))
     setSaving(s => ({ ...s, [id]: false }))
@@ -343,6 +349,7 @@ export default function DashboardPage() {
                   <th className="px-4 py-3 text-left font-medium">Invoice No.</th>
                   <th className="px-4 py-3 text-left font-medium">Supplier</th>
                   <th className="px-4 py-3 text-left font-medium">สถานะ</th>
+                  <th className="px-4 py-3 text-left font-medium whitespace-nowrap">วันที่ถึงท่าเรือไทย (ETA)</th>
                   <th className="px-4 py-3 text-left font-medium">ประมาณการเข้าคลัง</th>
                   <th className="px-4 py-3 text-left font-medium whitespace-nowrap">วันที่บันทึก</th>
                   <th className="px-4 py-3 text-left font-medium whitespace-nowrap">Due Date</th>
@@ -388,6 +395,18 @@ export default function DashboardPage() {
                           <span className={`text-xs font-medium px-2 py-1 rounded-full border ${STATUS_STYLE[displaySt] || 'bg-gray-100 text-gray-700 border-gray-300'}`}>
                             {displaySt}
                           </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {unlocked ? (
+                          <input
+                            type="date"
+                            value={edits[inv.id]?.eta_date ?? ''}
+                            onChange={ev => setField(inv.id, 'eta_date', ev.target.value)}
+                            className="text-xs border border-gray-300 rounded px-2 py-1 outline-none focus:border-blue-400 text-gray-700"
+                          />
+                        ) : (
+                          <span className="text-xs text-gray-600">{fmtDate(inv.eta_date) || <span className="text-gray-300">—</span>}</span>
                         )}
                       </td>
                       <td className="px-4 py-3">
