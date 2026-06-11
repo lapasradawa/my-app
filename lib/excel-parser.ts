@@ -54,9 +54,11 @@ function parseCISheet(sheet: XLSX.WorkSheet): { code: string; description: strin
   const codeCol = findColIndex(header, 'Fixture', 'Product Code', 'Item no', 'Code')
   const qtyCol = findColIndex(header, 'QTY', 'Qty', 'Quantity')
 
-  // PO: try exact "PO" first (LITELON), then MARKS-based (YONGGUAN), then Remarks (DC30)
+  // PO: exact "PO" (LITELON) → exact "Remarks" (DC30) → "Marks"/"Shipping Marks" (YONGGUAN)
+  // "Remarks" must be checked before substring 'MARKS' because "Remarks" contains "marks"
   let marksCol = findExactColIndex(header, 'PO')
-  if (marksCol === -1) marksCol = findColIndex(header, 'MARKS', 'Shipping Marks', 'Shipping', 'Remarks')
+  if (marksCol === -1) marksCol = findExactColIndex(header, 'Remarks')
+  if (marksCol === -1) marksCol = findColIndex(header, 'MARKS', 'Shipping Marks', 'Shipping')
 
   const descCol = findColIndex(header, 'DESCRIPTION', 'Description')
 
