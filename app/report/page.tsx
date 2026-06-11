@@ -4,8 +4,12 @@ import { useEffect, useState, useMemo } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import * as XLSX from 'xlsx'
+import { isUnlocked } from '@/lib/auth'
+import LockButton from '@/components/LockButton'
+import PasswordModal from '@/components/PasswordModal'
 
 interface InvRow {
+  id: string
   invoice_no: string
   estimated_arrival: string | null
   total_amount: number | null
@@ -13,6 +17,9 @@ interface InvRow {
   exchange_rate: number | null
   cost_saving: number | null
   cost_saving_pct: number | null
+  bl_date: string | null
+  payment_date: string | null
+  commission_payment_date: string | null
 }
 
 function monthLabel(d: string): string {
@@ -22,6 +29,18 @@ function monthLabel(d: string): string {
 function monthKey(d: string): string {
   const dt = new Date(d + 'T00:00:00')
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`
+}
+
+function dueDateStr(blDate: string | null): string {
+  if (!blDate) return ''
+  const d = new Date(blDate + 'T00:00:00')
+  d.setDate(d.getDate() + 30)
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+}
+
+function fmtDate(d: string | null): string {
+  if (!d) return ''
+  return new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
 function compute(inv: InvRow) {
@@ -57,22 +76,36 @@ export default function ReportPage() {
   const [loading, setLoading] = useState(true)
   const [selectedMonths, setSelectedMonths] = useState<Set<string>>(new Set())
   const [invoiceSearch, setInvoiceSearch] = useState('')
+  const [unlocked, setUnlocked] = useState(false)
+  const [showModal, setShowModal] = useState(false)
+  const [commEdits, setCommEdits] = useState<Record<string, string>>({})
+  const [commSaving, setCommSaving] = useState<Record<string, boolean>>({})
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load(); setUnlocked(isUnlocked()) }, [])
 
   async function load() {
     const { data } = await supabase
       .from('invoices')
-      .select('invoice_no, estimated_arrival, total_amount, currency, exchange_rate, cost_saving, cost_saving_pct')
+      .select('id, invoice_no, estimated_arrival, total_amount, currency, exchange_rate, cost_saving, cost_saving_pct, bl_date, payment_date, commission_payment_date')
       .order('estimated_arrival', { ascending: true, nullsFirst: false })
     const fetched = (data ?? []) as InvRow[]
     setRows(fetched)
+    const ce: Record<string, string> = {}
+    for (const inv of fetched) ce[inv.id] = inv.commission_payment_date || ''
+    setCommEdits(ce)
     const keys = new Set<string>()
     for (const inv of fetched) {
       if (inv.estimated_arrival) keys.add(monthKey(inv.estimated_arrival))
     }
     setSelectedMonths(keys)
     setLoading(false)
+  }
+
+  async function saveCommission(id: string) {
+    const val = commEdits[id] ?? ''
+    setCommSaving(s => ({ ...s, [id]: true }))
+    await supabase.from('invoices').update({ commission_payment_date: val || null }).eq('id', id)
+    setCommSaving(s => ({ ...s, [id]: false }))
   }
 
   const allMonths = useMemo(() => {
@@ -124,7 +157,7 @@ export default function ReportPage() {
   function clearAll() { setSelectedMonths(new Set()) }
 
   function exportExcel() {
-    const header = ['เข้าคลัง MONTH', 'Invoice No.', 'FOB CNY', 'FOB USD', 'Actual FOB THB (Finance)', 'Cost saving (THB)', 'Cost saving (%)']
+    const header = ['เข้าคลัง MONTH', 'Invoice No.', 'FOB CNY', 'FOB USD', 'Actual FOB THB (Finance)', 'Due Date', 'Payment Date', 'Cost saving (THB)', 'Cost saving (%)', 'Commission Payment']
     const aoa: (string | number | null)[][] = [header]
 
     for (const mg of grouped) {
@@ -135,19 +168,22 @@ export default function ReportPage() {
           i === 0 ? mg.label : '',
           inv.invoice_no,
           c.fobCny, c.fobUsd, c.actualThb,
+          dueDateStr(inv.bl_date),
+          fmtDate(inv.payment_date),
           inv.cost_saving,
           inv.cost_saving_pct != null ? inv.cost_saving_pct / 100 : null,
+          fmtDate(commEdits[inv.id] || inv.commission_payment_date),
         ])
       })
-      aoa.push([mg.label + ' Total', '', sumN(mC.map(c => c.fobCny)), sumN(mC.map(c => c.fobUsd)), sumN(mC.map(c => c.actualThb)), sumN(mg.rows.map(r => r.cost_saving)), null])
+      aoa.push([mg.label + ' Total', '', sumN(mC.map(c => c.fobCny)), sumN(mC.map(c => c.fobUsd)), sumN(mC.map(c => c.actualThb)), '', '', sumN(mg.rows.map(r => r.cost_saving)), null, ''])
     }
 
-    aoa.push([`GRAND TOTAL`, '', grandTotal.fobCny, grandTotal.fobUsd, grandTotal.actualThb, grandTotal.costSaving, null])
+    aoa.push(['GRAND TOTAL', '', grandTotal.fobCny, grandTotal.fobUsd, grandTotal.actualThb, '', '', grandTotal.costSaving, null, ''])
 
     const ws = XLSX.utils.aoa_to_sheet(aoa)
     const numFmt = '#,##0.00'
-    const numCols = [2, 3, 4, 5]
-    const pctCol = 6
+    const numCols = [2, 3, 4, 7]
+    const pctCol = 8
     const range = XLSX.utils.decode_range(ws['!ref'] || 'A1')
     for (let r = 1; r <= range.e.r; r++) {
       numCols.forEach(c => {
@@ -157,7 +193,7 @@ export default function ReportPage() {
       const pctAddr = XLSX.utils.encode_cell({ r, c: pctCol })
       if (ws[pctAddr] && typeof ws[pctAddr].v === 'number') ws[pctAddr].z = '0.00%'
     }
-    ws['!cols'] = [{ wch: 20 }, { wch: 22 }, { wch: 16 }, { wch: 14 }, { wch: 24 }, { wch: 18 }, { wch: 14 }]
+    ws['!cols'] = [{ wch: 20 }, { wch: 22 }, { wch: 16 }, { wch: 14 }, { wch: 24 }, { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 14 }, { wch: 18 }]
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Report')
     XLSX.writeFile(wb, `Import_Report_${new Date().toISOString().slice(0, 10)}.xlsx`)
@@ -168,18 +204,29 @@ export default function ReportPage() {
   )
 
   const th = 'px-3 py-2.5 text-right border border-amber-300 whitespace-nowrap font-bold text-xs'
+  const thC = 'px-3 py-2.5 text-center border border-amber-300 whitespace-nowrap font-bold text-xs'
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {showModal && (
+        <PasswordModal
+          onSuccess={() => { setUnlocked(true); setShowModal(false) }}
+          onCancel={() => setShowModal(false)}
+        />
+      )}
+
       <nav className="bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-4">
         <span className="font-bold text-gray-800 text-sm">Import PO</span>
         <span className="text-gray-300">|</span>
         <Link href="/" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">PO Matching</Link>
         <Link href="/dashboard" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">Dashboard</Link>
         <Link href="/report" className="text-sm text-blue-600 font-semibold">Report</Link>
+        <div className="ml-auto">
+          <LockButton onUnlock={() => setUnlocked(true)} onLock={() => setUnlocked(false)} />
+        </div>
       </nav>
 
-      <div className="max-w-7xl mx-auto px-6 py-8">
+      <div className="max-w-full mx-auto px-6 py-8">
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Report</h1>
@@ -244,8 +291,11 @@ export default function ReportPage() {
                 <th className={th}>FOB CNY</th>
                 <th className={th}>FOB USD</th>
                 <th className={th}>Actual FOB THB (Finance)</th>
+                <th className={thC}>Due Date</th>
+                <th className={thC}>Payment Date</th>
                 <th className={`${th} bg-amber-500`}>Cost saving (THB)</th>
                 <th className={`${th} bg-amber-500`}>Cost saving (%)</th>
+                <th className="px-3 py-2.5 text-center border border-amber-300 whitespace-nowrap font-bold text-xs bg-blue-100 text-blue-900">Commission Payment</th>
               </tr>
             </thead>
             <tbody>
@@ -259,6 +309,7 @@ export default function ReportPage() {
                 return [
                   ...mg.rows.map((inv, i) => {
                     const c = mC[i]
+                    const commVal = commEdits[inv.id] ?? ''
                     return (
                       <tr key={`${mg.key}-${inv.invoice_no}`} className="border-b border-gray-100 hover:bg-gray-50">
                         <td className="px-3 py-2 border border-gray-200 text-gray-700 whitespace-nowrap">
@@ -268,11 +319,35 @@ export default function ReportPage() {
                         <Cell v={fmt(c.fobCny)} gray={c.fobCny == null} />
                         <Cell v={fmt(c.fobUsd)} gray={c.fobUsd == null} />
                         <Cell v={fmt(c.actualThb)} gray={c.actualThb == null} />
+                        <td className="px-3 py-2 border border-gray-200 text-center text-gray-600 whitespace-nowrap text-xs">
+                          {dueDateStr(inv.bl_date) || <span className="text-gray-300">—</span>}
+                        </td>
+                        <td className="px-3 py-2 border border-gray-200 text-center text-gray-600 whitespace-nowrap text-xs">
+                          {fmtDate(inv.payment_date) || <span className="text-gray-300">—</span>}
+                        </td>
                         <td className="px-3 py-2 border border-gray-200 text-right text-gray-700">
                           {inv.cost_saving != null ? fmt(inv.cost_saving) : <span className="text-gray-300">—</span>}
                         </td>
                         <td className="px-3 py-2 border border-gray-200 text-right text-gray-700">
                           {inv.cost_saving_pct != null ? `${inv.cost_saving_pct}%` : <span className="text-gray-300">—</span>}
+                        </td>
+                        <td className="px-3 py-2 border border-gray-200 text-center">
+                          {unlocked ? (
+                            <div className="flex items-center gap-1 justify-center">
+                              <input
+                                type="date"
+                                value={commVal}
+                                onChange={ev => setCommEdits(e => ({ ...e, [inv.id]: ev.target.value }))}
+                                onBlur={() => saveCommission(inv.id)}
+                                className="text-xs border border-gray-300 rounded px-2 py-1 outline-none focus:border-blue-400 text-gray-700"
+                              />
+                              {commSaving[inv.id] && <span className="text-xs text-gray-400">...</span>}
+                            </div>
+                          ) : (
+                            <span className="text-xs text-gray-600 whitespace-nowrap">
+                              {fmtDate(commVal) || <span className="text-gray-300">—</span>}
+                            </span>
+                          )}
                         </td>
                       </tr>
                     )
@@ -283,14 +358,17 @@ export default function ReportPage() {
                     <td className="px-3 py-2 border border-amber-200 text-right">{fmt(mFobCny)}</td>
                     <td className="px-3 py-2 border border-amber-200 text-right">{fmt(mFobUsd)}</td>
                     <td className="px-3 py-2 border border-amber-200 text-right">{fmt(mActual)}</td>
+                    <td className="px-3 py-2 border border-amber-200"></td>
+                    <td className="px-3 py-2 border border-amber-200"></td>
                     <td className="px-3 py-2 border border-amber-200 text-right">{fmt(mCost)}</td>
+                    <td className="px-3 py-2 border border-amber-200"></td>
                     <td className="px-3 py-2 border border-amber-200"></td>
                   </tr>,
                 ]
               })}
               {grouped.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-gray-400 text-sm">ไม่มีข้อมูลที่ตรงกับตัวกรอง</td>
+                  <td colSpan={10} className="px-4 py-8 text-center text-gray-400 text-sm">ไม่มีข้อมูลที่ตรงกับตัวกรอง</td>
                 </tr>
               )}
               <tr className="bg-purple-700 text-white font-bold border-t-2 border-purple-800">
@@ -301,8 +379,11 @@ export default function ReportPage() {
                 <td className="px-3 py-2.5 border border-purple-600 text-right">{fmt(grandTotal.fobCny)}</td>
                 <td className="px-3 py-2.5 border border-purple-600 text-right">{fmt(grandTotal.fobUsd)}</td>
                 <td className="px-3 py-2.5 border border-purple-600 text-right">{fmt(grandTotal.actualThb)}</td>
+                <td className="px-3 py-2.5 border border-purple-600"></td>
+                <td className="px-3 py-2.5 border border-purple-600"></td>
                 <td className="px-3 py-2.5 border border-purple-600 text-right">{fmt(grandTotal.costSaving)}</td>
-                <td className="px-3 py-2.5 border border-purple-600 text-right"></td>
+                <td className="px-3 py-2.5 border border-purple-600"></td>
+                <td className="px-3 py-2.5 border border-purple-600"></td>
               </tr>
             </tbody>
           </table>
