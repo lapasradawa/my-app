@@ -682,7 +682,7 @@ export default function InvoiceDetailPage() {
           {editCost ? (
             <div className="flex flex-wrap items-end gap-4">
               <div>
-                <label className="block text-xs text-gray-500 mb-1">Cost Saving ({invoice.currency || 'USD'})</label>
+                <label className="block text-xs text-gray-500 mb-1">Cost Saving (THB)</label>
                 <input
                   type="number" value={costInput}
                   onChange={e => setCostInput(e.target.value)}
@@ -717,7 +717,7 @@ export default function InvoiceDetailPage() {
                 <p className="text-xs text-gray-400">Cost Saving</p>
                 <p className="text-base font-semibold text-gray-800">
                   {invoice.cost_saving != null
-                    ? `${invoice.cost_saving.toLocaleString()} ${invoice.currency || ''}`
+                    ? `${invoice.cost_saving.toLocaleString()} THB`
                     : <span className="text-gray-300 font-normal">—</span>}
                 </p>
               </div>
