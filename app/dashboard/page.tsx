@@ -411,7 +411,7 @@ export default function DashboardPage() {
                           <span className="text-xs text-gray-600">{fmtDate(inv.eta_date) || <span className="text-gray-300">—</span>}</span>
                         )}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 whitespace-nowrap">
                         {unlocked && showDate ? (
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <input
@@ -433,7 +433,7 @@ export default function DashboardPage() {
                             )}
                           </div>
                         ) : (
-                          <span className="text-xs text-gray-600">
+                          <span className="text-xs text-gray-600 whitespace-nowrap">
                             {fmtRange(inv.estimated_arrival, inv.estimated_arrival_end) || '—'}
                           </span>
                         )}
@@ -446,12 +446,12 @@ export default function DashboardPage() {
                           return due.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
                         })()}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 whitespace-nowrap">
                         {(() => {
                           const p = getPaymentLabel(inv.payment_status, inv.bl_date)
                           if (p.label === '—') return <span className="text-gray-300 text-xs">—</span>
                           return (
-                            <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${p.colorClass}`}>
+                            <span className={`text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${p.colorClass}`}>
                               {p.label}
                             </span>
                           )
