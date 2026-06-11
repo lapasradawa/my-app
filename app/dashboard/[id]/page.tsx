@@ -32,6 +32,9 @@ interface Invoice {
   payment_proof_url: string | null
   baikon_url: string | null
   bl_doc_url: string | null
+  cost_saving: number | null
+  cost_saving_pct: number | null
+  cost_saving_file_url: string | null
 }
 
 function computeDueDate(blDate: string | null): Date | null {
@@ -124,6 +127,14 @@ export default function InvoiceDetailPage() {
   const [uploadingBlDoc, setUploadingBlDoc] = useState(false)
   const baikonRef = useRef<HTMLInputElement>(null)
   const blDocRef = useRef<HTMLInputElement>(null)
+
+  // Cost saving
+  const [editCost, setEditCost] = useState(false)
+  const [costInput, setCostInput] = useState('')
+  const [costPctInput, setCostPctInput] = useState('')
+  const [savingCost, setSavingCost] = useState(false)
+  const [uploadingCostFile, setUploadingCostFile] = useState(false)
+  const costFileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     setUnlocked(isUnlocked())
@@ -226,6 +237,33 @@ export default function InvoiceDetailPage() {
       setInvoice(prev => prev ? { ...prev, [field]: url } : prev)
     } finally {
       setUploading(false)
+    }
+  }
+
+  async function saveCostSaving() {
+    if (!invoice) return
+    const cost = costInput === '' ? null : parseFloat(costInput.replace(/,/g, ''))
+    const pct = costPctInput === '' ? null : parseFloat(costPctInput.replace(/,/g, ''))
+    setSavingCost(true)
+    await supabase.from('invoices').update({ cost_saving: cost, cost_saving_pct: pct }).eq('id', id)
+    setInvoice(prev => prev ? { ...prev, cost_saving: cost, cost_saving_pct: pct } : prev)
+    setEditCost(false)
+    setSavingCost(false)
+  }
+
+  async function uploadCostFile(file: File) {
+    setUploadingCostFile(true)
+    try {
+      const ext = file.name.split('.').pop()
+      const path = `${id}/cost-saving-${Date.now()}.${ext}`
+      const { error } = await supabase.storage.from('payment-proofs').upload(path, file, { upsert: true })
+      if (error) return
+      const { data: urlData } = supabase.storage.from('payment-proofs').getPublicUrl(path)
+      const url = urlData.publicUrl
+      await supabase.from('invoices').update({ cost_saving_file_url: url }).eq('id', id)
+      setInvoice(prev => prev ? { ...prev, cost_saving_file_url: url } : prev)
+    } finally {
+      setUploadingCostFile(false)
     }
   }
 
@@ -619,6 +657,115 @@ export default function InvoiceDetailPage() {
             <input
               ref={blDocRef} type="file" accept=".pdf" className="hidden"
               onChange={e => { const f = e.target.files?.[0]; if (f) uploadDoc(f, 'bl') }}
+            />
+          </div>
+        </div>
+
+        {/* Cost Saving */}
+        <div className="bg-white rounded-xl border border-gray-200 p-4 mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Cost Saving</p>
+            {!editCost && (
+              <button
+                onClick={() => requireUnlock(() => {
+                  setCostInput(invoice.cost_saving != null ? String(invoice.cost_saving) : '')
+                  setCostPctInput(invoice.cost_saving_pct != null ? String(invoice.cost_saving_pct) : '')
+                  setEditCost(true)
+                })}
+                className="text-xs text-blue-500 hover:text-blue-700"
+              >
+                {invoice.cost_saving != null ? 'แก้ไข' : '+ เพิ่มข้อมูล'}
+              </button>
+            )}
+          </div>
+
+          {editCost ? (
+            <div className="flex flex-wrap items-end gap-4">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Cost Saving ({invoice.currency || 'USD'})</label>
+                <input
+                  type="number" value={costInput}
+                  onChange={e => setCostInput(e.target.value)}
+                  placeholder="0.00"
+                  className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-blue-400 w-40"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">% Cost Saving</label>
+                <input
+                  type="number" value={costPctInput}
+                  onChange={e => setCostPctInput(e.target.value)}
+                  placeholder="0.00"
+                  className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-blue-400 w-32"
+                />
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setEditCost(false)}
+                  className="text-sm px-3 py-1.5 text-gray-500 hover:bg-gray-100 rounded-lg"
+                >ยกเลิก</button>
+                <button
+                  onClick={saveCostSaving}
+                  disabled={savingCost}
+                  className="text-sm px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                >{savingCost ? 'กำลังบันทึก...' : 'บันทึก'}</button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-8 mb-3">
+              <div>
+                <p className="text-xs text-gray-400">Cost Saving</p>
+                <p className="text-base font-semibold text-gray-800">
+                  {invoice.cost_saving != null
+                    ? `${invoice.cost_saving.toLocaleString()} ${invoice.currency || ''}`
+                    : <span className="text-gray-300 font-normal">—</span>}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-400">% Cost Saving</p>
+                <p className="text-base font-semibold text-green-600">
+                  {invoice.cost_saving_pct != null
+                    ? `${invoice.cost_saving_pct}%`
+                    : <span className="text-gray-300 font-normal">—</span>}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Cost saving Excel file */}
+          <div className="mt-3 pt-3 border-t border-gray-100">
+            <p className="text-xs text-gray-400 mb-2">ไฟล์ Cost Saving (Excel)</p>
+            {invoice.cost_saving_file_url ? (
+              <div className="flex items-center gap-4">
+                <a
+                  href={invoice.cost_saving_file_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-800 font-medium"
+                >
+                  <span>📊</span> ดาวน์โหลดไฟล์ Cost Saving
+                </a>
+                <button
+                  onClick={() => requireUnlock(() => costFileRef.current?.click())}
+                  className="text-xs text-gray-400 hover:text-gray-600"
+                >
+                  {uploadingCostFile ? 'กำลังอัปโหลด...' : 'เปลี่ยนไฟล์'}
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => requireUnlock(() => costFileRef.current?.click())}
+                disabled={uploadingCostFile}
+                className="flex items-center gap-2 border-2 border-dashed border-gray-200 rounded-lg px-4 py-3 text-sm text-gray-400 hover:border-blue-300 hover:text-blue-500 w-full justify-center transition-colors disabled:opacity-50"
+              >
+                {uploadingCostFile ? 'กำลังอัปโหลด...' : '+ อัปโหลดไฟล์ Cost Saving (Excel)'}
+              </button>
+            )}
+            <input
+              ref={costFileRef} type="file"
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+              onChange={e => { const f = e.target.files?.[0]; if (f) uploadCostFile(f); e.target.value = '' }}
             />
           </div>
         </div>
