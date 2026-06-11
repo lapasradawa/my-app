@@ -8,6 +8,8 @@ import { isUnlocked } from '@/lib/auth'
 import LockButton from '@/components/LockButton'
 import PasswordModal from '@/components/PasswordModal'
 
+interface ExchangeRateEntry { amount: number; rate: number }
+
 interface InvRow {
   id: string
   invoice_no: string
@@ -15,6 +17,7 @@ interface InvRow {
   total_amount: number | null
   currency: string | null
   exchange_rate: number | null
+  exchange_rates: ExchangeRateEntry[] | null
   cost_saving: number | null
   cost_saving_pct: number | null
   bl_date: string | null
@@ -46,10 +49,12 @@ function fmtDate(d: string | null): string {
 function compute(inv: InvRow) {
   const fobCny = inv.currency === 'CNY' ? (inv.total_amount ?? null) : null
   const fobUsd = inv.currency === 'USD' ? (inv.total_amount ?? null) : null
-  const actualThb =
-    inv.total_amount != null && inv.exchange_rate != null
-      ? inv.total_amount * inv.exchange_rate
-      : null
+  let actualThb: number | null = null
+  if (inv.exchange_rates && inv.exchange_rates.length > 0) {
+    actualThb = inv.exchange_rates.reduce((s, e) => s + e.amount * e.rate, 0)
+  } else if (inv.total_amount != null && inv.exchange_rate != null) {
+    actualThb = inv.total_amount * inv.exchange_rate
+  }
   return { fobCny, fobUsd, actualThb }
 }
 
@@ -86,7 +91,7 @@ export default function ReportPage() {
   async function load() {
     const { data } = await supabase
       .from('invoices')
-      .select('id, invoice_no, estimated_arrival, total_amount, currency, exchange_rate, cost_saving, cost_saving_pct, bl_date, payment_date, commission_payment_date')
+      .select('id, invoice_no, estimated_arrival, total_amount, currency, exchange_rate, exchange_rates, cost_saving, cost_saving_pct, bl_date, payment_date, commission_payment_date')
       .order('estimated_arrival', { ascending: true, nullsFirst: false })
     const fetched = (data ?? []) as InvRow[]
     setRows(fetched)

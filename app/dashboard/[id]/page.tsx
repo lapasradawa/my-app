@@ -16,6 +16,11 @@ const STATUS_STYLE: Record<string, string> = {
   'เข้าคลังแล้ว': 'bg-green-100 text-green-800',
 }
 
+interface ExchangeRateEntry {
+  amount: number
+  rate: number
+}
+
 interface Invoice {
   id: string
   invoice_no: string
@@ -36,6 +41,7 @@ interface Invoice {
   cost_saving_pct: number | null
   cost_saving_file_url: string | null
   exchange_rate: number | null
+  exchange_rates: ExchangeRateEntry[] | null
 }
 
 function computeDueDate(blDate: string | null): Date | null {
@@ -109,8 +115,14 @@ export default function InvoiceDetailPage() {
   const [editTotal, setEditTotal] = useState(false)
   const [totalInput, setTotalInput] = useState('')
   const [currencyInput, setCurrencyInput] = useState('')
-  const [rateInput, setRateInput] = useState('')
+  const [rateRows, setRateRows] = useState<{amount: string; rate: string}[]>([{amount: '', rate: ''}])
   const [savingTotal, setSavingTotal] = useState(false)
+
+  function addRateRow() { setRateRows(r => [...r, {amount: '', rate: ''}]) }
+  function removeRateRow(i: number) { setRateRows(r => r.filter((_, j) => j !== i)) }
+  function updateRateRow(i: number, key: 'amount' | 'rate', val: string) {
+    setRateRows(r => r.map((row, j) => j === i ? {...row, [key]: val} : row))
+  }
 
   // B/L date edit
   const [editBL, setEditBL] = useState(false)
@@ -158,10 +170,20 @@ export default function InvoiceDetailPage() {
   async function saveTotalAmount() {
     const num = parseFloat(totalInput.replace(/,/g, ''))
     if (isNaN(num) || !invoice) return
-    const rate = rateInput === '' ? null : parseFloat(rateInput.replace(/,/g, ''))
+    const validRates = rateRows
+      .map(r => ({ amount: parseFloat(r.amount.replace(/,/g, '')), rate: parseFloat(r.rate.replace(/,/g, '')) }))
+      .filter(r => !isNaN(r.amount) && r.amount > 0 && !isNaN(r.rate) && r.rate > 0)
+    const exchangeRates = validRates.length > 0 ? validRates : null
+    const singleRate = validRates.length === 1 ? validRates[0].rate : null
     setSavingTotal(true)
-    await supabase.from('invoices').update({ total_amount: num, currency: currencyInput || null, exchange_rate: rate }).eq('id', id)
-    setInvoice(prev => prev ? { ...prev, total_amount: num, currency: currencyInput || null, exchange_rate: rate } : prev)
+    await supabase.from('invoices').update({
+      total_amount: num, currency: currencyInput || null,
+      exchange_rate: singleRate, exchange_rates: exchangeRates,
+    }).eq('id', id)
+    setInvoice(prev => prev ? {
+      ...prev, total_amount: num, currency: currencyInput || null,
+      exchange_rate: singleRate, exchange_rates: exchangeRates,
+    } : prev)
     setEditTotal(false)
     setSavingTotal(false)
   }
@@ -442,12 +464,38 @@ export default function InvoiceDetailPage() {
                   placeholder="สกุลเงิน เช่น CNY"
                   className="border border-gray-300 rounded px-2 py-1 text-sm outline-none focus:border-blue-400 w-full"
                 />
-                <input
-                  type="text" value={rateInput}
-                  onChange={e => setRateInput(e.target.value)}
-                  placeholder="Exchange Rate เช่น 4.85"
-                  className="border border-gray-300 rounded px-2 py-1 text-sm outline-none focus:border-blue-400 w-full"
-                />
+                <div className="mt-1">
+                  <p className="text-xs text-gray-400 mb-1">Exchange Rate (จำนวน × rate)</p>
+                  {rateRows.map((row, i) => (
+                    <div key={i} className="flex gap-1 mb-1 items-center">
+                      <input
+                        type="text" value={row.amount}
+                        onChange={e => updateRateRow(i, 'amount', e.target.value)}
+                        placeholder="จำนวนเงิน"
+                        className="border border-gray-300 rounded px-2 py-1 text-xs outline-none focus:border-blue-400 w-24"
+                      />
+                      <span className="text-xs text-gray-400">×</span>
+                      <input
+                        type="text" value={row.rate}
+                        onChange={e => updateRateRow(i, 'rate', e.target.value)}
+                        placeholder="Rate"
+                        className="border border-gray-300 rounded px-2 py-1 text-xs outline-none focus:border-blue-400 w-20"
+                      />
+                      {rateRows.length > 1 && (
+                        <button onClick={() => removeRateRow(i)} className="text-gray-300 hover:text-red-400 text-xs px-1">×</button>
+                      )}
+                    </div>
+                  ))}
+                  <button onClick={addRateRow} className="text-xs text-blue-500 hover:text-blue-700">+ เพิ่ม rate</button>
+                  {(() => {
+                    const total = rateRows.reduce((s, r) => {
+                      const a = parseFloat(r.amount.replace(/,/g, '') || '0')
+                      const rt = parseFloat(r.rate.replace(/,/g, '') || '0')
+                      return s + (isNaN(a) || isNaN(rt) ? 0 : a * rt)
+                    }, 0)
+                    return total > 0 ? <p className="text-xs text-gray-400 mt-1">= {total.toLocaleString(undefined, {minimumFractionDigits:2,maximumFractionDigits:2})} THB</p> : null
+                  })()}
+                </div>
                 <div className="flex gap-1 mt-1">
                   <button
                     onClick={saveTotalAmount}
@@ -469,9 +517,20 @@ export default function InvoiceDetailPage() {
                       {invoice.total_amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </p>
                     <p className="text-xs text-gray-500">{invoice.currency || ''}</p>
-                    {invoice.exchange_rate != null && (
+                    {invoice.exchange_rates && invoice.exchange_rates.length > 0 ? (
+                      <div className="mt-0.5 space-y-0.5">
+                        {invoice.exchange_rates.length > 1 && invoice.exchange_rates.map((e, i) => (
+                          <p key={i} className="text-xs text-gray-400">
+                            {e.amount.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} × {e.rate}
+                          </p>
+                        ))}
+                        <p className="text-xs text-gray-500 font-medium">
+                          = {invoice.exchange_rates.reduce((s,e)=>s+e.amount*e.rate,0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} THB
+                        </p>
+                      </div>
+                    ) : invoice.exchange_rate != null ? (
                       <p className="text-xs text-gray-400 mt-0.5">Rate: {invoice.exchange_rate} THB/{invoice.currency || '?'}</p>
-                    )}
+                    ) : null}
                   </>
                 ) : (
                   <p className="text-sm text-gray-400">-</p>
@@ -480,7 +539,13 @@ export default function InvoiceDetailPage() {
                   onClick={() => requireUnlock(() => {
                     setTotalInput(invoice.total_amount ? String(invoice.total_amount) : '')
                     setCurrencyInput(invoice.currency || '')
-                    setRateInput(invoice.exchange_rate != null ? String(invoice.exchange_rate) : '')
+                    if (invoice.exchange_rates && invoice.exchange_rates.length > 0) {
+                      setRateRows(invoice.exchange_rates.map(e => ({ amount: String(e.amount), rate: String(e.rate) })))
+                    } else if (invoice.exchange_rate != null) {
+                      setRateRows([{ amount: invoice.total_amount ? String(invoice.total_amount) : '', rate: String(invoice.exchange_rate) }])
+                    } else {
+                      setRateRows([{ amount: '', rate: '' }])
+                    }
                     setEditTotal(true)
                   })}
                   className="text-xs text-blue-500 hover:text-blue-700 mt-1"
