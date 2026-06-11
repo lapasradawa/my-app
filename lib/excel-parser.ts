@@ -46,17 +46,17 @@ function findExactColIndex(row: unknown[], keyword: string): number {
 function parseCISheet(sheet: XLSX.WorkSheet): { code: string; description: string; qty: number; marks: string }[] {
   const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' })
 
-  // Support YONGGUAN ("Fixture code") and LITELON ("Product Code", "Item no") formats
-  const headerIdx = findHeaderRowIndex(rows, 'Fixture code', 'Product Code', 'Item no')
-  if (headerIdx === -1) throw new Error('ไม่พบ header ในชีท CI (Fixture code / Product Code / Item no)')
+  // Support YONGGUAN ("Fixture code"), LITELON ("Product Code", "Item no"), DC30 ("Item code") formats
+  const headerIdx = findHeaderRowIndex(rows, 'Fixture code', 'Product Code', 'Item no', 'Item code')
+  if (headerIdx === -1) throw new Error('ไม่พบ header ในชีท CI (Fixture code / Product Code / Item no / Item code)')
 
   const header = rows[headerIdx] as unknown[]
   const codeCol = findColIndex(header, 'Fixture', 'Product Code', 'Item no', 'Code')
   const qtyCol = findColIndex(header, 'QTY', 'Qty', 'Quantity')
 
-  // PO: try exact "PO" first (LITELON added column), then MARKS-based (YONGGUAN)
+  // PO: try exact "PO" first (LITELON), then MARKS-based (YONGGUAN), then Remarks (DC30)
   let marksCol = findExactColIndex(header, 'PO')
-  if (marksCol === -1) marksCol = findColIndex(header, 'MARKS', 'Shipping Marks', 'Shipping')
+  if (marksCol === -1) marksCol = findColIndex(header, 'MARKS', 'Shipping Marks', 'Shipping', 'Remarks')
 
   const descCol = findColIndex(header, 'DESCRIPTION', 'Description')
 
@@ -120,13 +120,16 @@ function parseContainerSheet(sheet: XLSX.WorkSheet): Record<string, number> {
 
 // Matches both "#1-Cntr-FCIU6571413/..." and "Cntr-TIIU044096/..." formats
 const CNTR_RE = /(?:#\d+-)?Cntr-([A-Z][A-Z0-9]+)/i
+// Matches ISO container/seal format "CSNU2005017/CX478086" — container number is before "/"
+const CNTR_ISO_RE = /([A-Z]{4}\d{7})\/[A-Z0-9]+/i
 
-// Check if a sheet contains LITELON-style inline container markers
+// Check if a sheet contains inline container markers (LITELON or DC30 style)
 function hasCombinedPLMarkers(sheet: XLSX.WorkSheet): boolean {
   const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' })
   for (let i = 0; i < Math.min(rows.length, 80); i++) {
     for (const cell of rows[i] as unknown[]) {
-      if (CNTR_RE.test(String(cell || ''))) return true
+      const s = String(cell || '')
+      if (CNTR_RE.test(s) || CNTR_ISO_RE.test(s)) return true
     }
   }
   return false
@@ -146,7 +149,7 @@ function parseCombinedPLSheet(sheet: XLSX.WorkSheet): { containerNames: string[]
 
   for (let i = 0; i < Math.min(rows.length, 15); i++) {
     const lower = (rows[i] as unknown[]).map(c => String(c || '').toLowerCase())
-    const itemIdx = lower.findIndex(c => c.includes('item no') || c.includes('product code'))
+    const itemIdx = lower.findIndex(c => c.includes('item no') || c.includes('product code') || c.includes('item code'))
     if (itemIdx !== -1) {
       codeCol = itemIdx
       for (let j = itemIdx + 1; j < lower.length; j++) {
@@ -160,10 +163,11 @@ function parseCombinedPLSheet(sheet: XLSX.WorkSheet): { containerNames: string[]
   }
 
   for (const row of rows as unknown[][]) {
-    // Scan every cell for container marker
+    // Scan every cell for container marker (LITELON or DC30 ISO format)
     let isMarker = false
     for (const cell of row) {
-      const match = String(cell || '').match(CNTR_RE)
+      const s = String(cell || '')
+      const match = s.match(CNTR_RE) || s.match(CNTR_ISO_RE)
       if (match) {
         currentContainer = match[1].toUpperCase()
         if (!containerMaps[currentContainer]) {
@@ -178,7 +182,7 @@ function parseCombinedPLSheet(sheet: XLSX.WorkSheet): { containerNames: string[]
 
     const code = String(row[codeCol] || '').trim()
     if (!code) continue
-    if (/item no|product code/i.test(code)) continue  // header row
+    if (/item no|product code|item code/i.test(code)) continue  // header row
     if (!/^[A-Z0-9]/i.test(code)) continue             // must start alphanumeric
     if (code.toUpperCase().includes('TOTAL')) continue
 
