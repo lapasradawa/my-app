@@ -350,7 +350,7 @@ export default function DashboardPage() {
                 <tr className="bg-gray-50 text-gray-600 border-b border-gray-200">
                   <th className="px-4 py-3 text-left font-medium">Invoice No.</th>
                   <th className="px-4 py-3 text-left font-medium">Supplier</th>
-                  <th className="px-4 py-3 text-left font-medium">สถานะ</th>
+                  <th className="px-4 py-3 text-left font-medium whitespace-nowrap">สถานะ</th>
                   <th className="px-4 py-3 text-left font-medium whitespace-nowrap">วันที่ถึงท่าเรือไทย (ETA)</th>
                   <th className="px-4 py-3 text-left font-medium">ประมาณการเข้าคลัง</th>
                   <th className="px-4 py-3 text-left font-medium whitespace-nowrap">วันที่บันทึก</th>
@@ -384,7 +384,7 @@ export default function DashboardPage() {
                           <span className="text-xs text-gray-700">{inv.supplier || <span className="text-gray-300">—</span>}</span>
                         )}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 whitespace-nowrap">
                         {unlocked && displaySt !== 'เข้าคลังแล้ว' ? (
                           <select
                             value={e.status === 'ถึงคลัง' || e.status === 'ถึงไทย กำลังเข้าคลัง' ? 'กำลังเข้าคลัง' : e.status}
@@ -394,7 +394,7 @@ export default function DashboardPage() {
                             {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
                           </select>
                         ) : (
-                          <span className={`text-xs font-medium px-2 py-1 rounded-full border ${STATUS_STYLE[displaySt] || 'bg-gray-100 text-gray-700 border-gray-300'}`}>
+                          <span className={`text-xs font-medium px-2 py-1 rounded-full border whitespace-nowrap ${STATUS_STYLE[displaySt] || 'bg-gray-100 text-gray-700 border-gray-300'}`}>
                             {displaySt}
                           </span>
                         )}
