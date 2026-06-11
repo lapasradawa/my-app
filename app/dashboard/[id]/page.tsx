@@ -35,6 +35,7 @@ interface Invoice {
   cost_saving: number | null
   cost_saving_pct: number | null
   cost_saving_file_url: string | null
+  exchange_rate: number | null
 }
 
 function computeDueDate(blDate: string | null): Date | null {
@@ -108,6 +109,7 @@ export default function InvoiceDetailPage() {
   const [editTotal, setEditTotal] = useState(false)
   const [totalInput, setTotalInput] = useState('')
   const [currencyInput, setCurrencyInput] = useState('')
+  const [rateInput, setRateInput] = useState('')
   const [savingTotal, setSavingTotal] = useState(false)
 
   // B/L date edit
@@ -156,9 +158,10 @@ export default function InvoiceDetailPage() {
   async function saveTotalAmount() {
     const num = parseFloat(totalInput.replace(/,/g, ''))
     if (isNaN(num) || !invoice) return
+    const rate = rateInput === '' ? null : parseFloat(rateInput.replace(/,/g, ''))
     setSavingTotal(true)
-    await supabase.from('invoices').update({ total_amount: num, currency: currencyInput || null }).eq('id', id)
-    setInvoice(prev => prev ? { ...prev, total_amount: num, currency: currencyInput || null } : prev)
+    await supabase.from('invoices').update({ total_amount: num, currency: currencyInput || null, exchange_rate: rate }).eq('id', id)
+    setInvoice(prev => prev ? { ...prev, total_amount: num, currency: currencyInput || null, exchange_rate: rate } : prev)
     setEditTotal(false)
     setSavingTotal(false)
   }
@@ -438,6 +441,12 @@ export default function InvoiceDetailPage() {
                   placeholder="สกุลเงิน เช่น CNY"
                   className="border border-gray-300 rounded px-2 py-1 text-sm outline-none focus:border-blue-400 w-full"
                 />
+                <input
+                  type="text" value={rateInput}
+                  onChange={e => setRateInput(e.target.value)}
+                  placeholder="Exchange Rate เช่น 4.85"
+                  className="border border-gray-300 rounded px-2 py-1 text-sm outline-none focus:border-blue-400 w-full"
+                />
                 <div className="flex gap-1 mt-1">
                   <button
                     onClick={saveTotalAmount}
@@ -459,6 +468,9 @@ export default function InvoiceDetailPage() {
                       {invoice.total_amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </p>
                     <p className="text-xs text-gray-500">{invoice.currency || ''}</p>
+                    {invoice.exchange_rate != null && (
+                      <p className="text-xs text-gray-400 mt-0.5">Rate: {invoice.exchange_rate} THB/{invoice.currency || '?'}</p>
+                    )}
                   </>
                 ) : (
                   <p className="text-sm text-gray-400">-</p>
@@ -467,6 +479,7 @@ export default function InvoiceDetailPage() {
                   onClick={() => requireUnlock(() => {
                     setTotalInput(invoice.total_amount ? String(invoice.total_amount) : '')
                     setCurrencyInput(invoice.currency || '')
+                    setRateInput(invoice.exchange_rate != null ? String(invoice.exchange_rate) : '')
                     setEditTotal(true)
                   })}
                   className="text-xs text-blue-500 hover:text-blue-700 mt-1"
