@@ -336,9 +336,9 @@ export default function DashboardPage() {
             ยังไม่มี Invoice — <Link href="/" className="text-blue-600 underline">ไปอัปโหลด</Link>
           </div>
         ) : (
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-auto max-h-[calc(100vh-320px)]">
             <table className="w-full text-sm">
-              <thead>
+              <thead className="sticky top-0 z-10">
                 <tr className="bg-gray-50 text-gray-600 border-b border-gray-200">
                   <th className="px-4 py-3 text-left font-medium">Invoice No.</th>
                   <th className="px-4 py-3 text-left font-medium">Supplier</th>
