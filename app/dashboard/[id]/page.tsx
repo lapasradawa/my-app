@@ -588,185 +588,120 @@ export default function InvoiceDetailPage() {
           </div>
         </div>
 
-        {/* Documents */}
-        <div className="grid grid-cols-2 gap-4 mb-6">
+        {/* Documents + Cost Saving — 3 equal columns */}
+        <div className="grid grid-cols-3 gap-4 mb-6">
           {/* ใบขน */}
           <div className="bg-white rounded-xl border border-gray-200 p-4">
             <p className="text-xs text-gray-400 mb-2">เอกสารใบขน</p>
             {invoice.baikon_url ? (
               <div className="flex flex-col gap-2">
-                <a
-                  href={invoice.baikon_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-800 font-medium"
-                >
+                <a href={invoice.baikon_url} target="_blank" rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-800 font-medium">
                   <span>📄</span> ดู / ดาวน์โหลด ใบขน
                 </a>
-                <button
-                  onClick={() => requireUnlock(() => baikonRef.current?.click())}
-                  className="text-xs text-gray-400 hover:text-gray-600 self-start"
-                >
+                <button onClick={() => requireUnlock(() => baikonRef.current?.click())}
+                  className="text-xs text-gray-400 hover:text-gray-600 self-start">
                   {uploadingBaikon ? 'กำลังอัปโหลด...' : 'เปลี่ยนไฟล์'}
                 </button>
               </div>
             ) : (
-              <button
-                onClick={() => requireUnlock(() => baikonRef.current?.click())}
-                disabled={uploadingBaikon}
-                className="flex items-center gap-2 border-2 border-dashed border-gray-200 rounded-lg px-4 py-3 text-sm text-gray-400 hover:border-blue-300 hover:text-blue-500 w-full justify-center transition-colors disabled:opacity-50"
-              >
+              <button onClick={() => requireUnlock(() => baikonRef.current?.click())} disabled={uploadingBaikon}
+                className="flex items-center gap-2 border-2 border-dashed border-gray-200 rounded-lg px-4 py-3 text-sm text-gray-400 hover:border-blue-300 hover:text-blue-500 w-full justify-center transition-colors disabled:opacity-50">
                 {uploadingBaikon ? 'กำลังอัปโหลด...' : '+ อัปโหลดใบขน (PDF)'}
               </button>
             )}
-            <input
-              ref={baikonRef} type="file" accept=".pdf" className="hidden"
-              onChange={e => { const f = e.target.files?.[0]; if (f) uploadDoc(f, 'baikon') }}
-            />
+            <input ref={baikonRef} type="file" accept=".pdf" className="hidden"
+              onChange={e => { const f = e.target.files?.[0]; if (f) uploadDoc(f, 'baikon') }} />
           </div>
 
-          {/* B/L Document */}
+          {/* B/L */}
           <div className="bg-white rounded-xl border border-gray-200 p-4">
             <p className="text-xs text-gray-400 mb-2">เอกสาร B/L</p>
             {invoice.bl_doc_url ? (
               <div className="flex flex-col gap-2">
-                <a
-                  href={invoice.bl_doc_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-800 font-medium"
-                >
+                <a href={invoice.bl_doc_url} target="_blank" rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-800 font-medium">
                   <span>📄</span> ดู / ดาวน์โหลด B/L
                 </a>
-                <button
-                  onClick={() => requireUnlock(() => blDocRef.current?.click())}
-                  className="text-xs text-gray-400 hover:text-gray-600 self-start"
-                >
+                <button onClick={() => requireUnlock(() => blDocRef.current?.click())}
+                  className="text-xs text-gray-400 hover:text-gray-600 self-start">
                   {uploadingBlDoc ? 'กำลังอัปโหลด...' : 'เปลี่ยนไฟล์'}
                 </button>
               </div>
             ) : (
-              <button
-                onClick={() => requireUnlock(() => blDocRef.current?.click())}
-                disabled={uploadingBlDoc}
-                className="flex items-center gap-2 border-2 border-dashed border-gray-200 rounded-lg px-4 py-3 text-sm text-gray-400 hover:border-blue-300 hover:text-blue-500 w-full justify-center transition-colors disabled:opacity-50"
-              >
+              <button onClick={() => requireUnlock(() => blDocRef.current?.click())} disabled={uploadingBlDoc}
+                className="flex items-center gap-2 border-2 border-dashed border-gray-200 rounded-lg px-4 py-3 text-sm text-gray-400 hover:border-blue-300 hover:text-blue-500 w-full justify-center transition-colors disabled:opacity-50">
                 {uploadingBlDoc ? 'กำลังอัปโหลด...' : '+ อัปโหลด B/L (PDF)'}
               </button>
             )}
-            <input
-              ref={blDocRef} type="file" accept=".pdf" className="hidden"
-              onChange={e => { const f = e.target.files?.[0]; if (f) uploadDoc(f, 'bl') }}
-            />
-          </div>
-        </div>
-
-        {/* Cost Saving */}
-        <div className="bg-white rounded-xl border border-gray-200 p-4 mb-6">
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Cost Saving</p>
-            {!editCost && (
-              <button
-                onClick={() => requireUnlock(() => {
-                  setCostInput(invoice.cost_saving != null ? String(invoice.cost_saving) : '')
-                  setCostPctInput(invoice.cost_saving_pct != null ? String(invoice.cost_saving_pct) : '')
-                  setEditCost(true)
-                })}
-                className="text-xs text-blue-500 hover:text-blue-700"
-              >
-                {invoice.cost_saving != null ? 'แก้ไข' : '+ เพิ่มข้อมูล'}
-              </button>
-            )}
+            <input ref={blDocRef} type="file" accept=".pdf" className="hidden"
+              onChange={e => { const f = e.target.files?.[0]; if (f) uploadDoc(f, 'bl') }} />
           </div>
 
-          {editCost ? (
-            <div className="flex flex-wrap items-end gap-4">
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Cost Saving (THB)</label>
-                <input
-                  type="number" value={costInput}
-                  onChange={e => setCostInput(e.target.value)}
-                  placeholder="0.00"
-                  className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-blue-400 w-40"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">% Cost Saving</label>
-                <input
-                  type="number" value={costPctInput}
-                  onChange={e => setCostPctInput(e.target.value)}
-                  placeholder="0.00"
-                  className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-blue-400 w-32"
-                />
-              </div>
-              <div className="flex gap-2">
+          {/* Cost Saving */}
+          <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs text-gray-400">Cost Saving</p>
+              {!editCost && (
                 <button
-                  onClick={() => setEditCost(false)}
-                  className="text-sm px-3 py-1.5 text-gray-500 hover:bg-gray-100 rounded-lg"
-                >ยกเลิก</button>
-                <button
-                  onClick={saveCostSaving}
-                  disabled={savingCost}
-                  className="text-sm px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-                >{savingCost ? 'กำลังบันทึก...' : 'บันทึก'}</button>
-              </div>
-            </div>
-          ) : (
-            <div className="flex flex-wrap gap-8 mb-3">
-              <div>
-                <p className="text-xs text-gray-400">Cost Saving</p>
-                <p className="text-base font-semibold text-gray-800">
-                  {invoice.cost_saving != null
-                    ? `${invoice.cost_saving.toLocaleString()} THB`
-                    : <span className="text-gray-300 font-normal">—</span>}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-400">% Cost Saving</p>
-                <p className="text-base font-semibold text-green-600">
-                  {invoice.cost_saving_pct != null
-                    ? `${invoice.cost_saving_pct}%`
-                    : <span className="text-gray-300 font-normal">—</span>}
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Cost saving Excel file */}
-          <div className="mt-3 pt-3 border-t border-gray-100">
-            <p className="text-xs text-gray-400 mb-2">ไฟล์ Cost Saving (Excel)</p>
-            {invoice.cost_saving_file_url ? (
-              <div className="flex items-center gap-4">
-                <a
-                  href={invoice.cost_saving_file_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-800 font-medium"
-                >
-                  <span>📊</span> ดาวน์โหลดไฟล์ Cost Saving
-                </a>
-                <button
-                  onClick={() => requireUnlock(() => costFileRef.current?.click())}
-                  className="text-xs text-gray-400 hover:text-gray-600"
-                >
-                  {uploadingCostFile ? 'กำลังอัปโหลด...' : 'เปลี่ยนไฟล์'}
+                  onClick={() => requireUnlock(() => {
+                    setCostInput(invoice.cost_saving != null ? String(invoice.cost_saving) : '')
+                    setCostPctInput(invoice.cost_saving_pct != null ? String(invoice.cost_saving_pct) : '')
+                    setEditCost(true)
+                  })}
+                  className="text-xs text-blue-500 hover:text-blue-700">
+                  {invoice.cost_saving != null ? 'แก้ไข' : '+ เพิ่มข้อมูล'}
                 </button>
+              )}
+            </div>
+            {editCost ? (
+              <div className="flex flex-col gap-2">
+                <input type="number" value={costInput} onChange={e => setCostInput(e.target.value)}
+                  placeholder="Cost Saving (THB)"
+                  className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-blue-400 w-full" />
+                <input type="number" value={costPctInput} onChange={e => setCostPctInput(e.target.value)}
+                  placeholder="% Cost Saving"
+                  className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-blue-400 w-full" />
+                <div className="flex gap-2 mt-1">
+                  <button onClick={() => setEditCost(false)}
+                    className="text-sm px-3 py-1 text-gray-500 hover:bg-gray-100 rounded-lg">ยกเลิก</button>
+                  <button onClick={saveCostSaving} disabled={savingCost}
+                    className="text-sm px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                    {savingCost ? 'บันทึก...' : 'บันทึก'}
+                  </button>
+                </div>
               </div>
             ) : (
-              <button
-                onClick={() => requireUnlock(() => costFileRef.current?.click())}
-                disabled={uploadingCostFile}
-                className="flex items-center gap-2 border-2 border-dashed border-gray-200 rounded-lg px-4 py-3 text-sm text-gray-400 hover:border-blue-300 hover:text-blue-500 w-full justify-center transition-colors disabled:opacity-50"
-              >
-                {uploadingCostFile ? 'กำลังอัปโหลด...' : '+ อัปโหลดไฟล์ Cost Saving (Excel)'}
-              </button>
+              <div className="mb-3 space-y-1">
+                <p className="text-sm font-semibold text-gray-800">
+                  {invoice.cost_saving != null ? `${invoice.cost_saving.toLocaleString()} THB` : <span className="text-gray-300 font-normal">—</span>}
+                </p>
+                <p className="text-sm font-semibold text-green-600">
+                  {invoice.cost_saving_pct != null ? `${invoice.cost_saving_pct}%` : <span className="text-gray-300 font-normal">—</span>}
+                </p>
+              </div>
             )}
-            <input
-              ref={costFileRef} type="file"
-              accept=".xlsx,.xls,.csv"
-              className="hidden"
-              onChange={e => { const f = e.target.files?.[0]; if (f) uploadCostFile(f); e.target.value = '' }}
-            />
+            <div className="pt-2 border-t border-gray-100 mt-2">
+              {invoice.cost_saving_file_url ? (
+                <div className="flex flex-col gap-1">
+                  <a href={invoice.cost_saving_file_url} target="_blank" rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-800 font-medium">
+                    <span>📊</span> ดาวน์โหลด Cost Saving
+                  </a>
+                  <button onClick={() => requireUnlock(() => costFileRef.current?.click())}
+                    className="text-xs text-gray-400 hover:text-gray-600 self-start">
+                    {uploadingCostFile ? 'กำลังอัปโหลด...' : 'เปลี่ยนไฟล์'}
+                  </button>
+                </div>
+              ) : (
+                <button onClick={() => requireUnlock(() => costFileRef.current?.click())} disabled={uploadingCostFile}
+                  className="flex items-center gap-2 border-2 border-dashed border-gray-200 rounded-lg px-3 py-2 text-xs text-gray-400 hover:border-blue-300 hover:text-blue-500 w-full justify-center transition-colors disabled:opacity-50">
+                  {uploadingCostFile ? 'กำลังอัปโหลด...' : '+ อัปโหลด Excel Cost Saving'}
+                </button>
+              )}
+              <input ref={costFileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
+                onChange={e => { const f = e.target.files?.[0]; if (f) uploadCostFile(f); e.target.value = '' }} />
+            </div>
           </div>
         </div>
 
