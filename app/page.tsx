@@ -329,7 +329,7 @@ export default function Home() {
                         <td className="px-3 py-2 font-mono text-xs text-gray-900">{row.code}</td>
                         <td className="px-3 py-2 text-gray-700">{row.description}</td>
                         <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{row.po}</td>
-                        <td className="px-3 py-2 text-right font-medium">{row.qty.toLocaleString()}</td>
+                        <td className="px-3 py-2 text-right font-medium text-gray-900">{row.qty.toLocaleString()}</td>
                         {result.containerNames.map(name => (
                           <td key={name} className="px-3 py-2 text-right text-gray-500">
                             {fmt(row.containers[name])}
