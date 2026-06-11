@@ -8,13 +8,14 @@ import { isUnlocked } from '@/lib/auth'
 import LockButton from '@/components/LockButton'
 import PasswordModal from '@/components/PasswordModal'
 
-const STATUSES = ['อยู่ที่จีน', 'On board', 'ถึงไทย กำลังเข้าคลัง'] as const
+const STATUSES = ['อยู่ที่จีน', 'On board', 'กำลังเข้าคลัง'] as const
 type Status = typeof STATUSES[number]
 
 const STATUS_STYLE: Record<string, string> = {
   'อยู่ที่จีน': 'bg-yellow-100 text-yellow-800 border-yellow-300',
   'On board': 'bg-blue-100 text-blue-800 border-blue-300',
-  'ถึงไทย กำลังเข้าคลัง': 'bg-orange-100 text-orange-800 border-orange-300',
+  'กำลังเข้าคลัง': 'bg-orange-100 text-orange-800 border-orange-300',
+  'ถึงไทย กำลังเข้าคลัง': 'bg-orange-100 text-orange-800 border-orange-300', // legacy
   'ถึงคลัง': 'bg-orange-100 text-orange-800 border-orange-300', // legacy
   'เข้าคลังแล้ว': 'bg-green-100 text-green-800 border-green-300',
 }
@@ -22,7 +23,8 @@ const STATUS_STYLE: Record<string, string> = {
 const STATUS_BADGE: Record<string, string> = {
   'อยู่ที่จีน': 'bg-yellow-100 text-yellow-800',
   'On board': 'bg-blue-100 text-blue-800',
-  'ถึงไทย กำลังเข้าคลัง': 'bg-orange-100 text-orange-800',
+  'กำลังเข้าคลัง': 'bg-orange-100 text-orange-800',
+  'ถึงไทย กำลังเข้าคลัง': 'bg-orange-100 text-orange-800', // legacy
   'ถึงคลัง': 'bg-orange-100 text-orange-800', // legacy
   'เข้าคลังแล้ว': 'bg-green-100 text-green-800',
 }
@@ -31,7 +33,7 @@ const STATUS_BADGE: Record<string, string> = {
 function computeStatus(status: string | null, arrival: string | null, arrivalEnd: string | null): string {
   const base = status || 'อยู่ที่จีน'
   // normalize legacy value
-  const normalized = base === 'ถึงคลัง' ? 'ถึงไทย กำลังเข้าคลัง' : base
+  const normalized = (base === 'ถึงคลัง' || base === 'ถึงไทย กำลังเข้าคลัง') ? 'กำลังเข้าคลัง' : base
   if (!arrival || normalized === 'อยู่ที่จีน') return normalized
   const today = new Date(); today.setHours(0, 0, 0, 0)
   const checkDate = new Date(arrivalEnd || arrival)
@@ -360,7 +362,7 @@ export default function DashboardPage() {
               <tbody>
                 {invoices.map((inv) => {
                   const e = edits[inv.id] || { status: 'อยู่ที่จีน' as Status, estimated_arrival: '', estimated_arrival_end: '' }
-                  const showDate = e.status === 'On board' || e.status === 'ถึงไทย กำลังเข้าคลัง' || e.status === 'ถึงคลัง'
+                  const showDate = e.status === 'On board' || e.status === 'กำลังเข้าคลัง' || e.status === 'ถึงไทย กำลังเข้าคลัง' || e.status === 'ถึงคลัง'
                   const displaySt = computeStatus(inv.status, inv.estimated_arrival, inv.estimated_arrival_end)
                   return (
                     <tr key={inv.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50/60 transition-colors">
@@ -385,7 +387,7 @@ export default function DashboardPage() {
                       <td className="px-4 py-3">
                         {unlocked && displaySt !== 'เข้าคลังแล้ว' ? (
                           <select
-                            value={e.status === 'ถึงคลัง' ? 'ถึงไทย กำลังเข้าคลัง' : e.status}
+                            value={e.status === 'ถึงคลัง' || e.status === 'ถึงไทย กำลังเข้าคลัง' ? 'กำลังเข้าคลัง' : e.status}
                             onChange={ev => setField(inv.id, 'status', ev.target.value as Status)}
                             className={`text-xs font-medium px-2 py-1 rounded-full border cursor-pointer outline-none ${STATUS_STYLE[e.status] || ''}`}
                           >
