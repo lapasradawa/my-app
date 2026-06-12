@@ -123,13 +123,25 @@ export default function ComparePage() {
         const key = `${item.supplier}__${item.item_code}`
         if (!seen.has(key)) { seen.add(key); latest.push(item) }
       }
+      // Pick the latest description per item_code across all suppliers
+      const descMap = new Map<string, { description: string; uploaded_at: string }>()
+      for (const item of latest) {
+        const cur = descMap.get(item.item_code)
+        if (!cur || item.uploaded_at > cur.uploaded_at)
+          descMap.set(item.item_code, { description: item.description || '', uploaded_at: item.uploaded_at })
+      }
+
       const supplierSet = new Set<string>()
       const itemMap = new Map<string, TableRow>()
       const dates: Record<string, string> = {}
       for (const item of latest) {
         supplierSet.add(item.supplier)
         if (!itemMap.has(item.item_code)) {
-          itemMap.set(item.item_code, { item_code: item.item_code, description: item.description || '', prices: {} })
+          itemMap.set(item.item_code, {
+            item_code: item.item_code,
+            description: descMap.get(item.item_code)?.description ?? '',
+            prices: {},
+          })
         }
         itemMap.get(item.item_code)!.prices[item.supplier] = {
           fob_price: item.fob_price, currency: item.currency, uploaded_at: item.uploaded_at,
