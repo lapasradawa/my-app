@@ -58,6 +58,8 @@ export default function ComparePage() {
   const fileRef = useRef<HTMLInputElement>(null)
 
   const [history, setHistory] = useState<{ item_code: string; supplier: string; entries: POItemDB[] } | null>(null)
+  const [replaceMode, setReplaceMode] = useState(false)
+  const [deletingSupplier, setDeletingSupplier] = useState<string | null>(null)
 
   const [unlocked, setUnlocked] = useState(false)
   const [showPasswordModal, setShowPasswordModal] = useState(false)
@@ -136,15 +138,32 @@ export default function ComparePage() {
     setLoadingTable(false)
   }
 
+  async function deleteSupplier(project: string, supplier: string) {
+    setDeletingSupplier(supplier)
+    const { error } = await supabase.from('po_items').delete().eq('project', project).eq('supplier', supplier)
+    if (error) { alert('ลบไม่สำเร็จ: ' + error.message) }
+    else {
+      await loadProjects()
+      await loadProject(project)
+    }
+    setDeletingSupplier(null)
+  }
+
   async function handleFileUpload(file: File) {
     setUploading(true)
+    const proj = uploadProject.trim()
+    const supp = uploadSupplier.trim()
     try {
       const buf = await file.arrayBuffer()
       const { items } = parsePO(buf)
       if (items.length === 0) { alert('ไม่พบข้อมูล item ในไฟล์'); return }
+      if (replaceMode) {
+        const { error } = await supabase.from('po_items').delete().eq('project', proj).eq('supplier', supp)
+        if (error) { alert('ลบข้อมูลเดิมไม่สำเร็จ: ' + error.message); return }
+      }
       const rows = items.map(item => ({
-        project: uploadProject.trim(),
-        supplier: uploadSupplier.trim(),
+        project: proj,
+        supplier: supp,
         item_code: item.item_code,
         description: item.description || null,
         fob_price: item.fob_price,
@@ -154,9 +173,9 @@ export default function ComparePage() {
       }))
       const { error } = await supabase.from('po_items').insert(rows)
       if (error) { alert('บันทึกไม่สำเร็จ: ' + error.message); return }
-      alert(`บันทึก ${items.length} รายการสำเร็จ`)
+      alert(`บันทึก ${items.length} รายการสำเร็จ${replaceMode ? ' (แทนที่ข้อมูลเดิม)' : ''}`)
       await loadProjects()
-      if (selectedProject === uploadProject.trim()) await loadProject(uploadProject.trim())
+      if (selectedProject === proj) await loadProject(proj)
       setUploadProject('')
       setUploadSupplier('')
     } catch (e) {
@@ -280,6 +299,11 @@ export default function ComparePage() {
               </button>
               <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden"
                 onChange={e => { const f = e.target.files?.[0]; if (f) handleFileUpload(f); e.target.value = '' }} />
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input type="checkbox" checked={replaceMode} onChange={e => setReplaceMode(e.target.checked)}
+                  className="w-3.5 h-3.5 accent-blue-600" />
+                <span className="text-xs text-gray-500">แทนที่ข้อมูลเดิมของ Supplier นี้</span>
+              </label>
               <p className="text-xs text-gray-400">รองรับเฉพาะ Excel (.xlsx, .xls)</p>
             </div>
           </div>
@@ -332,7 +356,19 @@ export default function ComparePage() {
                       </th>
                       {suppliers.map(s => (
                         <th key={s} colSpan={3} className="px-3 py-2 text-center border-l border-gray-600">
-                          <div className="font-semibold">{s}</div>
+                          <div className="flex items-center justify-center gap-2">
+                            <span className="font-semibold">{s}</span>
+                            <button
+                              onClick={() => requireUnlock(() => {
+                                if (confirm(`ลบข้อมูลทั้งหมดของ "${s}" ใน Project "${selectedProject}" ?`))
+                                  deleteSupplier(selectedProject, s)
+                              })}
+                              disabled={deletingSupplier === s}
+                              title="ลบข้อมูล Supplier นี้"
+                              className="text-gray-500 hover:text-red-400 transition-colors disabled:opacity-40 text-xs leading-none">
+                              {deletingSupplier === s ? '...' : '🗑'}
+                            </button>
+                          </div>
                           <div className="font-normal text-gray-400 text-xs">
                             {supplierDates[s] ? `as of ${fmtDate(supplierDates[s])}` : '—'}
                           </div>
