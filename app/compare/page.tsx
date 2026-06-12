@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
+import * as XLSX from 'xlsx'
 import { supabase } from '@/lib/supabase'
 import { parsePO } from '@/lib/po-parser'
 import { isUnlocked } from '@/lib/auth'
@@ -60,6 +61,7 @@ export default function ComparePage() {
 
   const [history, setHistory] = useState<{ item_code: string; supplier: string; entries: POItemDB[] } | null>(null)
   const [replaceMode, setReplaceMode] = useState(false)
+  const [search, setSearch] = useState('')
 
   interface UploadBatch { uploaded_at: string; file_name: string | null; count: number }
   const [managingSupplier, setManagingSupplier] = useState<string | null>(null)
@@ -234,6 +236,28 @@ export default function ComparePage() {
     if (data) setHistory({ item_code, supplier, entries: data as POItemDB[] })
   }
 
+  function exportExcel(rows: TableRow[]) {
+    const header = ['Item Code', 'Description',
+      ...suppliers.flatMap(s => {
+        const currency = rows.find(r => r.prices[s])?.prices[s]?.currency ?? 'CNY'
+        return [`${s} FOB ${currency}`, `${s} FOB THB`, `${s} DDP THB`]
+      })
+    ]
+    const data = rows.map(row => [
+      row.item_code, row.description,
+      ...suppliers.flatMap(s => {
+        const p = row.prices[s]
+        if (!p) return ['', '', ''] as (string | number)[]
+        const fobThb = p.fob_price * getRate(p.currency)
+        return [p.fob_price, fobThb, fobThb * settings.ddp_multiplier] as (string | number)[]
+      })
+    ])
+    const ws = XLSX.utils.aoa_to_sheet([header, ...data])
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Cost Compare')
+    XLSX.writeFile(wb, `CostCompare_${selectedProject}_${new Date().toISOString().slice(0, 10)}.xlsx`)
+  }
+
   function getRate(currency: string) {
     return currency === 'USD' ? settings.usd_rate : settings.cny_rate
   }
@@ -374,16 +398,42 @@ export default function ComparePage() {
         {/* Compare table */}
         {selectedProject && (
           <>
-            <div className="mb-2 flex items-center gap-3">
+            <div className="mb-3 flex items-center gap-3 flex-wrap">
               <h2 className="text-base font-semibold text-gray-800">Project: {selectedProject}</h2>
-              {tableRows.length > 0 && <span className="text-xs text-gray-400">{tableRows.length} รายการ</span>}
+              <span className="text-xs text-gray-400">
+                {search
+                  ? `${tableRows.filter(r => (r.item_code + ' ' + r.description).toLowerCase().includes(search.toLowerCase())).length} / ${tableRows.length} รายการ`
+                  : `${tableRows.length} รายการ`}
+              </span>
+              <input
+                type="text" value={search} onChange={e => setSearch(e.target.value)}
+                placeholder="ค้นหา เช่น Pole, Connector..."
+                className="ml-auto border border-gray-300 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-blue-400 w-56" />
+              {tableRows.length > 0 && (
+                <button
+                  onClick={() => {
+                    const filtered = search
+                      ? tableRows.filter(r => (r.item_code + ' ' + r.description).toLowerCase().includes(search.toLowerCase()))
+                      : tableRows
+                    exportExcel(filtered)
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors">
+                  ↓ Export Excel
+                </button>
+              )}
             </div>
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-auto">
               {loadingTable ? (
                 <div className="text-center py-12 text-gray-400">กำลังโหลด...</div>
               ) : tableRows.length === 0 ? (
                 <div className="text-center py-12 text-gray-400">ไม่มีข้อมูลสำหรับ Project นี้</div>
-              ) : (
+              ) : (() => {
+                const filteredRows = search
+                  ? tableRows.filter(r => (r.item_code + ' ' + r.description).toLowerCase().includes(search.toLowerCase()))
+                  : tableRows
+                return filteredRows.length === 0 ? (
+                  <div className="text-center py-12 text-gray-400">ไม่พบรายการที่ตรงกับ "{search}"</div>
+                ) : (
                 <table className="text-xs border-collapse" style={{ minWidth: 420 + suppliers.length * 270 }}>
                   <thead>
                     <tr className="bg-gray-800 text-white">
@@ -432,7 +482,7 @@ export default function ComparePage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {tableRows.map(row => {
+                    {filteredRows.map(row => {
                       const ddpValues = suppliers
                         .filter(s => row.prices[s])
                         .map(s => ({ s, ddp: row.prices[s].fob_price * getRate(row.prices[s].currency) * settings.ddp_multiplier }))
@@ -480,7 +530,8 @@ export default function ComparePage() {
                     })}
                   </tbody>
                 </table>
-              )}
+                )
+              })()}
             </div>
           </>
         )}
