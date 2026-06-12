@@ -441,8 +441,8 @@ export default function ComparePage() {
                           rowSpan={2} style={{ minWidth: 160 }}>
                         Item Code
                       </th>
-                      <th className="px-3 py-2.5 text-left bg-gray-800 border-r border-gray-600"
-                          rowSpan={2} style={{ minWidth: 240 }}>
+                      <th className="px-3 py-2.5 text-left sticky z-30 bg-gray-800 border-r border-gray-600"
+                          rowSpan={2} style={{ minWidth: 240, left: 160 }}>
                         Description
                       </th>
                       {suppliers.map(s => (
@@ -490,10 +490,10 @@ export default function ComparePage() {
 
                       return (
                         <tr key={row.item_code} className="border-b border-gray-100 hover:bg-blue-50/20 group">
-                          <td className="px-3 py-2 font-mono text-gray-800 sticky left-0 bg-white group-hover:bg-blue-50/10 z-10 border-r border-gray-100 whitespace-nowrap">
+                          <td className="px-3 py-2 font-mono text-gray-800 sticky left-0 bg-white group-hover:bg-blue-50 z-10 border-r border-gray-100 whitespace-nowrap">
                             {row.item_code}
                           </td>
-                          <td className="px-3 py-2 text-gray-600 border-r border-gray-100">
+                          <td className="px-3 py-2 text-gray-600 sticky bg-white group-hover:bg-blue-50 z-10 border-r border-gray-200" style={{ left: 160 }}>
                             {row.description}
                           </td>
                           {suppliers.map(s => {
