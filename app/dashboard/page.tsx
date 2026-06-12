@@ -232,6 +232,7 @@ export default function DashboardPage() {
         <Link href="/" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">PO Matching</Link>
         <Link href="/dashboard" className="text-sm text-blue-600 font-semibold">Dashboard</Link>
         <Link href="/report" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">Report</Link>
+        <Link href="/compare" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">Cost Compare</Link>
         <div className="ml-auto">
           <LockButton onUnlock={() => setUnlocked(true)} onLock={() => setUnlocked(false)} />
         </div>

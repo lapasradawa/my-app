@@ -324,6 +324,7 @@ export default function InvoiceDetailPage() {
         <Link href="/" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">PO Matching</Link>
         <Link href="/dashboard" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">Dashboard</Link>
         <Link href="/report" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">Report</Link>
+        <Link href="/compare" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">Cost Compare</Link>
         <span className="text-gray-300">|</span>
         <span className="text-sm text-blue-600 font-semibold">{invoice.invoice_no}</span>
       </nav>
