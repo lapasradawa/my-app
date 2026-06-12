@@ -18,6 +18,7 @@ interface POItemDB {
   currency: string
   document_no: string | null
   document_date: string | null
+  file_name: string | null
   uploaded_at: string
 }
 
@@ -60,13 +61,13 @@ export default function ComparePage() {
   const [history, setHistory] = useState<{ item_code: string; supplier: string; entries: POItemDB[] } | null>(null)
   const [replaceMode, setReplaceMode] = useState(false)
 
-  interface UploadBatch { uploaded_at: string; document_no: string | null; count: number }
+  interface UploadBatch { uploaded_at: string; file_name: string | null; count: number }
   const [managingSupplier, setManagingSupplier] = useState<string | null>(null)
   const [batches, setBatches] = useState<UploadBatch[]>([])
   const [loadingBatches, setLoadingBatches] = useState(false)
   const [deletingBatch, setDeletingBatch] = useState<string | null>(null)
 
-  const [unlocked, setUnlocked] = useState(false)
+  const [, setUnlocked] = useState(false)
   const [showPasswordModal, setShowPasswordModal] = useState(false)
   const [pendingAction, setPendingAction] = useState<(() => void) | null>(null)
 
@@ -159,14 +160,14 @@ export default function ComparePage() {
     setManagingSupplier(supplier)
     setLoadingBatches(true)
     const { data } = await supabase
-      .from('po_items').select('uploaded_at, document_no')
+      .from('po_items').select('uploaded_at, file_name')
       .eq('project', selectedProject).eq('supplier', supplier)
       .order('uploaded_at', { ascending: false })
     if (data) {
       const batchMap = new Map<string, UploadBatch>()
-      for (const row of data as { uploaded_at: string; document_no: string | null }[]) {
+      for (const row of data as { uploaded_at: string; file_name: string | null }[]) {
         if (!batchMap.has(row.uploaded_at)) {
-          batchMap.set(row.uploaded_at, { uploaded_at: row.uploaded_at, document_no: row.document_no, count: 0 })
+          batchMap.set(row.uploaded_at, { uploaded_at: row.uploaded_at, file_name: row.file_name, count: 0 })
         }
         batchMap.get(row.uploaded_at)!.count++
       }
@@ -209,6 +210,7 @@ export default function ComparePage() {
         currency: item.currency,
         document_no: item.document_no || null,
         document_date: item.document_date || null,
+        file_name: file.name,
       }))
       const { error } = await supabase.from('po_items').insert(rows)
       if (error) { alert('บันทึกไม่สำเร็จ: ' + error.message); return }
@@ -505,7 +507,7 @@ export default function ComparePage() {
                   <thead>
                     <tr className="text-gray-400 text-xs border-b border-gray-100">
                       <th className="pb-2 text-left font-medium">อัปโหลดเมื่อ</th>
-                      <th className="pb-2 text-left font-medium">Document No.</th>
+                      <th className="pb-2 text-left font-medium">Document</th>
                       <th className="pb-2 text-right font-medium">จำนวน item</th>
                       <th className="pb-2"></th>
                     </tr>
@@ -514,7 +516,7 @@ export default function ComparePage() {
                     {batches.map((b, i) => (
                       <tr key={b.uploaded_at} className={`border-b border-gray-50 ${i === 0 ? 'font-medium' : 'text-gray-500'}`}>
                         <td className="py-2.5">{fmtDate(b.uploaded_at)}</td>
-                        <td className="py-2.5 text-xs">{b.document_no || '—'}</td>
+                        <td className="py-2.5 text-xs">{b.file_name || '—'}</td>
                         <td className="py-2.5 text-right">{b.count}</td>
                         <td className="py-2.5 text-right">
                           <button
@@ -553,7 +555,7 @@ export default function ComparePage() {
                 <thead>
                   <tr className="text-gray-400 text-xs border-b border-gray-100">
                     <th className="pb-2 text-left font-medium">บันทึกเมื่อ</th>
-                    <th className="pb-2 text-left font-medium">Document No.</th>
+                    <th className="pb-2 text-left font-medium">Document</th>
                     <th className="pb-2 text-right font-medium">FOB Price</th>
                     <th className="pb-2 text-right font-medium">FOB THB</th>
                   </tr>
@@ -562,7 +564,7 @@ export default function ComparePage() {
                   {history.entries.map((e, i) => (
                     <tr key={e.id} className={`border-b border-gray-50 ${i === 0 ? 'font-medium' : 'text-gray-500'}`}>
                       <td className="py-2">{fmtDate(e.uploaded_at)}</td>
-                      <td className="py-2 text-xs">{e.document_no || '—'}</td>
+                      <td className="py-2 text-xs">{e.file_name || e.document_no || '—'}</td>
                       <td className="py-2 text-right">{fmtN(e.fob_price)} {e.currency}</td>
                       <td className="py-2 text-right">{fmtN(e.fob_price * getRate(e.currency))}</td>
                     </tr>
