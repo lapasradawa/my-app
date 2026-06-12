@@ -59,7 +59,12 @@ export default function ComparePage() {
 
   const [history, setHistory] = useState<{ item_code: string; supplier: string; entries: POItemDB[] } | null>(null)
   const [replaceMode, setReplaceMode] = useState(false)
-  const [deletingSupplier, setDeletingSupplier] = useState<string | null>(null)
+
+  interface UploadBatch { uploaded_at: string; document_no: string | null; count: number }
+  const [managingSupplier, setManagingSupplier] = useState<string | null>(null)
+  const [batches, setBatches] = useState<UploadBatch[]>([])
+  const [loadingBatches, setLoadingBatches] = useState(false)
+  const [deletingBatch, setDeletingBatch] = useState<string | null>(null)
 
   const [unlocked, setUnlocked] = useState(false)
   const [showPasswordModal, setShowPasswordModal] = useState(false)
@@ -138,15 +143,37 @@ export default function ComparePage() {
     setLoadingTable(false)
   }
 
-  async function deleteSupplier(project: string, supplier: string) {
-    setDeletingSupplier(supplier)
-    const { error } = await supabase.from('po_items').delete().eq('project', project).eq('supplier', supplier)
+  async function openManageModal(supplier: string) {
+    setManagingSupplier(supplier)
+    setLoadingBatches(true)
+    const { data } = await supabase
+      .from('po_items').select('uploaded_at, document_no')
+      .eq('project', selectedProject).eq('supplier', supplier)
+      .order('uploaded_at', { ascending: false })
+    if (data) {
+      const batchMap = new Map<string, UploadBatch>()
+      for (const row of data as { uploaded_at: string; document_no: string | null }[]) {
+        if (!batchMap.has(row.uploaded_at)) {
+          batchMap.set(row.uploaded_at, { uploaded_at: row.uploaded_at, document_no: row.document_no, count: 0 })
+        }
+        batchMap.get(row.uploaded_at)!.count++
+      }
+      setBatches([...batchMap.values()])
+    }
+    setLoadingBatches(false)
+  }
+
+  async function deleteBatch(supplier: string, uploaded_at: string) {
+    setDeletingBatch(uploaded_at)
+    const { error } = await supabase.from('po_items').delete()
+      .eq('project', selectedProject).eq('supplier', supplier).eq('uploaded_at', uploaded_at)
     if (error) { alert('ลบไม่สำเร็จ: ' + error.message) }
     else {
+      await openManageModal(supplier)
+      await loadProject(selectedProject)
       await loadProjects()
-      await loadProject(project)
     }
-    setDeletingSupplier(null)
+    setDeletingBatch(null)
   }
 
   async function handleFileUpload(file: File) {
@@ -359,14 +386,10 @@ export default function ComparePage() {
                           <div className="flex items-center justify-center gap-2">
                             <span className="font-semibold">{s}</span>
                             <button
-                              onClick={() => requireUnlock(() => {
-                                if (confirm(`ลบข้อมูลทั้งหมดของ "${s}" ใน Project "${selectedProject}" ?`))
-                                  deleteSupplier(selectedProject, s)
-                              })}
-                              disabled={deletingSupplier === s}
-                              title="ลบข้อมูล Supplier นี้"
-                              className="text-gray-500 hover:text-red-400 transition-colors disabled:opacity-40 text-xs leading-none">
-                              {deletingSupplier === s ? '...' : '🗑'}
+                              onClick={() => requireUnlock(() => openManageModal(s))}
+                              title="จัดการไฟล์ที่อัปโหลด"
+                              className="text-gray-400 hover:text-white transition-colors text-xs leading-none">
+                              ⋯
                             </button>
                           </div>
                           <div className="font-normal text-gray-400 text-xs">
@@ -448,6 +471,59 @@ export default function ComparePage() {
           </>
         )}
       </div>
+
+      {/* Manage Uploads Modal */}
+      {managingSupplier && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg">
+            <div className="flex items-center justify-between p-5 border-b border-gray-100">
+              <div>
+                <h3 className="font-semibold text-gray-800">จัดการไฟล์ที่อัปโหลด</h3>
+                <p className="text-xs text-gray-500 mt-0.5">{selectedProject} — {managingSupplier}</p>
+              </div>
+              <button onClick={() => setManagingSupplier(null)} className="text-gray-300 hover:text-gray-500 text-xl">✕</button>
+            </div>
+            <div className="p-5 overflow-auto max-h-[60vh]">
+              {loadingBatches ? (
+                <p className="text-sm text-gray-400 text-center py-6">กำลังโหลด...</p>
+              ) : batches.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-6">ไม่มีข้อมูล</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-gray-400 text-xs border-b border-gray-100">
+                      <th className="pb-2 text-left font-medium">อัปโหลดเมื่อ</th>
+                      <th className="pb-2 text-left font-medium">Document No.</th>
+                      <th className="pb-2 text-right font-medium">จำนวน item</th>
+                      <th className="pb-2"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {batches.map((b, i) => (
+                      <tr key={b.uploaded_at} className={`border-b border-gray-50 ${i === 0 ? 'font-medium' : 'text-gray-500'}`}>
+                        <td className="py-2.5">{fmtDate(b.uploaded_at)}</td>
+                        <td className="py-2.5 text-xs">{b.document_no || '—'}</td>
+                        <td className="py-2.5 text-right">{b.count}</td>
+                        <td className="py-2.5 text-right">
+                          <button
+                            onClick={() => {
+                              if (confirm(`ลบไฟล์ที่อัปโหลดเมื่อ ${fmtDate(b.uploaded_at)} (${b.count} รายการ)?`))
+                                deleteBatch(managingSupplier, b.uploaded_at)
+                            }}
+                            disabled={deletingBatch === b.uploaded_at}
+                            className="text-xs text-red-400 hover:text-red-600 disabled:opacity-40">
+                            {deletingBatch === b.uploaded_at ? 'กำลังลบ...' : 'ลบ'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* History Modal */}
       {history && (
