@@ -608,7 +608,7 @@ export default function ComparePage() {
                     <th className="pb-2 text-left font-medium">บันทึกเมื่อ</th>
                     <th className="pb-2 text-left font-medium">Document</th>
                     <th className="pb-2 text-right font-medium">FOB Price</th>
-                    <th className="pb-2 text-right font-medium">FOB THB</th>
+                    <th className="pb-2 text-right font-medium">DDP THB</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -617,7 +617,7 @@ export default function ComparePage() {
                       <td className="py-2">{fmtDate(e.uploaded_at)}</td>
                       <td className="py-2 text-xs">{e.file_name || e.document_no || '—'}</td>
                       <td className="py-2 text-right">{fmtN(e.fob_price)} {e.currency}</td>
-                      <td className="py-2 text-right">{fmtN(e.fob_price * getRate(e.currency))}</td>
+                      <td className="py-2 text-right font-semibold">{fmtN(e.fob_price * getRate(e.currency) * settings.ddp_multiplier)}</td>
                     </tr>
                   ))}
                 </tbody>
