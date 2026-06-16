@@ -85,6 +85,7 @@ export default function ReportPage() {
   const [showModal, setShowModal] = useState(false)
   const [commEdits, setCommEdits] = useState<Record<string, string>>({})
   const [commSaving, setCommSaving] = useState<Record<string, boolean>>({})
+  const [rateDetail, setRateDetail] = useState<InvRow | null>(null)
 
   useEffect(() => { load(); setUnlocked(isUnlocked()) }, [])
 
@@ -324,7 +325,12 @@ export default function ReportPage() {
                         <td className="px-3 py-2 border border-gray-200 text-blue-600 font-medium whitespace-nowrap">{inv.invoice_no}</td>
                         <Cell v={fmt(c.fobCny)} gray={c.fobCny == null} />
                         <Cell v={fmt(c.fobUsd)} gray={c.fobUsd == null} />
-                        <Cell v={fmt(c.actualThb)} gray={c.actualThb == null} />
+                        <td
+                          className={`px-3 py-2 border border-gray-200 text-right text-gray-700 ${c.actualThb == null ? 'bg-gray-100' : 'cursor-pointer hover:bg-blue-50 hover:underline'}`}
+                          onClick={() => { if (c.actualThb != null) setRateDetail(inv) }}
+                        >
+                          {fmt(c.actualThb) || <span className="text-gray-300">—</span>}
+                        </td>
                         <td className="px-3 py-2 border border-gray-200 text-center text-gray-600 whitespace-nowrap text-xs">
                           {dueDateStr(inv.bl_date) || <span className="text-gray-300">—</span>}
                         </td>
@@ -395,6 +401,43 @@ export default function ReportPage() {
           </table>
         </div>
       </div>
+
+      {rateDetail && (() => {
+        const entries = rateDetail.exchange_rates && rateDetail.exchange_rates.length > 0
+          ? rateDetail.exchange_rates
+          : (rateDetail.total_amount != null && rateDetail.exchange_rate != null
+              ? [{ amount: rateDetail.total_amount, rate: rateDetail.exchange_rate }]
+              : [])
+        const total = entries.reduce((s, e) => s + e.amount * e.rate, 0)
+        return (
+          <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setRateDetail(null)}>
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between p-5 border-b border-gray-100">
+                <div>
+                  <h3 className="font-semibold text-gray-800">Exchange Rate</h3>
+                  <p className="text-xs text-gray-500 mt-0.5">{rateDetail.invoice_no}</p>
+                </div>
+                <button onClick={() => setRateDetail(null)} className="text-gray-300 hover:text-gray-500 text-xl">✕</button>
+              </div>
+              <div className="p-5">
+                <p className="text-xs text-gray-400 mb-2">{rateDetail.currency}</p>
+                <div className="space-y-1 mb-3">
+                  {entries.map((e, i) => (
+                    <div key={i} className="flex justify-between text-sm text-gray-600">
+                      <span>{fmt(e.amount)} × {e.rate}</span>
+                      <span className="text-gray-400">= {fmt(e.amount * e.rate)}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex justify-between border-t border-gray-100 pt-3 font-semibold text-gray-800">
+                  <span>รวม</span>
+                  <span>{fmt(total)} THB</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
