@@ -110,7 +110,7 @@ export default function PoBuilderPage() {
     sheetRows.push([today, '', '', '', today])
 
     const ws = XLSX.utils.aoa_to_sheet(sheetRows)
-    ws['!cols'] = [{ wch: 6 }, { wch: 28 }, { wch: 48 }, { wch: 10 }, { wch: 18 }, { wch: 14 }]
+    ws['!cols'] = [{ wch: 5 }, { wch: 27 }, { wch: 60 }, { wch: 10 }, { wch: 15 }, { wch: 15 }]
 
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'PO')
