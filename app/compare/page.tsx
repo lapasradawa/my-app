@@ -66,18 +66,6 @@ export default function ComparePage() {
   interface UploadBatch { uploaded_at: string; file_name: string | null; count: number }
   const [managingSupplier, setManagingSupplier] = useState<string | null>(null)
 
-  interface PoBuilderItem {
-    item_code: string
-    description: string
-    fob_price: number | null
-    currency: string
-    qty: string
-  }
-  const [allSuppliers, setAllSuppliers] = useState<string[]>([])
-  const [poSupplier, setPoSupplier] = useState('')
-  const [poItemInput, setPoItemInput] = useState('')
-  const [poItems, setPoItems] = useState<PoBuilderItem[]>([])
-  const [poAdding, setPoAdding] = useState(false)
   const [batches, setBatches] = useState<UploadBatch[]>([])
   const [loadingBatches, setLoadingBatches] = useState(false)
   const [deletingBatch, setDeletingBatch] = useState<string | null>(null)
@@ -119,11 +107,9 @@ export default function ComparePage() {
   }
 
   async function loadProjects() {
-    const { data } = await supabase.from('po_items').select('project, supplier')
+    const { data } = await supabase.from('po_items').select('project')
     if (data) {
-      const rows = data as { project: string; supplier: string }[]
-      setProjects([...new Set(rows.map(r => r.project))].sort())
-      setAllSuppliers([...new Set(rows.map(r => r.supplier))].sort())
+      setProjects([...new Set((data as { project: string }[]).map(r => r.project))].sort())
     }
   }
 
@@ -272,92 +258,6 @@ export default function ComparePage() {
     XLSX.writeFile(wb, `CostCompare_${selectedProject}_${new Date().toISOString().slice(0, 10)}.xlsx`)
   }
 
-  async function addPoItem() {
-    const code = poItemInput.trim()
-    if (!code || !poSupplier) return
-    setPoAdding(true)
-    const { data } = await supabase
-      .from('po_items')
-      .select('item_code, description, fob_price, currency')
-      .ilike('item_code', code)
-      .eq('supplier', poSupplier)
-      .order('uploaded_at', { ascending: false })
-      .limit(1)
-    const found = data?.[0] as { item_code: string; description: string | null; fob_price: number; currency: string } | undefined
-    setPoItems(prev => [...prev, {
-      item_code: found?.item_code ?? code,
-      description: found?.description ?? '',
-      fob_price: found?.fob_price ?? null,
-      currency: found?.currency ?? 'CNY',
-      qty: '',
-    }])
-    setPoItemInput('')
-    setPoAdding(false)
-  }
-
-  async function changePoSupplier(newSupplier: string) {
-    setPoSupplier(newSupplier)
-    if (!newSupplier || poItems.length === 0) return
-    const updated = await Promise.all(poItems.map(async item => {
-      const { data } = await supabase
-        .from('po_items')
-        .select('fob_price, currency, description')
-        .ilike('item_code', item.item_code)
-        .eq('supplier', newSupplier)
-        .order('uploaded_at', { ascending: false })
-        .limit(1)
-      const found = data?.[0] as { fob_price: number; currency: string; description: string | null } | undefined
-      return { ...item, fob_price: found?.fob_price ?? null, currency: found?.currency ?? item.currency }
-    }))
-    setPoItems(updated)
-  }
-
-  function removePoItem(index: number) {
-    setPoItems(prev => prev.filter((_, i) => i !== index))
-  }
-
-  function exportPoExcel() {
-    const currency = poItems.find(i => i.fob_price !== null)?.currency ?? 'CNY'
-    const sheetRows: (string | number)[][] = []
-
-    sheetRows.push([], [], [])
-    sheetRows.push(['No.', 'Item Code', 'Description', 'QTY', `UNIT PRICE (${currency}/PC)`, `TOTAL (${currency})`])
-
-    for (let i = 0; i < 30; i++) {
-      if (i < poItems.length) {
-        const item = poItems[i]
-        const qty = parseFloat(item.qty) || 0
-        const unit = item.fob_price ?? 0
-        sheetRows.push([i + 1, item.item_code, item.description, qty || '', unit || '', qty > 0 && unit > 0 ? qty * unit : ''])
-      } else {
-        sheetRows.push([i + 1, '', '', '', '', ''])
-      }
-    }
-
-    const totalQty = poItems.reduce((s, i) => s + (parseFloat(i.qty) || 0), 0)
-    const totalAmt = poItems.reduce((s, i) => s + (parseFloat(i.qty) || 0) * (i.fob_price ?? 0), 0)
-    sheetRows.push(['TOTAL', '', '', totalQty || '', '', totalAmt || ''])
-
-    sheetRows.push([])
-    sheetRows.push(['Remark:'])
-    sheetRows.push(['1  Please specify above Purchase Order number in every invoice.'])
-    sheetRows.push(['2  Please refer to shipment plan in excel file'])
-    sheetRows.push([])
-    sheetRows.push(['Issuer', '', '', '', 'Approved by'])
-    sheetRows.push([])
-    sheetRows.push(['Lapasrada Wanish', '', '', '', 'Piraya Lueprasitsakul'])
-    sheetRows.push(['Purchasing and Import Coordinator', '', '', '', 'Purchasing Manager'])
-    const today = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
-    sheetRows.push([today, '', '', '', today])
-
-    const ws = XLSX.utils.aoa_to_sheet(sheetRows)
-    ws['!cols'] = [{ wch: 6 }, { wch: 28 }, { wch: 48 }, { wch: 10 }, { wch: 18 }, { wch: 14 }]
-
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'PO')
-    XLSX.writeFile(wb, `PO_${poSupplier}_${new Date().toISOString().slice(0, 10)}.xlsx`)
-  }
-
   function getRate(currency: string) {
     return currency === 'USD' ? settings.usd_rate : settings.cny_rate
   }
@@ -379,6 +279,7 @@ export default function ComparePage() {
         <Link href="/dashboard" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">Dashboard</Link>
         <Link href="/report" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">Report</Link>
         <Link href="/compare" className="text-sm text-blue-600 font-semibold">Cost Compare</Link>
+        <Link href="/po-builder" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">PO Builder</Link>
         <div className="ml-auto">
           <LockButton onUnlock={() => setUnlocked(true)} onLock={() => setUnlocked(false)} />
         </div>
@@ -492,116 +393,6 @@ export default function ComparePage() {
                 ))}
               </div>
             )}
-          </div>
-        </div>
-
-        {/* PO Builder */}
-        <div className="mb-8">
-          <div className="mb-3">
-            <h2 className="text-base font-semibold text-gray-800">PO Builder</h2>
-            <p className="text-xs text-gray-400 mt-0.5">เลือก Supplier และเพิ่ม Item Code จากทุก Project เพื่อสร้าง PO</p>
-          </div>
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-              <div className="flex items-center gap-3 mb-4 flex-wrap">
-                <label className="text-sm text-gray-600 font-medium whitespace-nowrap">Supplier:</label>
-                <select
-                  value={poSupplier}
-                  onChange={e => changePoSupplier(e.target.value)}
-                  className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-blue-400 bg-white">
-                  <option value="">— เลือก Supplier —</option>
-                  {allSuppliers.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-              </div>
-
-              {poSupplier && (
-                <>
-                  <div className="flex items-center gap-2 mb-4">
-                    <input
-                      type="text"
-                      value={poItemInput}
-                      onChange={e => setPoItemInput(e.target.value)}
-                      onKeyDown={e => e.key === 'Enter' && addPoItem()}
-                      placeholder="กรอก Item Code แล้วกด Enter..."
-                      className="border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400 flex-1 max-w-sm font-mono" />
-                    <button
-                      onClick={addPoItem}
-                      disabled={!poItemInput.trim() || poAdding}
-                      className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-40 transition-colors">
-                      {poAdding ? '...' : '+ เพิ่ม'}
-                    </button>
-                    {poItems.length > 0 && (
-                      <button
-                        onClick={exportPoExcel}
-                        className="ml-auto flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors">
-                        ↓ Export PO Excel
-                      </button>
-                    )}
-                  </div>
-
-                  {poItems.length === 0 ? (
-                    <p className="text-sm text-gray-400 text-center py-6">เพิ่ม Item Code เพื่อสร้าง PO</p>
-                  ) : (
-                    <table className="w-full text-sm border-collapse">
-                      <thead>
-                        <tr className="bg-gray-50 text-gray-500 text-xs border-b border-gray-200">
-                          <th className="px-3 py-2 text-left w-10">No.</th>
-                          <th className="px-3 py-2 text-left">Item Code</th>
-                          <th className="px-3 py-2 text-left">Description</th>
-                          <th className="px-3 py-2 text-right">FOB Price</th>
-                          <th className="px-3 py-2 text-right w-28">QTY</th>
-                          <th className="px-3 py-2 text-right w-32">Total</th>
-                          <th className="px-3 py-2 w-8"></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {poItems.map((item, i) => {
-                          const qty = parseFloat(item.qty) || 0
-                          const total = qty * (item.fob_price ?? 0)
-                          return (
-                            <tr key={i} className="border-b border-gray-100 hover:bg-gray-50/50">
-                              <td className="px-3 py-2 text-gray-400 text-xs">{i + 1}</td>
-                              <td className="px-3 py-2 font-mono text-gray-800 text-xs whitespace-nowrap">{item.item_code}</td>
-                              <td className="px-3 py-2 text-gray-600 text-xs">{item.description || <span className="text-gray-300">—</span>}</td>
-                              <td className="px-3 py-2 text-right text-gray-700 text-xs whitespace-nowrap">
-                                {item.fob_price !== null ? `${fmtN(item.fob_price)} ${item.currency}` : <span className="text-gray-300">ไม่พบราคา</span>}
-                              </td>
-                              <td className="px-3 py-2 text-right">
-                                <input
-                                  type="number"
-                                  min="0"
-                                  value={item.qty}
-                                  onChange={e => setPoItems(prev => prev.map((p, j) => j === i ? { ...p, qty: e.target.value } : p))}
-                                  className="border border-gray-200 rounded px-2 py-1 w-24 text-right text-xs outline-none focus:border-blue-400"
-                                  placeholder="0" />
-                              </td>
-                              <td className="px-3 py-2 text-right font-medium text-xs">
-                                {qty > 0 && item.fob_price !== null
-                                  ? <span className="text-gray-700">{fmtN(total)} {item.currency}</span>
-                                  : <span className="text-gray-300">—</span>}
-                              </td>
-                              <td className="px-3 py-2 text-center">
-                                <button onClick={() => removePoItem(i)} className="text-gray-300 hover:text-red-400 transition-colors text-xs">✕</button>
-                              </td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                      <tfoot>
-                        <tr className="bg-gray-50 font-semibold text-xs border-t border-gray-200">
-                          <td colSpan={4} className="px-3 py-2.5 text-right text-gray-500">TOTAL</td>
-                          <td className="px-3 py-2.5 text-right text-gray-700">
-                            {fmtN(poItems.reduce((s, i) => s + (parseFloat(i.qty) || 0), 0))}
-                          </td>
-                          <td className="px-3 py-2.5 text-right text-gray-700">
-                            {fmtN(poItems.reduce((s, i) => s + (parseFloat(i.qty) || 0) * (i.fob_price ?? 0), 0))} {poItems.find(i => i.fob_price !== null)?.currency ?? ''}
-                          </td>
-                          <td></td>
-                        </tr>
-                      </tfoot>
-                    </table>
-                  )}
-                </>
-              )}
           </div>
         </div>
 
