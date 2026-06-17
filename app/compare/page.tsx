@@ -73,9 +73,11 @@ export default function ComparePage() {
     currency: string
     qty: string
   }
+  const [allSuppliers, setAllSuppliers] = useState<string[]>([])
   const [poSupplier, setPoSupplier] = useState('')
   const [poItemInput, setPoItemInput] = useState('')
   const [poItems, setPoItems] = useState<PoBuilderItem[]>([])
+  const [poAdding, setPoAdding] = useState(false)
   const [batches, setBatches] = useState<UploadBatch[]>([])
   const [loadingBatches, setLoadingBatches] = useState(false)
   const [deletingBatch, setDeletingBatch] = useState<string | null>(null)
@@ -117,10 +119,11 @@ export default function ComparePage() {
   }
 
   async function loadProjects() {
-    const { data } = await supabase.from('po_items').select('project')
+    const { data } = await supabase.from('po_items').select('project, supplier')
     if (data) {
-      const unique = [...new Set((data as { project: string }[]).map(r => r.project))].sort()
-      setProjects(unique)
+      const rows = data as { project: string; supplier: string }[]
+      setProjects([...new Set(rows.map(r => r.project))].sort())
+      setAllSuppliers([...new Set(rows.map(r => r.supplier))].sort())
     }
   }
 
@@ -269,19 +272,44 @@ export default function ComparePage() {
     XLSX.writeFile(wb, `CostCompare_${selectedProject}_${new Date().toISOString().slice(0, 10)}.xlsx`)
   }
 
-  function addPoItem() {
+  async function addPoItem() {
     const code = poItemInput.trim()
-    if (!code) return
-    const row = tableRows.find(r => r.item_code.toLowerCase() === code.toLowerCase())
-    const price = row && poSupplier ? row.prices[poSupplier] : null
+    if (!code || !poSupplier) return
+    setPoAdding(true)
+    const { data } = await supabase
+      .from('po_items')
+      .select('item_code, description, fob_price, currency')
+      .ilike('item_code', code)
+      .eq('supplier', poSupplier)
+      .order('uploaded_at', { ascending: false })
+      .limit(1)
+    const found = data?.[0] as { item_code: string; description: string | null; fob_price: number; currency: string } | undefined
     setPoItems(prev => [...prev, {
-      item_code: row?.item_code ?? code,
-      description: row?.description ?? '',
-      fob_price: price?.fob_price ?? null,
-      currency: price?.currency ?? 'CNY',
+      item_code: found?.item_code ?? code,
+      description: found?.description ?? '',
+      fob_price: found?.fob_price ?? null,
+      currency: found?.currency ?? 'CNY',
       qty: '',
     }])
     setPoItemInput('')
+    setPoAdding(false)
+  }
+
+  async function changePoSupplier(newSupplier: string) {
+    setPoSupplier(newSupplier)
+    if (!newSupplier || poItems.length === 0) return
+    const updated = await Promise.all(poItems.map(async item => {
+      const { data } = await supabase
+        .from('po_items')
+        .select('fob_price, currency, description')
+        .ilike('item_code', item.item_code)
+        .eq('supplier', newSupplier)
+        .order('uploaded_at', { ascending: false })
+        .limit(1)
+      const found = data?.[0] as { fob_price: number; currency: string; description: string | null } | undefined
+      return { ...item, fob_price: found?.fob_price ?? null, currency: found?.currency ?? item.currency }
+    }))
+    setPoItems(updated)
   }
 
   function removePoItem(index: number) {
@@ -326,8 +354,8 @@ export default function ComparePage() {
     ws['!cols'] = [{ wch: 6 }, { wch: 28 }, { wch: 48 }, { wch: 10 }, { wch: 18 }, { wch: 14 }]
 
     const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, selectedProject || 'PO')
-    XLSX.writeFile(wb, `PO_${poSupplier}_${selectedProject}_${new Date().toISOString().slice(0, 10)}.xlsx`)
+    XLSX.utils.book_append_sheet(wb, ws, 'PO')
+    XLSX.writeFile(wb, `PO_${poSupplier}_${new Date().toISOString().slice(0, 10)}.xlsx`)
   }
 
   function getRate(currency: string) {
@@ -468,29 +496,20 @@ export default function ComparePage() {
         </div>
 
         {/* PO Builder */}
-        {selectedProject && (
-          <div className="mb-8">
-            <div className="mb-3">
-              <h2 className="text-base font-semibold text-gray-800">PO Builder</h2>
-              <p className="text-xs text-gray-400 mt-0.5">เลือก Supplier และเพิ่ม Item Code เพื่อสร้าง PO</p>
-            </div>
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+        <div className="mb-8">
+          <div className="mb-3">
+            <h2 className="text-base font-semibold text-gray-800">PO Builder</h2>
+            <p className="text-xs text-gray-400 mt-0.5">เลือก Supplier และเพิ่ม Item Code จากทุก Project เพื่อสร้าง PO</p>
+          </div>
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
               <div className="flex items-center gap-3 mb-4 flex-wrap">
                 <label className="text-sm text-gray-600 font-medium whitespace-nowrap">Supplier:</label>
                 <select
                   value={poSupplier}
-                  onChange={e => {
-                    const s = e.target.value
-                    setPoSupplier(s)
-                    setPoItems(prev => prev.map(item => {
-                      const row = tableRows.find(r => r.item_code === item.item_code)
-                      const price = row && s ? row.prices[s] : null
-                      return { ...item, fob_price: price?.fob_price ?? null, currency: price?.currency ?? item.currency }
-                    }))
-                  }}
+                  onChange={e => changePoSupplier(e.target.value)}
                   className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-blue-400 bg-white">
                   <option value="">— เลือก Supplier —</option>
-                  {suppliers.map(s => <option key={s} value={s}>{s}</option>)}
+                  {allSuppliers.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
 
@@ -506,9 +525,9 @@ export default function ComparePage() {
                       className="border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400 flex-1 max-w-sm font-mono" />
                     <button
                       onClick={addPoItem}
-                      disabled={!poItemInput.trim()}
+                      disabled={!poItemInput.trim() || poAdding}
                       className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-40 transition-colors">
-                      + เพิ่ม
+                      {poAdding ? '...' : '+ เพิ่ม'}
                     </button>
                     {poItems.length > 0 && (
                       <button
@@ -583,9 +602,8 @@ export default function ComparePage() {
                   )}
                 </>
               )}
-            </div>
           </div>
-        )}
+        </div>
 
         {/* Compare table */}
         {selectedProject && (
