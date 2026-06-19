@@ -34,6 +34,19 @@ function monthKey(d: string): string {
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`
 }
 
+type GroupMode = 'arrival' | 'due' | 'payment'
+
+function getGroupDate(inv: InvRow, mode: GroupMode): string | null {
+  if (mode === 'arrival') return inv.estimated_arrival
+  if (mode === 'due') {
+    if (!inv.bl_date) return null
+    const d = new Date(inv.bl_date + 'T00:00:00')
+    d.setDate(d.getDate() + 30)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  }
+  return inv.payment_date
+}
+
 function dueDateStr(blDate: string | null): string {
   if (!blDate) return ''
   const d = new Date(blDate + 'T00:00:00')
@@ -86,6 +99,7 @@ export default function ReportPage() {
   const [commEdits, setCommEdits] = useState<Record<string, string>>({})
   const [commSaving, setCommSaving] = useState<Record<string, boolean>>({})
   const [rateDetail, setRateDetail] = useState<InvRow | null>(null)
+  const [groupMode, setGroupMode] = useState<GroupMode>('arrival')
 
   useEffect(() => { load(); setUnlocked(isUnlocked()) }, [])
 
@@ -99,11 +113,6 @@ export default function ReportPage() {
     const ce: Record<string, string> = {}
     for (const inv of fetched) ce[inv.id] = inv.commission_payment_date || ''
     setCommEdits(ce)
-    const keys = new Set<string>()
-    for (const inv of fetched) {
-      if (inv.estimated_arrival) keys.add(monthKey(inv.estimated_arrival))
-    }
-    setSelectedMonths(keys)
     setLoading(false)
   }
 
@@ -117,30 +126,36 @@ export default function ReportPage() {
   const allMonths = useMemo(() => {
     const map = new Map<string, string>()
     for (const inv of rows) {
-      if (!inv.estimated_arrival) continue
-      const k = monthKey(inv.estimated_arrival)
-      if (!map.has(k)) map.set(k, monthLabel(inv.estimated_arrival))
+      const d = getGroupDate(inv, groupMode)
+      if (!d) continue
+      const k = monthKey(d)
+      if (!map.has(k)) map.set(k, monthLabel(d))
     }
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]))
-  }, [rows])
+  }, [rows, groupMode])
+
+  useEffect(() => {
+    setSelectedMonths(new Set(allMonths.map(m => m[0])))
+  }, [allMonths])
 
   const grouped = useMemo(() => {
     const result: { key: string; label: string; rows: InvRow[] }[] = []
     for (const inv of rows) {
-      if (!inv.estimated_arrival) continue
-      const k = monthKey(inv.estimated_arrival)
+      const d = getGroupDate(inv, groupMode)
+      if (!d) continue
+      const k = monthKey(d)
       if (!selectedMonths.has(k)) continue
       const q = invoiceSearch.trim().toLowerCase()
       if (q && !inv.invoice_no.toLowerCase().includes(q)) continue
       let mg = result.find(m => m.key === k)
       if (!mg) {
-        mg = { key: k, label: monthLabel(inv.estimated_arrival), rows: [] }
+        mg = { key: k, label: monthLabel(d), rows: [] }
         result.push(mg)
       }
       mg.rows.push(inv)
     }
     return result
-  }, [rows, selectedMonths, invoiceSearch])
+  }, [rows, selectedMonths, invoiceSearch, groupMode])
 
   const allVisible = grouped.flatMap(m => m.rows)
   const allVisC = allVisible.map(compute)
@@ -150,6 +165,10 @@ export default function ReportPage() {
     actualThb: sumN(allVisC.map(c => c.actualThb)),
     costSaving: sumN(allVisible.map(r => r.cost_saving)),
   }
+
+  const groupLabel = groupMode === 'arrival' ? 'เข้าคลัง MONTH'
+    : groupMode === 'due' ? 'Due Date MONTH'
+    : 'Payment MONTH'
 
   function toggleMonth(k: string) {
     setSelectedMonths(prev => {
@@ -163,7 +182,7 @@ export default function ReportPage() {
   function clearAll() { setSelectedMonths(new Set()) }
 
   function exportExcel() {
-    const header = ['เข้าคลัง MONTH', 'Invoice No.', 'FOB CNY', 'FOB USD', 'Actual FOB THB (Finance)', 'Due Date', 'Payment Date', 'Cost saving (THB)', 'Cost saving (%)', 'Commission Payment']
+    const header = [groupLabel, 'Invoice No.', 'FOB CNY', 'FOB USD', 'Actual FOB THB (Finance)', 'Due Date', 'Payment Date', 'Cost saving (THB)', 'Cost saving (%)', 'Commission Payment']
     const aoa: (string | number | null)[][] = [header]
 
     for (const mg of grouped) {
@@ -250,6 +269,23 @@ export default function ReportPage() {
 
         {/* Filters */}
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 mb-4 space-y-3">
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide whitespace-nowrap">จัดกลุ่มตาม</span>
+            <div className="flex rounded-lg overflow-hidden border border-gray-200">
+              {(['arrival', 'due', 'payment'] as GroupMode[]).map((mode, i) => (
+                <button
+                  key={mode}
+                  onClick={() => setGroupMode(mode)}
+                  className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                    groupMode === mode ? 'bg-amber-400 text-gray-900' : 'bg-white text-gray-500 hover:bg-amber-50'
+                  } ${i > 0 ? 'border-l border-gray-200' : ''}`}
+                >
+                  {mode === 'arrival' ? 'เข้าคลัง' : mode === 'due' ? 'Due Date' : 'Payment'}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div>
             <div className="flex items-center gap-3 mb-2">
               <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">เดือน</span>
@@ -294,7 +330,7 @@ export default function ReportPage() {
           <table className="text-sm border-collapse w-full">
             <thead>
               <tr className="bg-amber-400 text-gray-900">
-                <th className="px-3 py-2.5 text-left border border-amber-300 whitespace-nowrap font-bold text-xs">เข้าคลัง MONTH</th>
+                <th className="px-3 py-2.5 text-left border border-amber-300 whitespace-nowrap font-bold text-xs">{groupLabel}</th>
                 <th className="px-3 py-2.5 text-left border border-amber-300 whitespace-nowrap font-bold text-xs">Invoice No.</th>
                 <th className={th}>FOB CNY</th>
                 <th className={th}>FOB USD</th>
