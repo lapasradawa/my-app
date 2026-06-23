@@ -819,7 +819,7 @@ export default function InvoiceDetailPage() {
                   <td className="px-3 py-2 font-mono text-xs text-gray-900 sticky z-10 bg-white group-hover:bg-gray-50" style={{ left: L.code }}>{row.code}</td>
                   <td className="px-3 py-2 text-gray-700 sticky z-10 bg-white group-hover:bg-gray-50" style={{ left: L.desc }}>{row.description}</td>
                   <td className="px-3 py-2 text-gray-600 sticky z-10 bg-white group-hover:bg-gray-50" style={{ left: L.po }}>{row.po}</td>
-                  <td className="px-3 py-2 text-right font-medium sticky z-10 bg-white group-hover:bg-gray-50 shadow-[2px_0_5px_rgba(0,0,0,0.07)]" style={{ left: L.qty }}>{row.qty.toLocaleString()}</td>
+                  <td className="px-3 py-2 text-right font-medium text-gray-900 sticky z-10 bg-white group-hover:bg-gray-50 shadow-[2px_0_5px_rgba(0,0,0,0.07)]" style={{ left: L.qty }}>{row.qty.toLocaleString()}</td>
                   {invoice.container_names.map(name => (
                     <td key={name} className="px-3 py-2 text-right text-gray-500">
                       {fmt(row.containers[name] || 0)}
