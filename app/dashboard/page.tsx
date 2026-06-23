@@ -29,13 +29,21 @@ const STATUS_BADGE: Record<string, string> = {
   'เข้าคลังแล้ว': 'bg-green-100 text-green-800',
 }
 
-// คำนวณ display status โดยอัตโนมัติ ถ้าพ้นวันประมาณการแล้ว → เข้าคลังแล้ว
-function computeStatus(status: string | null, arrival: string | null, arrivalEnd: string | null): string {
+// คำนวณ display status โดยอัตโนมัติ
+// - ถ้า On board และพ้น ETA แล้ว → กำลังเข้าคลัง
+// - ถ้าพ้นวันประมาณการเข้าคลังแล้ว → เข้าคลังแล้ว
+function computeStatus(status: string | null, arrival: string | null, arrivalEnd: string | null, etaDate?: string | null): string {
   const base = status || 'อยู่ที่จีน'
   // normalize legacy value
   const normalized = (base === 'ถึงคลัง' || base === 'ถึงไทย กำลังเข้าคลัง') ? 'กำลังเข้าคลัง' : base
-  if (!arrival || normalized === 'อยู่ที่จีน') return normalized
   const today = new Date(); today.setHours(0, 0, 0, 0)
+  // On board + past ETA → กำลังเข้าคลัง
+  if (normalized === 'On board' && etaDate) {
+    const eta = new Date(etaDate + 'T00:00:00')
+    eta.setHours(0, 0, 0, 0)
+    if (today >= eta) return 'กำลังเข้าคลัง'
+  }
+  if (!arrival || normalized === 'อยู่ที่จีน') return normalized
   const checkDate = new Date(arrivalEnd || arrival)
   checkDate.setHours(0, 0, 0, 0)
   if (today > checkDate) return 'เข้าคลังแล้ว'
@@ -200,7 +208,7 @@ export default function DashboardPage() {
     setSearchResults(null)
     const { data } = await supabase
       .from('invoices')
-      .select('id, invoice_no, status, estimated_arrival, estimated_arrival_end, rows')
+      .select('id, invoice_no, status, estimated_arrival, estimated_arrival_end, eta_date, rows')
     if (data) {
       const results: SearchResult[] = []
       for (const inv of data) {
@@ -211,7 +219,7 @@ export default function DashboardPage() {
           results.push({
             id: inv.id,
             invoice_no: inv.invoice_no,
-            status: computeStatus(inv.status, inv.estimated_arrival, inv.estimated_arrival_end),
+            status: computeStatus(inv.status, inv.estimated_arrival, inv.estimated_arrival_end, inv.eta_date),
             estimated_arrival: inv.estimated_arrival,
             estimated_arrival_end: inv.estimated_arrival_end,
             totalQty: matching.reduce((s, r) => s + r.qty, 0),
@@ -366,7 +374,7 @@ export default function DashboardPage() {
                 {invoices.map((inv) => {
                   const e = edits[inv.id] || { status: 'อยู่ที่จีน' as Status, estimated_arrival: '', estimated_arrival_end: '' }
                   const showDate = e.status === 'On board' || e.status === 'กำลังเข้าคลัง' || e.status === 'ถึงไทย กำลังเข้าคลัง' || e.status === 'ถึงคลัง'
-                  const displaySt = computeStatus(inv.status, inv.estimated_arrival, inv.estimated_arrival_end)
+                  const displaySt = computeStatus(inv.status, inv.estimated_arrival, inv.estimated_arrival_end, inv.eta_date)
                   return (
                     <tr key={inv.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50/60 transition-colors">
                       <td className="px-4 py-3">
@@ -490,7 +498,7 @@ export default function DashboardPage() {
           <div className="mt-6 grid grid-cols-4 gap-4">
             {([...STATUSES, 'เข้าคลังแล้ว'] as string[]).map(s => {
               const count = invoices.filter(inv =>
-                computeStatus(inv.status, inv.estimated_arrival, inv.estimated_arrival_end) === s
+                computeStatus(inv.status, inv.estimated_arrival, inv.estimated_arrival_end, inv.eta_date) === s
               ).length
               return (
                 <div key={s} className="rounded-xl p-4 border border-gray-200 bg-white">
