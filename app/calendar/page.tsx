@@ -66,7 +66,7 @@ function pd(s: string) { return new Date(s + 'T00:00:00') }
 // Grid column (1-indexed): col 1 = week label, col 2 = Mon … col 8 = Sun
 function gc(dayIdx: number) { return dayIdx + 2 }
 
-const LABEL_W = 104 // px width of week-label column
+const LABEL_W = 80 // px width of week-label column
 
 export default function CalendarPage() {
   const [invoices, setInvoices] = useState<CalInvoice[]>([])
@@ -134,9 +134,9 @@ export default function CalendarPage() {
   const GRID = `${LABEL_W}px repeat(7, minmax(0, 1fr))`
 
   return (
-    <div className="min-h-screen" style={{ background: '#f1f5f9' }}>
+    <div className="h-screen overflow-hidden flex flex-col" style={{ background: '#f1f5f9' }}>
       {/* Nav */}
-      <nav className="bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-4 sticky top-0 z-20 shadow-sm">
+      <nav className="shrink-0 bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-4 z-20 shadow-sm">
         <span className="font-bold text-gray-800 text-sm">Import PO</span>
         <span className="text-gray-300">|</span>
         <Link href="/" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">PO Matching</Link>
@@ -149,82 +149,62 @@ export default function CalendarPage() {
         <div className="ml-auto"><LockButton /></div>
       </nav>
 
-      <div className="max-w-screen-xl mx-auto px-5 py-8">
-        {/* Page title + month nav */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-          <div>
-            <h1 className="text-2xl font-black text-gray-900 tracking-tight">ปฏิทินเข้าคลัง</h1>
-            <p className="text-sm text-gray-400 mt-0.5">ไทม์ไลน์วันที่ประมาณการเข้าคลังของแต่ละ Invoice</p>
+      {/* Main content — fills remaining height, no page scroll */}
+      <div className="flex-1 overflow-hidden flex flex-col px-5 pt-3 pb-2 gap-2 max-w-screen-xl w-full mx-auto">
+
+        {/* ── Compact top bar: title + stats + month nav ── */}
+        <div className="shrink-0 flex items-center gap-4">
+          {/* Title */}
+          <div className="shrink-0">
+            <h1 className="text-base font-black text-gray-900 leading-none">ปฏิทินเข้าคลัง</h1>
+            <p className="text-[10px] text-gray-400 mt-0.5">ไทม์ไลน์ประมาณการเข้าคลัง</p>
           </div>
 
+          {/* Stats pills */}
           <div className="flex items-center gap-2">
+            {[
+              { n: loading ? '—' : monthArrivals.length, label: 'เข้าคลังเดือนนี้', color: 'bg-orange-100 text-orange-700 border-orange-200' },
+              { n: loading ? '—' : monthEtas.length, label: 'ETA เดือนนี้', color: 'bg-blue-100 text-blue-700 border-blue-200' },
+              { n: loading ? '—' : invoices.length, label: 'Invoice ทั้งหมด', color: 'bg-gray-100 text-gray-600 border-gray-200' },
+            ].map(s => (
+              <div key={s.label} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-semibold ${s.color}`}>
+                <span className="font-black">{s.n}</span>
+                <span className="font-medium opacity-80">{s.label}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Month nav — pushed to right */}
+          <div className="ml-auto flex items-center gap-1.5">
             <button
               onClick={() => setCurDate(new Date(year, month - 1, 1))}
-              className="w-9 h-9 flex items-center justify-center rounded-xl bg-white border border-gray-200 text-gray-500 hover:bg-gray-50 shadow-sm transition text-lg"
+              className="w-7 h-7 flex items-center justify-center rounded-lg bg-white border border-gray-200 text-gray-500 hover:bg-gray-50 shadow-sm transition text-base"
             >‹</button>
-
-            <div className="bg-white border border-gray-200 shadow-sm rounded-xl px-5 py-2 min-w-[188px] text-center select-none">
-              <span className="text-base font-bold text-gray-800">{MONTHS_TH[month]}</span>
-              <span className="text-sm font-semibold text-gray-400 ml-2">{year + 543}</span>
+            <div className="bg-white border border-gray-200 shadow-sm rounded-lg px-4 py-1.5 min-w-[160px] text-center select-none">
+              <span className="text-sm font-bold text-gray-800">{MONTHS_TH[month]}</span>
+              <span className="text-xs font-semibold text-gray-400 ml-1.5">{year + 543}</span>
             </div>
-
             <button
               onClick={() => setCurDate(new Date(year, month + 1, 1))}
-              className="w-9 h-9 flex items-center justify-center rounded-xl bg-white border border-gray-200 text-gray-500 hover:bg-gray-50 shadow-sm transition text-lg"
+              className="w-7 h-7 flex items-center justify-center rounded-lg bg-white border border-gray-200 text-gray-500 hover:bg-gray-50 shadow-sm transition text-base"
             >›</button>
-
             <button
               onClick={() => setCurDate(new Date(today.getFullYear(), today.getMonth(), 1))}
-              className="px-4 py-2 text-xs font-semibold rounded-xl bg-blue-600 text-white hover:bg-blue-700 shadow-sm transition"
+              className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 shadow-sm transition"
             >วันนี้</button>
           </div>
         </div>
 
-        {/* Stats strip */}
-        <div className="grid grid-cols-3 gap-4 mb-6">
-          {[
-            {
-              n: loading ? '—' : monthArrivals.length,
-              label: 'เข้าคลังเดือนนี้',
-              icon: '📦',
-              grad: 'from-orange-500 to-amber-500',
-            },
-            {
-              n: loading ? '—' : monthEtas.length,
-              label: 'ETA ถึงท่าเรือเดือนนี้',
-              icon: '🚢',
-              grad: 'from-blue-500 to-sky-500',
-            },
-            {
-              n: loading ? '—' : invoices.length,
-              label: 'Invoice ทั้งหมด',
-              icon: '📋',
-              grad: 'from-slate-600 to-slate-500',
-            },
-          ].map(s => (
-            <div
-              key={s.label}
-              className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4 flex items-center gap-4"
-            >
-              <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${s.grad} flex items-center justify-center text-xl shadow-sm`}>
-                {s.icon}
-              </div>
-              <div>
-                <div className="text-2xl font-black text-gray-800">{s.n}</div>
-                <div className="text-xs text-gray-400 font-medium mt-0.5">{s.label}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* ── Timeline ── */}
+        {/* ── Timeline ── flex-1 so it fills remaining height */}
         {loading ? (
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-20 text-center text-gray-300">
-            <div className="text-4xl mb-3 animate-pulse">⏳</div>
-            <div className="text-sm">กำลังโหลด...</div>
+          <div className="flex-1 bg-white rounded-xl border border-gray-100 shadow-sm flex items-center justify-center text-gray-300">
+            <div className="text-center">
+              <div className="text-3xl mb-2 animate-pulse">⏳</div>
+              <div className="text-sm">กำลังโหลด...</div>
+            </div>
           </div>
         ) : (
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="flex-1 overflow-y-auto bg-white rounded-xl shadow-sm border border-gray-100">
             {weeksData.map(({ mon, sun, wn, days, inv: weekInvs }, wi) => {
               const todayInWeek = todayStr >= ds(mon) && todayStr <= ds(sun)
               const todayColIdx = todayInWeek ? dow(today) : -1
@@ -232,21 +212,21 @@ export default function CalendarPage() {
               return (
                 <div
                   key={ds(mon)}
-                  className={wi > 0 ? 'border-t-2 border-slate-100' : ''}
+                  className={wi > 0 ? 'border-t border-slate-200' : ''}
                 >
-                  {/* ── Day-header row ── */}
+                  {/* ── Day-header row (compact) ── */}
                   <div className="grid" style={{ gridTemplateColumns: GRID }}>
                     {/* Week label */}
                     <div
-                      className="flex flex-col justify-center px-3 py-3 border-r border-slate-700"
+                      className="flex items-center gap-1.5 px-2.5 border-r border-slate-700"
                       style={{ background: '#1e293b' }}
                     >
-                      <div className="text-[9px] font-black tracking-[0.15em] text-slate-400 uppercase mb-0.5">
-                        Week
-                      </div>
-                      <div className="text-2xl font-black text-white leading-none">{wn}</div>
-                      <div className="text-[9px] font-semibold text-slate-500 mt-1">
-                        {MONTHS_SHORT[mon.getMonth()]} {mon.getFullYear()}
+                      <div className="text-lg font-black text-white leading-none">{wn}</div>
+                      <div>
+                        <div className="text-[8px] font-black tracking-widest text-slate-400 uppercase leading-none">Week</div>
+                        <div className="text-[8px] font-semibold text-slate-500 leading-none mt-0.5">
+                          {MONTHS_SHORT[mon.getMonth()]}
+                        </div>
                       </div>
                     </div>
 
@@ -259,26 +239,20 @@ export default function CalendarPage() {
                       return (
                         <div
                           key={di}
-                          className={`border-r last:border-r-0 border-gray-100 py-3 text-center ${
-                            isToday
-                              ? 'bg-blue-50'
-                              : isSun
-                              ? 'bg-rose-50/40'
-                              : ''
+                          className={`border-r last:border-r-0 border-gray-100 py-1.5 text-center ${
+                            isToday ? 'bg-blue-50' : isSun ? 'bg-rose-50/30' : ''
                           }`}
                         >
-                          <div className={`text-[9px] font-black uppercase tracking-widest mb-1.5 ${
+                          <div className={`text-[8px] font-black uppercase tracking-wider leading-none mb-1 ${
                             isToday ? 'text-blue-500' : isSun ? 'text-rose-400' : 'text-slate-400'
                           }`}>
                             {DAY_TH[di]}
                           </div>
-                          <div className={`w-8 h-8 mx-auto flex items-center justify-center rounded-full text-sm font-bold transition-all ${
+                          <div className={`w-6 h-6 mx-auto flex items-center justify-center rounded-full text-xs font-bold ${
                             isToday
-                              ? 'bg-blue-600 text-white shadow-lg shadow-blue-300'
-                              : !inMonth
-                              ? 'text-gray-200'
-                              : isSun
-                              ? 'text-rose-400'
+                              ? 'bg-blue-600 text-white shadow-md shadow-blue-300'
+                              : !inMonth ? 'text-gray-200'
+                              : isSun ? 'text-rose-400'
                               : 'text-gray-700'
                           }`}>
                             {d.getDate()}
@@ -306,12 +280,12 @@ export default function CalendarPage() {
 
                     {weekInvs.length === 0 ? (
                       <div className="grid" style={{ gridTemplateColumns: GRID }}>
-                        <div className="border-r border-slate-700/20 bg-slate-800/5" style={{ minHeight: '40px' }} />
+                        <div className="border-r border-slate-700/20 bg-slate-800/5" style={{ minHeight: '28px' }} />
                         {days.map((_, di) => (
                           <div
                             key={di}
                             className="border-r last:border-r-0 border-gray-50"
-                            style={{ minHeight: '40px' }}
+                            style={{ minHeight: '28px' }}
                           />
                         ))}
                       </div>
@@ -348,7 +322,7 @@ export default function CalendarPage() {
                           <div
                             key={inv.id + ds(mon)}
                             className={`grid relative ${ii % 2 === 1 ? 'bg-slate-50/60' : 'bg-white'}`}
-                            style={{ gridTemplateColumns: GRID, minHeight: arrivesToday ? '62px' : '54px', zIndex: 1 }}
+                            style={{ gridTemplateColumns: GRID, minHeight: arrivesToday ? '48px' : '38px', zIndex: 1 }}
                           >
                             {/* Week label spacer */}
                             <div
@@ -371,8 +345,8 @@ export default function CalendarPage() {
                               style={{
                                 gridColumn: `${colStart} / ${colEnd}`,
                                 gridRow: 1,
-                                margin: arrivesToday ? '8px 5px' : '8px 5px',
-                                minHeight: arrivesToday ? '46px' : '38px',
+                                margin: arrivesToday ? '5px 4px' : '5px 4px',
+                                minHeight: arrivesToday ? '38px' : '28px',
                                 borderRadius: radius,
                                 background: arrivesToday ? cfg.stroke : cfg.fill,
                                 border: arrivesToday
@@ -394,23 +368,23 @@ export default function CalendarPage() {
                                   style={{ color: arrivesToday ? 'white' : cfg.textColor }}
                                 >◀</span>
                               )}
-                              <div className="flex flex-col justify-center px-2.5 overflow-hidden flex-1 min-w-0">
-                                <div className="flex items-center gap-1.5 min-w-0">
+                              <div className="flex flex-col justify-center px-2 overflow-hidden flex-1 min-w-0">
+                                <div className="flex items-center gap-1 min-w-0">
                                   <span
-                                    className={`truncate leading-tight font-bold ${arrivesToday ? 'text-[13px]' : 'text-[12px]'}`}
+                                    className="truncate leading-none font-bold text-[11px]"
                                     style={{ color: arrivesToday ? 'white' : cfg.textColor }}
                                   >
                                     {inv.invoice_no}
                                   </span>
                                   {arrivesToday && (
-                                    <span className="shrink-0 text-[9px] font-black bg-white/25 text-white rounded-full px-1.5 py-0.5 leading-none whitespace-nowrap">
-                                      เข้าวันนี้ !
+                                    <span className="shrink-0 text-[8px] font-black bg-white/25 text-white rounded-full px-1.5 py-0.5 leading-none whitespace-nowrap">
+                                      เข้าวันนี้!
                                     </span>
                                   )}
                                 </div>
                                 {inv.supplier && (
                                   <span
-                                    className="text-[10px] truncate leading-tight mt-0.5"
+                                    className="text-[9px] truncate leading-none mt-0.5"
                                     style={{ color: arrivesToday ? 'rgba(255,255,255,0.75)' : cfg.textColor, opacity: arrivesToday ? 1 : 0.6 }}
                                   >
                                     {inv.supplier}
@@ -436,29 +410,28 @@ export default function CalendarPage() {
           </div>
         )}
 
-        {/* Legend */}
-        <div className="mt-5 bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-3.5 flex flex-wrap items-center gap-4">
-          <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">สถานะ</span>
+        {/* Legend — compact strip */}
+        <div className="shrink-0 flex flex-wrap items-center gap-x-4 gap-y-1 px-1 py-1">
+          <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">สถานะ</span>
           {Object.entries(S).map(([status, cfg]) => (
-            <div key={status} className="flex items-center gap-2">
+            <div key={status} className="flex items-center gap-1">
               <div
-                className="w-5 h-5 rounded-md border-l-4"
-                style={{ background: cfg.fill, borderLeftColor: cfg.stroke, border: `1px solid ${cfg.stroke}60`, borderLeftWidth: '4px' }}
+                className="w-3 h-3 rounded"
+                style={{ background: cfg.fill, borderLeft: `3px solid ${cfg.stroke}` }}
               />
-              <span className="text-xs font-semibold" style={{ color: cfg.textColor }}>
-                {status}
-              </span>
+              <span className="text-[10px] font-semibold" style={{ color: cfg.textColor }}>{status}</span>
             </div>
           ))}
-          <div className="flex items-center gap-1.5">
-            <div className="w-8 h-5 rounded bg-blue-50 border border-blue-200" />
-            <span className="text-xs text-gray-500 font-medium">วันนี้</span>
+          <div className="flex items-center gap-1">
+            <div className="w-5 h-3 rounded bg-blue-50 border border-blue-200" />
+            <span className="text-[10px] text-gray-400">วันนี้</span>
           </div>
-          <div className="flex items-center gap-1.5 text-xs text-gray-400">
+          <div className="flex items-center gap-1 text-[10px] text-gray-400">
             <span className="font-bold">◀▶</span>
             <span>ต่อเนื่องสัปดาห์อื่น</span>
           </div>
         </div>
+
       </div>
     </div>
   )
