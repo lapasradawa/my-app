@@ -214,8 +214,8 @@ export default function CalendarPage() {
                   key={ds(mon)}
                   className={wi > 0 ? 'border-t border-slate-200' : ''}
                 >
-                  {/* ── Day-header row (compact) ── */}
-                  <div className="grid" style={{ gridTemplateColumns: GRID }}>
+                  {/* ── Day-header row (compact, sticky) ── */}
+                  <div className="grid sticky top-0 z-10" style={{ gridTemplateColumns: GRID, background: '#fff' }}>
                     {/* Week label */}
                     <div
                       className="flex items-center gap-1.5 px-2.5 border-r border-slate-700"
