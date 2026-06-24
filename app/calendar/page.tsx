@@ -341,8 +341,6 @@ export default function CalendarPage() {
                         // ETA
                         const etaStr = inv.eta_date
                         const etaInWeek = !!etaStr && etaStr >= ds(mon) && etaStr <= ds(sun)
-                        const etaDayIdx = etaInWeek ? dow(pd(etaStr!)) : -1
-                        const etaGridCol = etaDayIdx >= 0 ? gc(etaDayIdx) : -1
 
                         return (
                           <div
@@ -385,12 +383,17 @@ export default function CalendarPage() {
                                 >◀</span>
                               )}
                               <div className="flex flex-col justify-center px-2 overflow-hidden flex-1 min-w-0">
-                                <span
-                                  className="text-[12px] font-bold truncate leading-tight"
-                                  style={{ color: cfg.textColor }}
-                                >
-                                  {inv.invoice_no}
-                                </span>
+                                <div className="flex items-center gap-1 min-w-0">
+                                  {etaInWeek && (
+                                    <span className="shrink-0 text-sm leading-none" title={`ETA: ${etaStr}`}>🚢</span>
+                                  )}
+                                  <span
+                                    className="text-[12px] font-bold truncate leading-tight"
+                                    style={{ color: cfg.textColor }}
+                                  >
+                                    {inv.invoice_no}
+                                  </span>
+                                </div>
                                 {inv.supplier && (
                                   <span
                                     className="text-[10px] truncate leading-tight mt-0.5 opacity-60"
@@ -408,26 +411,6 @@ export default function CalendarPage() {
                               )}
                             </Link>
 
-                            {/* ── Truck icon at ETA column ── */}
-                            {etaInWeek && (
-                              <div
-                                className="flex items-center pointer-events-none z-20"
-                                style={{
-                                  gridColumn: `${etaGridCol} / ${etaGridCol + 1}`,
-                                  gridRow: 1,
-                                  paddingTop: '8px',
-                                  paddingBottom: '8px',
-                                  paddingLeft: '5px',
-                                }}
-                              >
-                                <span
-                                  className="text-base drop-shadow-sm"
-                                  title={`ETA: ${etaStr}`}
-                                >
-                                  🚢
-                                </span>
-                              </div>
-                            )}
                           </div>
                         )
                       })
@@ -454,8 +437,11 @@ export default function CalendarPage() {
             </div>
           ))}
           <div className="flex items-center gap-1.5 ml-2 pl-4 border-l border-gray-100">
-            <span className="text-base">🚢</span>
-            <span className="text-xs text-gray-500 font-medium">ETA ถึงท่าเรือไทย</span>
+            <span className="inline-flex items-center gap-1 text-xs bg-gray-100 rounded-full px-2 py-0.5">
+              <span>🚢</span>
+              <span className="font-bold text-gray-600">YG260055</span>
+            </span>
+            <span className="text-xs text-gray-500 font-medium">= ETA ถึงท่าเรือในสัปดาห์นั้น</span>
           </div>
           <div className="flex items-center gap-1.5">
             <div className="w-8 h-5 rounded bg-blue-50 border border-blue-200" />
