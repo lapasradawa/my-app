@@ -128,10 +128,10 @@ export default function PoBuilderPage() {
         <span className="text-gray-300">|</span>
         <Link href="/" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">PO Matching</Link>
         <Link href="/dashboard" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">Dashboard</Link>
+        <Link href="/calendar" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">Calendar</Link>
         <Link href="/report" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">Report</Link>
         <Link href="/compare" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">Cost Compare</Link>
         <Link href="/po-builder" className="text-sm text-blue-600 font-semibold">PO Builder</Link>
-        <Link href="/calendar" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">Calendar</Link>
         <Link href="/guide" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">Guide</Link>
         <div className="ml-auto">
           <LockButton onUnlock={() => setUnlocked(true)} onLock={() => setUnlocked(false)} />
