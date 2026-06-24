@@ -240,13 +240,11 @@ export default function CalendarPage() {
                         <div
                           key={di}
                           className="border-r last:border-r-0 border-gray-100 py-1.5 text-center"
-                          style={isSun ? {
-                            background: 'repeating-linear-gradient(-45deg,rgba(251,113,133,0.08) 0px,rgba(251,113,133,0.08) 3px,transparent 3px,transparent 9px)',
-                            backgroundColor: 'rgba(255,241,242,0.7)',
-                          } : isToday ? { backgroundColor: 'rgba(219,234,254,0.6)' } : undefined}
+                          style={isSun ? { backgroundColor: 'rgba(0,0,0,0.025)' }
+                            : isToday ? { backgroundColor: 'rgba(219,234,254,0.6)' } : undefined}
                         >
                           <div className={`text-[8px] font-black uppercase tracking-wider leading-none mb-0.5 ${
-                            isToday ? 'text-blue-500' : isSun ? 'text-rose-500' : 'text-slate-400'
+                            isToday ? 'text-blue-500' : isSun ? 'text-gray-300' : 'text-slate-400'
                           }`}>
                             {DAY_TH[di]}
                           </div>
@@ -254,13 +252,13 @@ export default function CalendarPage() {
                             isToday
                               ? 'bg-blue-600 text-white shadow-md shadow-blue-300'
                               : !inMonth ? 'text-gray-200'
-                              : isSun ? 'text-rose-400'
+                              : isSun ? 'text-gray-300'
                               : 'text-gray-700'
                           }`}>
                             {d.getDate()}
                           </div>
                           {isSun && (
-                            <div className="text-[7px] font-black text-rose-400/70 mt-0.5 leading-none tracking-tight">หยุด</div>
+                            <div className="text-[7px] text-gray-300 mt-0.5 leading-none">หยุด</div>
                           )}
                         </div>
                       )
@@ -275,9 +273,8 @@ export default function CalendarPage() {
                       style={{
                         left: `calc(${LABEL_W}px + 6 * (100% - ${LABEL_W}px) / 7)`,
                         width: `calc((100% - ${LABEL_W}px) / 7)`,
-                        background: 'repeating-linear-gradient(-45deg,rgba(251,113,133,0.07) 0px,rgba(251,113,133,0.07) 3px,transparent 3px,transparent 9px)',
-                        backgroundColor: 'rgba(255,241,242,0.45)',
-                        borderLeft: '1px solid rgba(251,113,133,0.15)',
+                        backgroundColor: 'rgba(0,0,0,0.025)',
+                        borderLeft: '1px solid rgba(0,0,0,0.04)',
                       }}
                     />
 
