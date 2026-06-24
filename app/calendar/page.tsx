@@ -424,7 +424,7 @@ export default function CalendarPage() {
                                   className="text-base drop-shadow-sm"
                                   title={`ETA: ${etaStr}`}
                                 >
-                                  🚛
+                                  🚢
                                 </span>
                               </div>
                             )}
@@ -454,7 +454,7 @@ export default function CalendarPage() {
             </div>
           ))}
           <div className="flex items-center gap-1.5 ml-2 pl-4 border-l border-gray-100">
-            <span className="text-base">🚛</span>
+            <span className="text-base">🚢</span>
             <span className="text-xs text-gray-500 font-medium">ETA ถึงท่าเรือไทย</span>
           </div>
           <div className="flex items-center gap-1.5">
