@@ -248,8 +248,8 @@ export default function ReportPage() {
         <Link href="/report" className="text-sm text-blue-600 font-semibold">Report</Link>
         <Link href="/compare" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">Cost Compare</Link>
         <Link href="/po-builder" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">PO Builder</Link>
-        <Link href="/calendar" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">ปฏิทิน</Link>
-        <Link href="/guide" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">คู่มือ</Link>
+        <Link href="/calendar" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">Calendar</Link>
+        <Link href="/guide" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">Guide</Link>
         <div className="ml-auto">
           <LockButton onUnlock={() => setUnlocked(true)} onLock={() => setUnlocked(false)} />
         </div>

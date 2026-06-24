@@ -144,8 +144,8 @@ export default function CalendarPage() {
         <Link href="/report" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">Report</Link>
         <Link href="/compare" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">Cost Compare</Link>
         <Link href="/po-builder" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">PO Builder</Link>
-        <Link href="/calendar" className="text-sm text-blue-600 font-semibold">ปฏิทิน</Link>
-        <Link href="/guide" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">คู่มือ</Link>
+        <Link href="/calendar" className="text-sm text-blue-600 font-semibold">Calendar</Link>
+        <Link href="/guide" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">Guide</Link>
         <div className="ml-auto"><LockButton /></div>
       </nav>
 
@@ -280,12 +280,12 @@ export default function CalendarPage() {
 
                     {weekInvs.length === 0 ? (
                       <div className="grid" style={{ gridTemplateColumns: GRID }}>
-                        <div className="border-r border-slate-700/20 bg-slate-800/5" style={{ minHeight: '28px' }} />
+                        <div className="border-r border-slate-700/20 bg-slate-800/5" style={{ height: '28px' }} />
                         {days.map((_, di) => (
                           <div
                             key={di}
                             className="border-r last:border-r-0 border-gray-50"
-                            style={{ minHeight: '28px' }}
+                            style={{ height: '28px' }}
                           />
                         ))}
                       </div>
@@ -322,7 +322,7 @@ export default function CalendarPage() {
                           <div
                             key={inv.id + ds(mon)}
                             className={`grid relative ${ii % 2 === 1 ? 'bg-slate-50/60' : 'bg-white'}`}
-                            style={{ gridTemplateColumns: GRID, minHeight: arrivesToday ? '48px' : '38px', zIndex: 1 }}
+                            style={{ gridTemplateColumns: GRID, height: arrivesToday ? '48px' : '40px', zIndex: 1 }}
                           >
                             {/* Week label spacer */}
                             <div
@@ -345,8 +345,8 @@ export default function CalendarPage() {
                               style={{
                                 gridColumn: `${colStart} / ${colEnd}`,
                                 gridRow: 1,
-                                margin: arrivesToday ? '5px 4px' : '5px 4px',
-                                minHeight: arrivesToday ? '38px' : '28px',
+                                margin: '5px 4px',
+                                height: arrivesToday ? 'calc(100% - 10px)' : 'calc(100% - 10px)',
                                 borderRadius: radius,
                                 background: arrivesToday ? cfg.stroke : cfg.fill,
                                 border: arrivesToday
