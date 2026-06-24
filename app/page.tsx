@@ -169,6 +169,7 @@ export default function Home() {
         <Link href="/report" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">Report</Link>
         <Link href="/compare" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">Cost Compare</Link>
         <Link href="/po-builder" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">PO Builder</Link>
+        <Link href="/calendar" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">ปฏิทิน</Link>
         <Link href="/guide" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">คู่มือ</Link>
         <div className="ml-auto">
           <LockButton onUnlock={() => setUnlocked(true)} onLock={() => setUnlocked(false)} />
