@@ -338,12 +338,17 @@ export default function CalendarPage() {
                         const colStart = gc(barStartDay)
                         const colEnd = gc(barEndDay) + 1
 
+                        // Arriving today = today falls within the arrival date range
+                        const arrivesToday =
+                          todayStr >= inv.estimated_arrival! &&
+                          todayStr <= (inv.estimated_arrival_end || inv.estimated_arrival!)
+
 
                         return (
                           <div
                             key={inv.id + ds(mon)}
                             className={`grid relative ${ii % 2 === 1 ? 'bg-slate-50/60' : 'bg-white'}`}
-                            style={{ gridTemplateColumns: GRID, minHeight: '54px', zIndex: 1 }}
+                            style={{ gridTemplateColumns: GRID, minHeight: arrivesToday ? '62px' : '54px', zIndex: 1 }}
                           >
                             {/* Week label spacer */}
                             <div
@@ -358,38 +363,55 @@ export default function CalendarPage() {
                             {/* ── The bar ── */}
                             <Link
                               href={`/dashboard/${inv.id}`}
-                              className="group flex items-center overflow-hidden cursor-pointer relative z-10 hover:brightness-[0.96] hover:shadow-lg transition-all duration-150"
+                              className={`group flex items-center overflow-hidden cursor-pointer relative z-10 transition-all duration-150 ${
+                                arrivesToday
+                                  ? 'hover:brightness-95'
+                                  : 'hover:brightness-[0.96] hover:shadow-lg'
+                              }`}
                               style={{
                                 gridColumn: `${colStart} / ${colEnd}`,
                                 gridRow: 1,
-                                margin: '8px 5px',
-                                minHeight: '38px',
+                                margin: arrivesToday ? '8px 5px' : '8px 5px',
+                                minHeight: arrivesToday ? '46px' : '38px',
                                 borderRadius: radius,
-                                background: cfg.fill,
-                                borderTop: `1.5px solid ${cfg.stroke}50`,
-                                borderRight: `1.5px solid ${cfg.stroke}50`,
-                                borderBottom: `1.5px solid ${cfg.stroke}50`,
-                                borderLeft: `${leftBorderW} solid ${cfg.stroke}`,
+                                background: arrivesToday ? cfg.stroke : cfg.fill,
+                                border: arrivesToday
+                                  ? `2px solid ${cfg.stroke}`
+                                  : undefined,
+                                borderTop: arrivesToday ? undefined : `1.5px solid ${cfg.stroke}50`,
+                                borderRight: arrivesToday ? undefined : `1.5px solid ${cfg.stroke}50`,
+                                borderBottom: arrivesToday ? undefined : `1.5px solid ${cfg.stroke}50`,
+                                borderLeft: arrivesToday ? undefined : `${leftBorderW} solid ${cfg.stroke}`,
+                                boxShadow: arrivesToday
+                                  ? `0 0 0 3px ${cfg.stroke}30, 0 4px 16px ${cfg.stroke}50`
+                                  : undefined,
                               }}
                               title={`${inv.invoice_no}${inv.supplier ? ' · ' + inv.supplier : ''} · ${inv.st}`}
                             >
                               {prevCont && (
                                 <span
-                                  className="text-[10px] pl-1.5 pr-0.5 shrink-0 opacity-40"
-                                  style={{ color: cfg.textColor }}
+                                  className="text-[10px] pl-1.5 pr-0.5 shrink-0 opacity-60"
+                                  style={{ color: arrivesToday ? 'white' : cfg.textColor }}
                                 >◀</span>
                               )}
-                              <div className="flex flex-col justify-center px-2 overflow-hidden flex-1 min-w-0">
-                                <span
-                                  className="text-[12px] font-bold truncate leading-tight"
-                                  style={{ color: cfg.textColor }}
-                                >
-                                  {inv.invoice_no}
-                                </span>
+                              <div className="flex flex-col justify-center px-2.5 overflow-hidden flex-1 min-w-0">
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <span
+                                    className={`truncate leading-tight font-bold ${arrivesToday ? 'text-[13px]' : 'text-[12px]'}`}
+                                    style={{ color: arrivesToday ? 'white' : cfg.textColor }}
+                                  >
+                                    {inv.invoice_no}
+                                  </span>
+                                  {arrivesToday && (
+                                    <span className="shrink-0 text-[9px] font-black bg-white/25 text-white rounded-full px-1.5 py-0.5 leading-none whitespace-nowrap">
+                                      เข้าวันนี้ !
+                                    </span>
+                                  )}
+                                </div>
                                 {inv.supplier && (
                                   <span
-                                    className="text-[10px] truncate leading-tight mt-0.5 opacity-60"
-                                    style={{ color: cfg.textColor }}
+                                    className="text-[10px] truncate leading-tight mt-0.5"
+                                    style={{ color: arrivesToday ? 'rgba(255,255,255,0.75)' : cfg.textColor, opacity: arrivesToday ? 1 : 0.6 }}
                                   >
                                     {inv.supplier}
                                   </span>
@@ -397,8 +419,8 @@ export default function CalendarPage() {
                               </div>
                               {nextCont && (
                                 <span
-                                  className="text-[10px] pr-1.5 pl-0.5 shrink-0 opacity-40"
-                                  style={{ color: cfg.textColor }}
+                                  className="text-[10px] pr-1.5 pl-0.5 shrink-0 opacity-60"
+                                  style={{ color: arrivesToday ? 'white' : cfg.textColor }}
                                 >▶</span>
                               )}
                             </Link>
