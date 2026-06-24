@@ -239,12 +239,14 @@ export default function CalendarPage() {
                       return (
                         <div
                           key={di}
-                          className={`border-r last:border-r-0 border-gray-100 py-1.5 text-center ${
-                            isToday ? 'bg-blue-50' : isSun ? 'bg-rose-50/30' : ''
-                          }`}
+                          className="border-r last:border-r-0 border-gray-100 py-1.5 text-center"
+                          style={isSun ? {
+                            background: 'repeating-linear-gradient(-45deg,rgba(251,113,133,0.08) 0px,rgba(251,113,133,0.08) 3px,transparent 3px,transparent 9px)',
+                            backgroundColor: 'rgba(255,241,242,0.7)',
+                          } : isToday ? { backgroundColor: 'rgba(219,234,254,0.6)' } : undefined}
                         >
-                          <div className={`text-[8px] font-black uppercase tracking-wider leading-none mb-1 ${
-                            isToday ? 'text-blue-500' : isSun ? 'text-rose-400' : 'text-slate-400'
+                          <div className={`text-[8px] font-black uppercase tracking-wider leading-none mb-0.5 ${
+                            isToday ? 'text-blue-500' : isSun ? 'text-rose-500' : 'text-slate-400'
                           }`}>
                             {DAY_TH[di]}
                           </div>
@@ -257,6 +259,9 @@ export default function CalendarPage() {
                           }`}>
                             {d.getDate()}
                           </div>
+                          {isSun && (
+                            <div className="text-[7px] font-black text-rose-400/70 mt-0.5 leading-none tracking-tight">หยุด</div>
+                          )}
                         </div>
                       )
                     })}
@@ -264,6 +269,18 @@ export default function CalendarPage() {
 
                   {/* ── Invoice rows ── */}
                   <div className="relative">
+                    {/* Sunday column — striped "closed" overlay */}
+                    <div
+                      className="absolute top-0 bottom-0 pointer-events-none z-0"
+                      style={{
+                        left: `calc(${LABEL_W}px + 6 * (100% - ${LABEL_W}px) / 7)`,
+                        width: `calc((100% - ${LABEL_W}px) / 7)`,
+                        background: 'repeating-linear-gradient(-45deg,rgba(251,113,133,0.07) 0px,rgba(251,113,133,0.07) 3px,transparent 3px,transparent 9px)',
+                        backgroundColor: 'rgba(255,241,242,0.45)',
+                        borderLeft: '1px solid rgba(251,113,133,0.15)',
+                      }}
+                    />
+
                     {/* Today column highlight spanning all rows of this week */}
                     {todayColIdx >= 0 && (
                       <div
