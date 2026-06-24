@@ -312,10 +312,18 @@ export default function CalendarPage() {
                         const arrEnd = pd(inv.estimated_arrival_end || inv.estimated_arrival!)
                         const cfg = S[inv.st] || S['อยู่ที่จีน']
 
-                        const barStartDay = arrStart < mon ? 0 : dow(arrStart)
-                        const barEndDay = arrEnd > sun ? 6 : dow(arrEnd)
-                        const prevCont = arrStart < mon
-                        const nextCont = arrEnd > sun
+                        // Sunday (dow=6) is closed — bars never enter that column.
+                        // Clamp barStartDay to Mon (0) if source date falls on Sunday.
+                        const rawStart = arrStart < mon ? 0 : dow(arrStart)
+                        const barStartDay = rawStart === 6 ? 0 : rawStart // Sun start → treat as Mon next week (handled by nextWeek row)
+
+                        // Clamp barEndDay to Sat (5) — never render into Sunday column.
+                        const rawEnd = arrEnd > sun ? 5 : Math.min(dow(arrEnd), 5)
+                        const barEndDay = rawEnd
+
+                        const prevCont = arrStart < mon || dow(arrStart) === 6
+                        // nextCont: extends past this week's Saturday (into Mon+)
+                        const nextCont = arrEnd > sun || (arrEnd <= sun && dow(arrEnd) === 6)
 
                         // Border-radius: pill if starts/ends here, square if continues
                         const rl = prevCont ? '4px' : '18px'
