@@ -11,9 +11,27 @@ import { isUnlocked, tryUnlock } from '@/lib/auth'
 const STATUS_STYLE: Record<string, string> = {
   'อยู่ที่จีน': 'bg-yellow-100 text-yellow-800',
   'On board': 'bg-blue-100 text-blue-800',
+  'กำลังเข้าคลัง': 'bg-orange-100 text-orange-800',
   'ถึงไทย กำลังเข้าคลัง': 'bg-orange-100 text-orange-800',
   'ถึงคลัง': 'bg-orange-100 text-orange-800',
   'เข้าคลังแล้ว': 'bg-green-100 text-green-800',
+}
+
+function computeStatus(
+  status: string | null, arrival: string | null,
+  arrivalEnd: string | null, etaDate?: string | null,
+): string {
+  const base = status || 'อยู่ที่จีน'
+  const norm = (base === 'ถึงคลัง' || base === 'ถึงไทย กำลังเข้าคลัง') ? 'กำลังเข้าคลัง' : base
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  if (norm === 'On board' && etaDate) {
+    const eta = new Date(etaDate + 'T00:00:00'); eta.setHours(0, 0, 0, 0)
+    if (today >= eta) return 'กำลังเข้าคลัง'
+  }
+  if (!arrival || norm === 'อยู่ที่จีน') return norm
+  const cd = new Date((arrivalEnd || arrival) + 'T00:00:00'); cd.setHours(0, 0, 0, 0)
+  if (today > cd) return 'เข้าคลังแล้ว'
+  return norm
 }
 
 interface ExchangeRateEntry {
@@ -42,6 +60,9 @@ interface Invoice {
   cost_saving_file_url: string | null
   exchange_rate: number | null
   exchange_rates: ExchangeRateEntry[] | null
+  estimated_arrival: string | null
+  estimated_arrival_end: string | null
+  eta_date: string | null
 }
 
 function computeDueDate(blDate: string | null): Date | null {
@@ -301,7 +322,7 @@ export default function InvoiceDetailPage() {
     <div className="min-h-screen bg-gray-50 flex items-center justify-center text-gray-400">ไม่พบ Invoice นี้</div>
   )
 
-  const status = invoice.status || 'อยู่ที่จีน'
+  const status = computeStatus(invoice.status, invoice.estimated_arrival, invoice.estimated_arrival_end, invoice.eta_date)
   const dueDate = computeDueDate(invoice.bl_date)
   const payLabel = getPaymentLabel(invoice)
 
