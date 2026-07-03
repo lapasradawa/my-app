@@ -181,7 +181,22 @@ export default function InvoiceDetailPage() {
 
   async function load() {
     const { data } = await supabase.from('invoices').select('*').eq('id', id).single()
-    if (data) setInvoice(data as Invoice)
+    if (data) {
+      let inv = data as Invoice
+      // If this invoice has no vendor_code but has a supplier, look it up from other invoices
+      if (!inv.vendor_code && inv.supplier) {
+        const { data: match } = await supabase
+          .from('invoices')
+          .select('vendor_code')
+          .eq('supplier', inv.supplier)
+          .not('vendor_code', 'is', null)
+          .neq('id', id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+        if (match?.[0]?.vendor_code) inv = { ...inv, vendor_code: match[0].vendor_code }
+      }
+      setInvoice(inv)
+    }
     setLoading(false)
   }
 
