@@ -14,6 +14,7 @@ interface HistoryItem {
   invoice_no: string
   filename: string
   created_at: string
+  supplier: string | null
 }
 
 export default function Home() {
@@ -28,6 +29,9 @@ export default function Home() {
   const [savedId, setSavedId] = useState<string | null>(null)
   const [invoiceName, setInvoiceName] = useState('')
   const [editingName, setEditingName] = useState(false)
+  const [vendorName, setVendorName] = useState('')
+  const [vendorCode, setVendorCode] = useState('')
+  const [lookingUpCode, setLookingUpCode] = useState(false)
   const [unlocked, setUnlocked] = useState(false)
   const [showPasswordModal, setShowPasswordModal] = useState(false)
   const [pendingAction, setPendingAction] = useState<(() => void) | null>(null)
@@ -40,10 +44,25 @@ export default function Home() {
   async function loadHistory() {
     const { data } = await supabase
       .from('invoices')
-      .select('id, invoice_no, filename, created_at')
+      .select('id, invoice_no, filename, created_at, supplier')
       .order('created_at', { ascending: false })
       .limit(50)
     if (data) setHistory(data as HistoryItem[])
+  }
+
+  async function lookupVendorCode(name: string) {
+    const trimmed = name.trim()
+    if (!trimmed) return
+    setLookingUpCode(true)
+    const { data } = await supabase
+      .from('invoices')
+      .select('vendor_code')
+      .eq('supplier', trimmed)
+      .not('vendor_code', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+    if (data?.[0]?.vendor_code) setVendorCode(data[0].vendor_code)
+    setLookingUpCode(false)
   }
 
   async function handleFile(file: File) {
@@ -82,10 +101,12 @@ export default function Home() {
     setSaving(true)
     try {
       if (savedId) {
-        // Update existing record (rename)
-        await supabase.from('invoices').update({ invoice_no: invoiceName }).eq('id', savedId)
+        await supabase.from('invoices').update({
+          invoice_no: invoiceName,
+          supplier: vendorName.trim() || null,
+          vendor_code: vendorCode.trim() || null,
+        }).eq('id', savedId)
       } else {
-        // Insert new record
         const { data, error: err } = await supabase.from('invoices').insert({
           invoice_no: invoiceName,
           filename,
@@ -93,6 +114,8 @@ export default function Home() {
           container_names: result.containerNames,
           total_amount: result.totalAmount || null,
           currency: result.currency || null,
+          supplier: vendorName.trim() || null,
+          vendor_code: vendorCode.trim() || null,
         }).select('id').single()
         if (err) throw new Error(err.message)
         if (data) setSavedId(data.id)
@@ -112,6 +135,8 @@ export default function Home() {
       setResult({ rows: data.rows, containerNames: data.container_names, invoiceNo: data.invoice_no, totalAmount: data.total_amount || 0, currency: data.currency || '' })
       setFilename(data.filename)
       setInvoiceName(data.invoice_no)
+      setVendorName(data.supplier || '')
+      setVendorCode(data.vendor_code || '')
       setSavedId(data.id)
       setEditingName(false)
     }
@@ -150,6 +175,8 @@ export default function Home() {
     setSavedId(null)
     setInvoiceName('')
     setEditingName(false)
+    setVendorName('')
+    setVendorCode('')
     if (inputRef.current) inputRef.current.value = ''
   }
 
@@ -264,48 +291,85 @@ export default function Home() {
           {result && (
             <>
               {/* Invoice name bar */}
-              <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 mb-4 flex items-center gap-3 flex-wrap">
-                <div className="flex items-center gap-2 flex-1 min-w-0">
-                  <span className="text-sm text-gray-500 shrink-0">Invoice:</span>
-                  {editingName ? (
-                    <input
-                      autoFocus
-                      value={invoiceName}
-                      onChange={e => setInvoiceName(e.target.value)}
-                      onKeyDown={e => e.key === 'Enter' && handleSave()}
-                      className="border border-blue-400 rounded px-2 py-1 text-sm flex-1 outline-none"
-                    />
-                  ) : (
-                    <span
-                      className="text-sm font-semibold text-gray-800 cursor-pointer hover:text-blue-600 truncate"
-                      onClick={() => setEditingName(true)}
-                      title="คลิกเพื่อแก้ไขชื่อ"
+              <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 mb-4 flex flex-col gap-3">
+                {/* Row 1: Invoice name + actions */}
+                <div className="flex items-center gap-3 flex-wrap">
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <span className="text-sm text-gray-500 shrink-0">Invoice:</span>
+                    {editingName ? (
+                      <input
+                        autoFocus
+                        value={invoiceName}
+                        onChange={e => setInvoiceName(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && handleSave()}
+                        className="border border-blue-400 rounded px-2 py-1 text-sm flex-1 outline-none"
+                      />
+                    ) : (
+                      <span
+                        className="text-sm font-semibold text-gray-800 cursor-pointer hover:text-blue-600 truncate"
+                        onClick={() => setEditingName(true)}
+                        title="คลิกเพื่อแก้ไขชื่อ"
+                      >
+                        {invoiceName || '-'}
+                      </span>
+                    )}
+                    <button
+                      onClick={() => setEditingName(v => !v)}
+                      className="text-xs text-gray-400 hover:text-blue-500 shrink-0"
                     >
-                      {invoiceName || '-'}
-                    </span>
-                  )}
-                  <button
-                    onClick={() => setEditingName(v => !v)}
-                    className="text-xs text-gray-400 hover:text-blue-500 shrink-0"
-                  >
-                    {editingName ? 'ยกเลิก' : 'แก้ไข'}
-                  </button>
+                      {editingName ? 'ยกเลิก' : 'แก้ไข'}
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-sm text-gray-400">{result.rows.length} รายการ | {result.containerNames.length} ตู้</span>
+                    <button
+                      onClick={() => requireUnlock(handleSave)}
+                      disabled={saving}
+                      className="px-4 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                    >
+                      {saving ? 'กำลังบันทึก...' : savedId ? 'บันทึก (อัปเดต)' : 'บันทึก'}
+                    </button>
+                    <button
+                      onClick={handleExport}
+                      className="px-4 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors"
+                    >
+                      Export Excel
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <span className="text-sm text-gray-400">{result.rows.length} รายการ | {result.containerNames.length} ตู้</span>
-                  <button
-                    onClick={() => requireUnlock(handleSave)}
-                    disabled={saving}
-                    className="px-4 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
-                  >
-                    {saving ? 'กำลังบันทึก...' : savedId ? 'บันทึก (อัปเดต)' : 'บันทึก'}
-                  </button>
-                  <button
-                    onClick={handleExport}
-                    className="px-4 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors"
-                  >
-                    Export Excel
-                  </button>
+
+                {/* Row 2: Vendor Name + Vendor Code */}
+                <div className="flex items-center gap-4 flex-wrap pt-1 border-t border-gray-100">
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm text-gray-500 shrink-0 w-28">Vendor Name</label>
+                    <input
+                      type="text"
+                      value={vendorName}
+                      onChange={e => setVendorName(e.target.value)}
+                      onBlur={e => {
+                        if (e.target.value.trim() && !vendorCode) lookupVendorCode(e.target.value)
+                      }}
+                      placeholder="เช่น YONGGUAN"
+                      className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-blue-400 w-48"
+                    />
+                    <span className="text-xs text-gray-400">→ แสดงที่ Dashboard</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm text-gray-500 shrink-0 w-28">Vendor Code</label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={vendorCode}
+                        onChange={e => setVendorCode(e.target.value)}
+                        placeholder="เช่น VD-001"
+                        className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-blue-400 w-36"
+                      />
+                      {lookingUpCode && (
+                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-gray-400">ค้นหา...</span>
+                      )}
+                    </div>
+                    <span className="text-xs text-gray-400">→ แสดงที่ Invoice detail</span>
+                  </div>
                 </div>
               </div>
 

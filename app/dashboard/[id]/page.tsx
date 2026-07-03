@@ -65,6 +65,7 @@ interface Invoice {
   estimated_arrival: string | null
   estimated_arrival_end: string | null
   eta_date: string | null
+  vendor_code: string | null
 }
 
 function computeDueDate(blDate: string | null): Date | null {
@@ -450,11 +451,16 @@ export default function InvoiceDetailPage() {
       <div className="max-w-screen-xl mx-auto px-6 py-8">
         {/* Header */}
         <div className="mb-6 flex items-center justify-between flex-wrap gap-4">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-2xl font-bold text-gray-900">{invoice.invoice_no}</h1>
             <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${STATUS_STYLE[status] || 'bg-gray-100 text-gray-700'}`}>
               {status}
             </span>
+            {invoice.vendor_code && (
+              <span className="text-xs font-mono bg-gray-100 text-gray-600 border border-gray-200 px-2.5 py-1 rounded-full">
+                Vendor Code: {invoice.vendor_code}
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <button
