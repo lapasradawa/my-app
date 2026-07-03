@@ -290,14 +290,18 @@ export default function SummaryPage() {
   }, [invoices])
 
   const totalQty = filteredLines.reduce((s, l) => s + l.qty, 0)
+  // Use estimated_arrival for grouping (matches Report page "เข้าคลัง" tab)
   const totalActualThb = useMemo(() => {
-    const filteredInvIds = new Set(filteredLines.map(l => l.invoice_id))
     let sum = 0
-    for (const id of filteredInvIds) {
-      sum += invoiceThbMap.get(id) || 0
+    for (const inv of invoices) {
+      if (selectedMonths.size > 0) {
+        const mk = mKey(inv.estimated_arrival)
+        if (!mk || !selectedMonths.has(mk)) continue
+      }
+      sum += invoiceThbMap.get(inv.id) || 0
     }
     return sum
-  }, [filteredLines, invoiceThbMap])
+  }, [invoices, selectedMonths, invoiceThbMap])
   const totalInvoices = useMemo(() => new Set(filteredLines.map(l => l.invoice_no)).size, [filteredLines])
   const totalSuppliers = useMemo(() => new Set(filteredLines.map(l => l.supplier)).size, [filteredLines])
 
