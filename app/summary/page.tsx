@@ -141,12 +141,12 @@ function LineChart({ months, series }: { months: string[]; series: { label: stri
 // ─── MiniBarChart ─────────────────────────────────────────────────────────────
 function MiniBarChart({ data }: { data: { label: string; value: number }[] }) {
   const max = Math.max(...data.map(d => d.value), 1)
-  const W = 320, H = 80, padB = 18
+  const W = 320, H = 90, padB = 18, padT = 14
   const barW = Math.floor((W - 10) / data.length) - 3
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ maxHeight: 90 }}>
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ maxHeight: 95 }}>
       {data.map((d, i) => {
-        const bH = Math.max(2, (d.value / max) * (H - padB - 4))
+        const bH = Math.max(2, (d.value / max) * (H - padB - padT))
         const x = 5 + i * (barW + 3)
         const y = H - padB - bH
         return (
