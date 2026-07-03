@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase'
 import LockButton from '@/components/LockButton'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+interface ExchangeRateEntry { amount: number; rate: number }
 interface InvoiceData {
   id: string
   invoice_no: string
@@ -15,6 +16,9 @@ interface InvoiceData {
   bl_date: string | null
   estimated_arrival: string | null
   currency: string | null
+  total_amount: number | null
+  exchange_rate: number | null
+  exchange_rates: ExchangeRateEntry[] | null
   rows: { code: string; description: string; qty: number; po: string }[]
 }
 interface PoItem {
@@ -173,6 +177,7 @@ export default function SummaryPage() {
   const [selectedItem, setSelectedItem] = useState<string | null>(null)
   const [itemSearch, setItemSearch] = useState('')
   const [showDetail, setShowDetail] = useState(false)
+  const [periodOpen, setPeriodOpen] = useState(false)
 
   const allMonthKeys = useMemo(() => generateMonthKeys(18), [])
   const chart12Months = useMemo(() => generateMonthKeys(12), [])
@@ -180,7 +185,7 @@ export default function SummaryPage() {
   useEffect(() => {
     async function load() {
       const [invRes, poRes] = await Promise.all([
-        supabase.from('invoices').select('id, invoice_no, supplier, vendor_code, bl_date, estimated_arrival, currency, rows').order('bl_date', { ascending: false }),
+        supabase.from('invoices').select('id, invoice_no, supplier, vendor_code, bl_date, estimated_arrival, currency, total_amount, exchange_rate, exchange_rates, rows').order('bl_date', { ascending: false }),
         supabase.from('po_items').select('item_code, supplier, fob_price, currency')
       ])
       if (invRes.data) setInvoices(invRes.data as InvoiceData[])
@@ -269,8 +274,30 @@ export default function SummaryPage() {
     selectedItem ? itemSummary.find(i => i.code === selectedItem) : null,
     [selectedItem, itemSummary])
 
+  // actualThb per invoice: exchange_rates array sum, or total_amount × exchange_rate
+  const invoiceThbMap = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const inv of invoices) {
+      let thb: number | null = null
+      if (inv.exchange_rates && inv.exchange_rates.length > 0) {
+        thb = inv.exchange_rates.reduce((s, e) => s + e.amount * e.rate, 0)
+      } else if (inv.total_amount != null && inv.exchange_rate != null) {
+        thb = inv.total_amount * inv.exchange_rate
+      }
+      if (thb != null) m.set(inv.id, thb)
+    }
+    return m
+  }, [invoices])
+
   const totalQty = filteredLines.reduce((s, l) => s + l.qty, 0)
-  const totalFob = filteredLines.reduce((s, l) => s + (l.fob_total || 0), 0)
+  const totalActualThb = useMemo(() => {
+    const filteredInvIds = new Set(filteredLines.map(l => l.invoice_id))
+    let sum = 0
+    for (const id of filteredInvIds) {
+      sum += invoiceThbMap.get(id) || 0
+    }
+    return sum
+  }, [filteredLines, invoiceThbMap])
   const totalInvoices = useMemo(() => new Set(filteredLines.map(l => l.invoice_no)).size, [filteredLines])
   const totalSuppliers = useMemo(() => new Set(filteredLines.map(l => l.supplier)).size, [filteredLines])
 
@@ -333,8 +360,7 @@ export default function SummaryPage() {
           </div>
           {/* KPI cards */}
           {[
-            { icon: '📦', value: totalQty.toLocaleString(), label: 'Units Ordered', bg: '#3d8b82' },
-            { icon: '💰', value: totalFob > 0 ? `$${fmt(totalFob, 0)}` : '—', label: 'FOB Value', bg: '#d4962a' },
+            { icon: '💰', value: totalActualThb > 0 ? `฿${fmt(totalActualThb, 0)}` : '—', label: 'Actual FOB THB', bg: '#d4962a' },
             { icon: '🏭', value: String(totalSuppliers), label: 'Suppliers', bg: '#c85a3a' },
             { icon: '📋', value: String(totalInvoices), label: 'Invoices', bg: '#6b5ea8' },
           ].map(card => (
@@ -353,26 +379,80 @@ export default function SummaryPage() {
         </div>
       </div>
 
-      {/* ── Month filter bar ── */}
-      <div style={{ background: '#18303c', padding: '10px 32px' }}>
-        <div style={{ maxWidth: 1400, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 10, fontWeight: 800, color: '#5a8a9a', textTransform: 'uppercase', letterSpacing: '0.12em', marginRight: 6 }}>Period:</span>
-          {allMonthKeys.map(k => (
-            <button key={k} onClick={() => toggleMonth(k)} style={{
-              padding: '3px 10px', borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: 'pointer', transition: 'all 0.15s',
-              background: selectedMonths.has(k) ? '#d4962a' : 'transparent',
-              color: selectedMonths.has(k) ? '#1a2d3a' : '#6a8a9a',
-              border: selectedMonths.has(k) ? '1px solid #d4962a' : '1px solid #2a4a5a',
-            }}>{mLabel(k)}</button>
+      {/* ── Period dropdown bar ── */}
+      <div style={{ background: '#18303c', padding: '10px 32px', position: 'relative', zIndex: 30 }}>
+        <div style={{ maxWidth: 1400, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 10, fontWeight: 800, color: '#5a8a9a', textTransform: 'uppercase', letterSpacing: '0.12em' }}>Period:</span>
+
+          {/* Dropdown trigger */}
+          <div style={{ position: 'relative' }}>
+            <button onClick={() => setPeriodOpen(o => !o)} style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '6px 14px', borderRadius: 8, cursor: 'pointer',
+              background: '#1e3a4a', border: '1px solid #2e5060',
+              color: '#d4c8a8', fontSize: 11, fontWeight: 700,
+              minWidth: 200,
+            }}>
+              <span style={{ flex: 1, textAlign: 'left' }}>
+                {selectedMonths.size === 0
+                  ? 'Select period…'
+                  : selectedMonths.size === allMonthKeys.length
+                  ? 'All months'
+                  : selectedMonths.size === 1
+                  ? mLabel([...selectedMonths][0])
+                  : `${selectedMonths.size} months selected`}
+              </span>
+              <span style={{ fontSize: 9, color: '#5a8a9a' }}>{periodOpen ? '▲' : '▼'}</span>
+            </button>
+
+            {periodOpen && (
+              <div style={{
+                position: 'absolute', top: 'calc(100% + 6px)', left: 0,
+                background: '#1a2e3c', border: '1px solid #2e5060', borderRadius: 12,
+                boxShadow: '0 8px 32px rgba(0,0,0,0.4)', padding: 12, minWidth: 280, zIndex: 100,
+              }}>
+                {/* Quick actions */}
+                <div style={{ display: 'flex', gap: 8, marginBottom: 10, paddingBottom: 8, borderBottom: '1px solid #2a4455' }}>
+                  <button onClick={() => setSelectedMonths(new Set(allMonthKeys))}
+                    style={{ flex: 1, padding: '4px 0', borderRadius: 6, border: 'none', background: '#3d8b82', color: '#fff', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>
+                    All
+                  </button>
+                  <button onClick={() => setSelectedMonths(new Set())}
+                    style={{ flex: 1, padding: '4px 0', borderRadius: 6, border: 'none', background: '#2a4455', color: '#8a9aaa', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>
+                    Clear
+                  </button>
+                  <button onClick={() => setPeriodOpen(false)}
+                    style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: '#d4962a', color: '#fff', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>
+                    Done
+                  </button>
+                </div>
+                {/* Month grid */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 5 }}>
+                  {allMonthKeys.map(k => (
+                    <button key={k} onClick={() => toggleMonth(k)} style={{
+                      padding: '5px 4px', borderRadius: 6, cursor: 'pointer', fontSize: 10, fontWeight: 700,
+                      background: selectedMonths.has(k) ? '#d4962a' : 'transparent',
+                      color: selectedMonths.has(k) ? '#1a2d3a' : '#8a9aaa',
+                      border: selectedMonths.has(k) ? '1px solid #d4962a' : '1px solid #2a4455',
+                      transition: 'all 0.12s',
+                    }}>{mLabel(k)}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Summary chips */}
+          {selectedMonths.size > 0 && [...selectedMonths].sort().map(k => (
+            <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#d4962a', borderRadius: 6, padding: '3px 8px' }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: '#1a2d3a' }}>{mLabel(k)}</span>
+              <button onClick={() => toggleMonth(k)} style={{ background: 'none', border: 'none', color: '#1a2d3a', fontSize: 11, cursor: 'pointer', padding: 0, lineHeight: 1, opacity: 0.7 }}>×</button>
+            </div>
           ))}
-          <span style={{ color: '#2a4a5a', margin: '0 4px' }}>|</span>
-          <button onClick={() => setSelectedMonths(new Set(allMonthKeys))}
-            style={{ color: '#3d8b82', background: 'none', border: 'none', fontSize: 10, cursor: 'pointer', fontWeight: 700 }}>All</button>
-          <button onClick={() => setSelectedMonths(new Set())}
-            style={{ color: '#5a8a9a', background: 'none', border: 'none', fontSize: 10, cursor: 'pointer' }}>Clear</button>
+
           {selectedMonths.size > 0 && (
-            <span style={{ color: '#4a7a8a', fontSize: 10, marginLeft: 8 }}>
-              {selectedMonths.size} month{selectedMonths.size > 1 ? 's' : ''} · {filteredLines.length.toLocaleString()} lines
+            <span style={{ color: '#4a7a8a', fontSize: 10, marginLeft: 'auto' }}>
+              {filteredLines.length.toLocaleString()} lines
             </span>
           )}
         </div>
