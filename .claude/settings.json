@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(gh run *)"
+      "Bash(gh run *)",
+      "Bash(mkdir -p /Users/minionz/Desktop/my-app/app/summary)"
+    ],
+    "additionalDirectories": [
+      "/Users/minionz/Desktop/my-app/app"
     ]
   }
 }

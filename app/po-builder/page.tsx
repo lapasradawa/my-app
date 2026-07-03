@@ -130,6 +130,7 @@ export default function PoBuilderPage() {
         <Link href="/dashboard" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">Dashboard</Link>
         <Link href="/calendar" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">Calendar</Link>
         <Link href="/report" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">Report</Link>
+        <Link href="/summary" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">Summary</Link>
         <Link href="/compare" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">Cost Compare</Link>
         <Link href="/po-builder" className="text-sm text-blue-600 font-semibold">PO Builder</Link>
         <Link href="/guide" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">Guide</Link>
