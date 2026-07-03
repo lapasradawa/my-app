@@ -137,12 +137,20 @@ export default function SummaryPage() {
   // Build price lookup: "item_code|supplier" → fob_price
   const priceMap = useMemo(() => {
     const m = new Map<string, { price: number | null; currency: string | null }>()
-    // Process oldest first so newest overwrites
     for (const p of poItems) {
       m.set(`${p.item_code}|${p.supplier}`, { price: p.fob_price, currency: p.currency })
     }
     return m
   }, [poItems])
+
+  // Build vendor_code lookup: supplier → vendor_code (from any invoice that has it)
+  const vendorCodeMap = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const inv of invoices) {
+      if (inv.supplier && inv.vendor_code) m.set(inv.supplier, inv.vendor_code)
+    }
+    return m
+  }, [invoices])
 
   // Flatten all invoices into line items
   const allLines = useMemo<LineItem[]>(() => {
@@ -152,6 +160,8 @@ export default function SummaryPage() {
       const supplier = inv.supplier || '—'
       const refDate = inv.bl_date || inv.estimated_arrival
       const mk = mKey(refDate)
+      // Use invoice's own vendor_code, or fall back to lookup from same supplier
+      const resolvedVendorCode = inv.vendor_code || vendorCodeMap.get(supplier) || null
       for (const row of inv.rows) {
         if (!row.code) continue
         const lookup = priceMap.get(`${row.code}|${supplier}`)
@@ -164,7 +174,7 @@ export default function SummaryPage() {
           invoice_no: inv.invoice_no,
           invoice_id: inv.id,
           supplier,
-          vendor_code: inv.vendor_code,
+          vendor_code: resolvedVendorCode,
           bl_date: inv.bl_date,
           month_key: mk,
           currency: lookup?.currency ?? inv.currency,
