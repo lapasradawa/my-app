@@ -19,7 +19,7 @@ interface InvoiceData {
   total_amount: number | null
   exchange_rate: number | null
   exchange_rates: ExchangeRateEntry[] | null
-  rows: { code: string; description: string; qty: number; po: string }[]
+  rows: { code: string; description: string; qty: number; po: string }[] | null
 }
 interface PoItem {
   item_code: string
@@ -170,6 +170,7 @@ export default function SummaryPage() {
   const [invoices, setInvoices] = useState<InvoiceData[]>([])
   const [poItems, setPoItems] = useState<PoItem[]>([])
   const [loading, setLoading] = useState(true)
+  const [rowsLoading, setRowsLoading] = useState(true)
   const [selectedMonths, setSelectedMonths] = useState<Set<string>>(() => {
     const now = new Date()
     return new Set([`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`])
@@ -184,13 +185,22 @@ export default function SummaryPage() {
 
   useEffect(() => {
     async function load() {
-      const [invRes, poRes] = await Promise.all([
-        supabase.from('invoices').select('id, invoice_no, supplier, vendor_code, bl_date, estimated_arrival, currency, total_amount, exchange_rate, exchange_rates, rows').order('bl_date', { ascending: false }),
+      // Stage 1: metadata only — KPI / charts appear immediately
+      const [metaRes, poRes] = await Promise.all([
+        supabase.from('invoices').select('id, invoice_no, supplier, vendor_code, bl_date, estimated_arrival, currency, total_amount, exchange_rate, exchange_rates').order('bl_date', { ascending: false }),
         supabase.from('po_items').select('item_code, supplier, fob_price, currency')
       ])
-      if (invRes.data) setInvoices(invRes.data as InvoiceData[])
+      if (metaRes.data) setInvoices(metaRes.data as InvoiceData[])
       if (poRes.data) setPoItems(poRes.data as PoItem[])
       setLoading(false)
+
+      // Stage 2: fetch rows in background — item cards / table populate after
+      const rowsRes = await supabase.from('invoices').select('id, rows')
+      if (rowsRes.data) {
+        const rowMap = new Map(rowsRes.data.map((r: { id: string; rows: InvoiceData['rows'] }) => [r.id, r.rows]))
+        setInvoices(prev => prev.map(inv => ({ ...inv, rows: rowMap.get(inv.id) || [] })))
+      }
+      setRowsLoading(false)
     }
     load()
   }, [])
@@ -210,7 +220,7 @@ export default function SummaryPage() {
   const allLines = useMemo<LineItem[]>(() => {
     const lines: LineItem[] = []
     for (const inv of invoices) {
-      if (!inv.rows) continue
+      if (!inv.rows || inv.rows.length === 0) continue
       const supplier = inv.supplier || '—'
       const refDate = inv.bl_date || inv.estimated_arrival
       const mk = mKey(refDate)
@@ -607,7 +617,9 @@ export default function SummaryPage() {
                 </button>
               </div>
 
-              {!showDetail ? (
+              {rowsLoading ? (
+                <div style={{ textAlign: 'center', padding: '40px 0', color: '#bbb', fontSize: 12 }}>กำลังโหลด items…</div>
+              ) : !showDetail ? (
                 /* Item cards */
                 <div style={{ maxHeight: 360, overflowY: 'auto', padding: 12, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(145px, 1fr))', gap: 8 }}>
                   {filteredItemSummary.slice(0, 120).map(item => (
