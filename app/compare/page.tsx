@@ -48,6 +48,7 @@ export default function ComparePage() {
   const [savingSettings, setSavingSettings] = useState(false)
 
   const [projects, setProjects] = useState<string[]>([])
+  const [allSuppliers, setAllSuppliers] = useState<string[]>([])
   const [selectedProject, setSelectedProject] = useState('')
   const [suppliers, setSuppliers] = useState<string[]>([])
   const [supplierDates, setSupplierDates] = useState<Record<string, string>>({})
@@ -56,6 +57,8 @@ export default function ComparePage() {
 
   const [uploadProject, setUploadProject] = useState('')
   const [uploadSupplier, setUploadSupplier] = useState('')
+  const [projectOpen, setProjectOpen] = useState(false)
+  const [supplierOpen, setSupplierOpen] = useState(false)
   const [uploading, setUploading] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -107,9 +110,11 @@ export default function ComparePage() {
   }
 
   async function loadProjects() {
-    const { data } = await supabase.from('po_items').select('project')
+    const { data } = await supabase.from('po_items').select('project, supplier')
     if (data) {
-      setProjects([...new Set((data as { project: string }[]).map(r => r.project))].sort())
+      const rows = data as { project: string; supplier: string }[]
+      setProjects([...new Set(rows.map(r => r.project))].sort())
+      setAllSuppliers([...new Set(rows.map(r => r.supplier))].sort())
     }
   }
 
@@ -354,12 +359,79 @@ export default function ComparePage() {
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
             <p className="text-sm font-semibold text-gray-700 mb-3">อัปโหลด PO</p>
             <div className="space-y-2">
-              <input type="text" value={uploadProject} onChange={e => setUploadProject(e.target.value)}
-                placeholder="ชื่อ Project เช่น 7-11, PTT"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400" />
-              <input type="text" value={uploadSupplier} onChange={e => setUploadSupplier(e.target.value)}
-                placeholder="Supplier เช่น YONGGUAN, LITELON, YPN"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400" />
+              {/* Project combobox */}
+              <div className="relative">
+                <input
+                  type="text"
+                  value={uploadProject}
+                  onChange={e => setUploadProject(e.target.value)}
+                  onFocus={() => setProjectOpen(true)}
+                  onBlur={() => setTimeout(() => setProjectOpen(false), 150)}
+                  placeholder="ชื่อ Project เช่น 7-11, PTT"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400 pr-8"
+                />
+                <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none">▼</span>
+                {projectOpen && (
+                  <div className="absolute z-20 w-full bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto">
+                    {projects
+                      .filter(p => p.toLowerCase().includes(uploadProject.toLowerCase()))
+                      .map(p => (
+                        <button key={p} type="button"
+                          onMouseDown={() => { setUploadProject(p); setProjectOpen(false) }}
+                          className={`w-full text-left px-3 py-2 text-sm hover:bg-blue-50 transition-colors ${uploadProject === p ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'}`}>
+                          {p}
+                        </button>
+                      ))}
+                    {uploadProject.trim() && !projects.map(p => p.toLowerCase()).includes(uploadProject.trim().toLowerCase()) && (
+                      <button type="button"
+                        onMouseDown={() => { setProjectOpen(false) }}
+                        className="w-full text-left px-3 py-2 text-sm text-blue-600 bg-blue-50/50 border-t border-gray-100 font-medium">
+                        + สร้าง Project ใหม่: &ldquo;{uploadProject.trim()}&rdquo;
+                      </button>
+                    )}
+                    {projects.length === 0 && (
+                      <div className="px-3 py-2 text-xs text-gray-400">ยังไม่มี Project — พิมพ์เพื่อสร้างใหม่</div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Supplier combobox */}
+              <div className="relative">
+                <input
+                  type="text"
+                  value={uploadSupplier}
+                  onChange={e => setUploadSupplier(e.target.value)}
+                  onFocus={() => setSupplierOpen(true)}
+                  onBlur={() => setTimeout(() => setSupplierOpen(false), 150)}
+                  placeholder="Supplier เช่น YONGGUAN, LITELON, YPN"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400 pr-8"
+                />
+                <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none">▼</span>
+                {supplierOpen && (
+                  <div className="absolute z-20 w-full bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto">
+                    {allSuppliers
+                      .filter(s => s.toLowerCase().includes(uploadSupplier.toLowerCase()))
+                      .map(s => (
+                        <button key={s} type="button"
+                          onMouseDown={() => { setUploadSupplier(s); setSupplierOpen(false) }}
+                          className={`w-full text-left px-3 py-2 text-sm hover:bg-blue-50 transition-colors ${uploadSupplier === s ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'}`}>
+                          {s}
+                        </button>
+                      ))}
+                    {uploadSupplier.trim() && !allSuppliers.map(s => s.toLowerCase()).includes(uploadSupplier.trim().toLowerCase()) && (
+                      <button type="button"
+                        onMouseDown={() => { setSupplierOpen(false) }}
+                        className="w-full text-left px-3 py-2 text-sm text-blue-600 bg-blue-50/50 border-t border-gray-100 font-medium">
+                        + เพิ่ม Supplier ใหม่: &ldquo;{uploadSupplier.trim()}&rdquo;
+                      </button>
+                    )}
+                    {allSuppliers.length === 0 && (
+                      <div className="px-3 py-2 text-xs text-gray-400">ยังไม่มี Supplier — พิมพ์เพื่อเพิ่มใหม่</div>
+                    )}
+                  </div>
+                )}
+              </div>
               <button
                 onClick={() => fileRef.current?.click()}
                 disabled={uploading || !uploadProject.trim() || !uploadSupplier.trim()}
