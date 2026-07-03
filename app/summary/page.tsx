@@ -17,14 +17,12 @@ interface InvoiceData {
   currency: string | null
   rows: { code: string; description: string; qty: number; po: string }[]
 }
-
 interface PoItem {
   item_code: string
   supplier: string
   fob_price: number | null
   currency: string | null
 }
-
 interface LineItem {
   item_code: string
   description: string
@@ -35,7 +33,7 @@ interface LineItem {
   supplier: string
   vendor_code: string | null
   bl_date: string | null
-  month_key: string | null  // YYYY-MM from bl_date
+  month_key: string | null
   currency: string | null
   fob_price: number | null
   fob_total: number | null
@@ -47,17 +45,14 @@ function mKey(d: string | null): string | null {
   const dt = new Date(d + 'T00:00:00')
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`
 }
-
 function mLabel(k: string): string {
   const [y, m] = k.split('-')
   const names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
   return `${names[parseInt(m) - 1]} ${y}`
 }
-
 function fmt(n: number, dec = 2) {
   return n.toLocaleString(undefined, { minimumFractionDigits: dec, maximumFractionDigits: dec })
 }
-
 function generateMonthKeys(count = 18): string[] {
   const keys: string[] = []
   const d = new Date()
@@ -68,34 +63,97 @@ function generateMonthKeys(count = 18): string[] {
   return keys
 }
 
-// ─── Simple SVG bar chart ─────────────────────────────────────────────────────
-function BarChart({ data }: { data: { label: string; value: number; color?: string }[] }) {
-  const max = Math.max(...data.map(d => d.value), 1)
-  const H = 100
-  const barW = Math.max(20, Math.min(50, Math.floor(400 / data.length) - 8))
-  const gap = 8
-  const totalW = data.length * (barW + gap) - gap + 40
+const PALETTE = ['#3d8b82','#d4962a','#c85a3a','#6b5ea8','#2a7c9a','#c87a3a','#5a9a6b','#c85a82']
 
+// ─── DonutChart ───────────────────────────────────────────────────────────────
+function DonutChart({ slices, total }: { slices: { label: string; value: number; color: string }[]; total: number }) {
+  const cx = 80, cy = 80, R = 68, r = 44
+  let angle = -Math.PI / 2
+  const arcs = slices.filter(s => s.value > 0).map(s => {
+    const sweep = total > 0 ? (s.value / total) * 2 * Math.PI : 0
+    const sa = angle, ea = angle + sweep
+    angle = ea
+    const x1 = cx + R * Math.cos(sa), y1 = cy + R * Math.sin(sa)
+    const x2 = cx + R * Math.cos(ea), y2 = cy + R * Math.sin(ea)
+    const ix1 = cx + r * Math.cos(ea), iy1 = cy + r * Math.sin(ea)
+    const ix2 = cx + r * Math.cos(sa), iy2 = cy + r * Math.sin(sa)
+    const large = sweep > Math.PI ? 1 : 0
+    return { ...s, path: `M ${x1} ${y1} A ${R} ${R} 0 ${large} 1 ${x2} ${y2} L ${ix1} ${iy1} A ${r} ${r} 0 ${large} 0 ${ix2} ${iy2} Z` }
+  })
   return (
-    <svg viewBox={`0 0 ${totalW} ${H + 36}`} className="w-full" style={{ maxHeight: 160 }}>
+    <svg viewBox="0 0 160 160" width={160} height={160}>
+      {arcs.map((arc, i) => <path key={i} d={arc.path} fill={arc.color} opacity={0.88} />)}
+      <circle cx={cx} cy={cy} r={r - 3} fill="#faf5ee" />
+      <text x={cx} y={cy - 8} textAnchor="middle" fontSize={10} fill="#8a7a6a" fontWeight="600">Total</text>
+      <text x={cx} y={cy + 9} textAnchor="middle" fontSize={15} fill="#3a2a1a" fontWeight="800">
+        {total >= 1000 ? `${(total / 1000).toFixed(1)}k` : total.toLocaleString()}
+      </text>
+      <text x={cx} y={cy + 23} textAnchor="middle" fontSize={9} fill="#aaa">units</text>
+    </svg>
+  )
+}
+
+// ─── LineChart ────────────────────────────────────────────────────────────────
+function LineChart({ months, series }: { months: string[]; series: { label: string; color: string; values: number[] }[] }) {
+  const W = 520, H = 160, padL = 36, padR = 16, padT = 14, padB = 28
+  const cW = W - padL - padR, cH = H - padT - padB
+  const allVals = series.flatMap(s => s.values)
+  const maxVal = Math.max(...allVals, 1)
+  const xPos = (i: number) => padL + (months.length < 2 ? cW / 2 : (i / (months.length - 1)) * cW)
+  const yPos = (v: number) => padT + cH - (v / maxVal) * cH
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ maxHeight: 175 }}>
+      {[0, 0.25, 0.5, 0.75, 1].map(frac => {
+        const y = padT + cH * (1 - frac)
+        const val = Math.round(maxVal * frac)
+        return (
+          <g key={frac}>
+            <line x1={padL} y1={y} x2={W - padR} y2={y} stroke="#e8dcc8" strokeWidth={1} strokeDasharray={frac === 0 ? '0' : '3,3'} />
+            <text x={padL - 4} y={y + 4} textAnchor="end" fontSize={8} fill="#bbb">
+              {val >= 1000 ? `${(val / 1000).toFixed(0)}k` : val}
+            </text>
+          </g>
+        )
+      })}
+      {series.map(s => (
+        <g key={s.label}>
+          <polyline points={months.map((_, i) => `${xPos(i)},${yPos(s.values[i])}`).join(' ')}
+            fill="none" stroke={s.color} strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />
+          {months.map((_, i) => s.values[i] > 0 && (
+            <circle key={i} cx={xPos(i)} cy={yPos(s.values[i])} r={4}
+              fill={s.color} stroke="#faf5ee" strokeWidth={2} />
+          ))}
+        </g>
+      ))}
+      {months.map((m, i) => (
+        <text key={m} x={xPos(i)} y={H - 5} textAnchor="middle" fontSize={8} fill="#bbb">
+          {mLabel(m).slice(0, 3)}
+        </text>
+      ))}
+    </svg>
+  )
+}
+
+// ─── MiniBarChart ─────────────────────────────────────────────────────────────
+function MiniBarChart({ data }: { data: { label: string; value: number }[] }) {
+  const max = Math.max(...data.map(d => d.value), 1)
+  const W = 320, H = 80, padB = 18
+  const barW = Math.floor((W - 10) / data.length) - 3
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ maxHeight: 90 }}>
       {data.map((d, i) => {
-        const barH = Math.max(2, (d.value / max) * H)
-        const x = 20 + i * (barW + gap)
-        const y = H - barH
+        const bH = Math.max(2, (d.value / max) * (H - padB - 4))
+        const x = 5 + i * (barW + 3)
+        const y = H - padB - bH
         return (
           <g key={d.label}>
-            <rect x={x} y={y} width={barW} height={barH}
-              fill={d.color || '#3b82f6'} rx={3} opacity={0.85} />
+            <rect x={x} y={y} width={barW} height={bH} fill="#3d8b82" rx={2} opacity={0.8} />
             {d.value > 0 && (
-              <text x={x + barW / 2} y={y - 3} textAnchor="middle"
-                fontSize={9} fill="#374151" fontWeight="600">
-                {d.value >= 1000 ? `${(d.value/1000).toFixed(1)}k` : d.value}
+              <text x={x + barW / 2} y={y - 2} textAnchor="middle" fontSize={7} fill="#6a5a4a" fontWeight="600">
+                {d.value >= 1000 ? `${(d.value / 1000).toFixed(1)}k` : d.value}
               </text>
             )}
-            <text x={x + barW / 2} y={H + 14} textAnchor="middle"
-              fontSize={8} fill="#9ca3af">
-              {d.label}
-            </text>
+            <text x={x + barW / 2} y={H - 3} textAnchor="middle" fontSize={7} fill="#bbb">{d.label}</text>
           </g>
         )
       })}
@@ -112,20 +170,18 @@ export default function SummaryPage() {
     const now = new Date()
     return new Set([`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`])
   })
-  const [itemSearch, setItemSearch] = useState('')
   const [selectedItem, setSelectedItem] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'supplier' | 'item'>('supplier')
+  const [itemSearch, setItemSearch] = useState('')
+  const [showDetail, setShowDetail] = useState(false)
 
   const allMonthKeys = useMemo(() => generateMonthKeys(18), [])
+  const chart12Months = useMemo(() => generateMonthKeys(12), [])
 
   useEffect(() => {
     async function load() {
       const [invRes, poRes] = await Promise.all([
-        supabase.from('invoices')
-          .select('id, invoice_no, supplier, vendor_code, bl_date, estimated_arrival, currency, rows')
-          .order('bl_date', { ascending: false }),
-        supabase.from('po_items')
-          .select('item_code, supplier, fob_price, currency')
+        supabase.from('invoices').select('id, invoice_no, supplier, vendor_code, bl_date, estimated_arrival, currency, rows').order('bl_date', { ascending: false }),
+        supabase.from('po_items').select('item_code, supplier, fob_price, currency')
       ])
       if (invRes.data) setInvoices(invRes.data as InvoiceData[])
       if (poRes.data) setPoItems(poRes.data as PoItem[])
@@ -134,25 +190,18 @@ export default function SummaryPage() {
     load()
   }, [])
 
-  // Build price lookup: "item_code|supplier" → fob_price
   const priceMap = useMemo(() => {
     const m = new Map<string, { price: number | null; currency: string | null }>()
-    for (const p of poItems) {
-      m.set(`${p.item_code}|${p.supplier}`, { price: p.fob_price, currency: p.currency })
-    }
+    for (const p of poItems) m.set(`${p.item_code}|${p.supplier}`, { price: p.fob_price, currency: p.currency })
     return m
   }, [poItems])
 
-  // Build vendor_code lookup: supplier → vendor_code (from any invoice that has it)
   const vendorCodeMap = useMemo(() => {
     const m = new Map<string, string>()
-    for (const inv of invoices) {
-      if (inv.supplier && inv.vendor_code) m.set(inv.supplier, inv.vendor_code)
-    }
+    for (const inv of invoices) if (inv.supplier && inv.vendor_code) m.set(inv.supplier, inv.vendor_code)
     return m
   }, [invoices])
 
-  // Flatten all invoices into line items
   const allLines = useMemo<LineItem[]>(() => {
     const lines: LineItem[] = []
     for (const inv of invoices) {
@@ -160,47 +209,34 @@ export default function SummaryPage() {
       const supplier = inv.supplier || '—'
       const refDate = inv.bl_date || inv.estimated_arrival
       const mk = mKey(refDate)
-      // Use invoice's own vendor_code, or fall back to lookup from same supplier
       const resolvedVendorCode = inv.vendor_code || vendorCodeMap.get(supplier) || null
       for (const row of inv.rows) {
         if (!row.code) continue
         const lookup = priceMap.get(`${row.code}|${supplier}`)
         const fob = lookup?.price ?? null
         lines.push({
-          item_code: row.code,
-          description: row.description || '',
-          qty: row.qty || 0,
-          po: row.po || '',
-          invoice_no: inv.invoice_no,
-          invoice_id: inv.id,
-          supplier,
-          vendor_code: resolvedVendorCode,
-          bl_date: inv.bl_date,
-          month_key: mk,
-          currency: lookup?.currency ?? inv.currency,
-          fob_price: fob,
-          fob_total: fob != null && row.qty ? fob * row.qty : null,
+          item_code: row.code, description: row.description || '', qty: row.qty || 0, po: row.po || '',
+          invoice_no: inv.invoice_no, invoice_id: inv.id, supplier, vendor_code: resolvedVendorCode,
+          bl_date: inv.bl_date, month_key: mk, currency: lookup?.currency ?? inv.currency,
+          fob_price: fob, fob_total: fob != null && row.qty ? fob * row.qty : null,
         })
       }
     }
     return lines
-  }, [invoices, priceMap])
+  }, [invoices, priceMap, vendorCodeMap])
 
-  // Filter by selected months (null month_key = no date, always include if "All" selected)
   const filteredLines = useMemo(() => {
     if (selectedMonths.size === 0) return allLines
     return allLines.filter(l => l.month_key && selectedMonths.has(l.month_key))
   }, [allLines, selectedMonths])
 
-  // Supplier summary
   const supplierSummary = useMemo(() => {
     const map = new Map<string, { qty: number; fob: number; items: Set<string>; invoices: Set<string> }>()
     for (const l of filteredLines) {
       const cur = map.get(l.supplier) || { qty: 0, fob: 0, items: new Set(), invoices: new Set() }
       cur.qty += l.qty
       if (l.fob_total) cur.fob += l.fob_total
-      cur.items.add(l.item_code)
-      cur.invoices.add(l.invoice_no)
+      cur.items.add(l.item_code); cur.invoices.add(l.invoice_no)
       map.set(l.supplier, cur)
     }
     return Array.from(map.entries())
@@ -208,93 +244,70 @@ export default function SummaryPage() {
       .sort((a, b) => b.qty - a.qty)
   }, [filteredLines])
 
-  // Item summary
   const itemSummary = useMemo(() => {
-    const map = new Map<string, {
-      description: string; totalQty: number; totalFob: number;
-      suppliers: Map<string, { qty: number; fob: number }>
-      byMonth: Map<string, number>
-    }>()
+    const map = new Map<string, { description: string; totalQty: number; totalFob: number; suppliers: Map<string, { qty: number; fob: number }>; byMonth: Map<string, number> }>()
     for (const l of filteredLines) {
-      const cur = map.get(l.item_code) || {
-        description: l.description, totalQty: 0, totalFob: 0,
-        suppliers: new Map(), byMonth: new Map(),
-      }
+      const cur = map.get(l.item_code) || { description: l.description, totalQty: 0, totalFob: 0, suppliers: new Map(), byMonth: new Map() }
       cur.totalQty += l.qty
       if (l.fob_total) cur.totalFob += l.fob_total
       const sup = cur.suppliers.get(l.supplier) || { qty: 0, fob: 0 }
       sup.qty += l.qty; if (l.fob_total) sup.fob += l.fob_total
       cur.suppliers.set(l.supplier, sup)
-      if (l.month_key) {
-        cur.byMonth.set(l.month_key, (cur.byMonth.get(l.month_key) || 0) + l.qty)
-      }
+      if (l.month_key) cur.byMonth.set(l.month_key, (cur.byMonth.get(l.month_key) || 0) + l.qty)
       map.set(l.item_code, cur)
     }
-    return Array.from(map.entries())
-      .map(([code, v]) => ({ code, ...v }))
-      .sort((a, b) => b.totalQty - a.totalQty)
+    return Array.from(map.entries()).map(([code, v]) => ({ code, ...v })).sort((a, b) => b.totalQty - a.totalQty)
   }, [filteredLines])
 
   const filteredItemSummary = useMemo(() => {
     if (!itemSearch.trim()) return itemSummary
     const q = itemSearch.toLowerCase()
-    return itemSummary.filter(i =>
-      i.code.toLowerCase().includes(q) || i.description.toLowerCase().includes(q)
-    )
+    return itemSummary.filter(i => i.code.toLowerCase().includes(q) || i.description.toLowerCase().includes(q))
   }, [itemSummary, itemSearch])
 
   const selectedItemData = useMemo(() =>
     selectedItem ? itemSummary.find(i => i.code === selectedItem) : null,
     [selectedItem, itemSummary])
 
+  const totalQty = filteredLines.reduce((s, l) => s + l.qty, 0)
+  const totalFob = filteredLines.reduce((s, l) => s + (l.fob_total || 0), 0)
+  const totalInvoices = useMemo(() => new Set(filteredLines.map(l => l.invoice_no)).size, [filteredLines])
+  const totalSuppliers = useMemo(() => new Set(filteredLines.map(l => l.supplier)).size, [filteredLines])
+
+  const lineSeries = useMemo(() => {
+    const top4 = supplierSummary.slice(0, 4)
+    return top4.map((s, i) => ({
+      label: s.supplier,
+      color: PALETTE[i % PALETTE.length],
+      values: chart12Months.map(month =>
+        allLines.filter(l => l.supplier === s.supplier && l.month_key === month).reduce((sum, l) => sum + l.qty, 0)
+      )
+    }))
+  }, [supplierSummary, chart12Months, allLines])
+
   const toggleMonth = useCallback((k: string) => {
-    setSelectedMonths(prev => {
-      const next = new Set(prev)
-      if (next.has(k)) next.delete(k); else next.add(k)
-      return next
-    })
+    setSelectedMonths(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n })
   }, [])
 
   function exportExcel() {
-    const lines = selectedItem
-      ? filteredLines.filter(l => l.item_code === selectedItem)
-      : itemSearch.trim()
-        ? filteredLines.filter(l =>
-            l.item_code.toLowerCase().includes(itemSearch.toLowerCase()) ||
-            l.description.toLowerCase().includes(itemSearch.toLowerCase()))
-        : filteredLines
-
+    const lines = selectedItem ? filteredLines.filter(l => l.item_code === selectedItem) : filteredLines
     const rows = lines.map(l => ({
-      'Item no': l.item_code,
-      'Item name': l.description,
-      'Supplier': l.supplier,
-      'Vendor Code': l.vendor_code || '',
-      'Quantity': l.qty,
-      'Invoice': l.invoice_no,
-      'PO': l.po,
-      'FOB Unit Price': l.fob_price ?? '',
-      'FOB Total Price': l.fob_total ?? '',
-      'Original Currency': l.currency || '',
+      'Item no': l.item_code, 'Item name': l.description, 'Supplier': l.supplier,
+      'Vendor Code': l.vendor_code || '', 'Quantity': l.qty, 'Invoice': l.invoice_no, 'PO': l.po,
+      'FOB Unit Price': l.fob_price ?? '', 'FOB Total Price': l.fob_total ?? '', 'Original Currency': l.currency || '',
     }))
-
     const ws = XLSX.utils.json_to_sheet(rows)
-    ws['!cols'] = [
-      { wch: 22 }, { wch: 50 }, { wch: 18 }, { wch: 16 },
-      { wch: 10 }, { wch: 18 }, { wch: 16 }, { wch: 15 }, { wch: 15 }, { wch: 16 },
-    ]
+    ws['!cols'] = [{ wch: 22 }, { wch: 50 }, { wch: 18 }, { wch: 16 }, { wch: 10 }, { wch: 18 }, { wch: 16 }, { wch: 15 }, { wch: 15 }, { wch: 16 }]
     const wb = XLSX.utils.book_new()
-    const sheetName = selectedItem
-      ? `Item_${selectedItem.slice(0, 20)}`
-      : `Summary_${Array.from(selectedMonths).sort().join('_').slice(0, 20)}`
-    XLSX.utils.book_append_sheet(wb, ws, sheetName)
+    XLSX.utils.book_append_sheet(wb, ws, selectedItem ? `Item_${selectedItem.slice(0, 20)}` : 'Summary')
     XLSX.writeFile(wb, `item-summary-${new Date().toISOString().slice(0, 10)}.xlsx`)
   }
 
-  const SUPPLIER_COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316','#ec4899']
-
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Nav */}
+    <div style={{ background: '#ede5d4', minHeight: '100vh', fontFamily: 'system-ui,-apple-system,sans-serif' }}>
+
+      {/* ── Nav ── */}
       <nav className="bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-4 sticky top-0 z-20 shadow-sm">
         <span className="font-bold text-gray-800 text-sm">Import PO</span>
         <span className="text-gray-300">|</span>
@@ -309,272 +322,278 @@ export default function SummaryPage() {
         <div className="ml-auto"><LockButton /></div>
       </nav>
 
-      <div className="max-w-screen-2xl mx-auto px-6 py-6">
-        {/* Header */}
-        <div className="flex items-start justify-between gap-4 mb-5 flex-wrap">
-          <div>
-            <h1 className="text-2xl font-black text-gray-900">Item Summary</h1>
-            <p className="text-sm text-gray-400 mt-0.5">สรุปยอดสั่งซื้อแยกตาม Supplier และ Item</p>
+      {/* ── Hero header ── */}
+      <div style={{ background: '#1e3340', padding: '24px 32px' }}>
+        <div style={{ maxWidth: 1400, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap' }}>
+          {/* Title */}
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#3d8b82', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 4 }}>Import PO</div>
+            <div style={{ fontSize: 30, fontWeight: 900, color: '#d4962a', lineHeight: 1.1 }}>ITEM SUMMARY</div>
+            <div style={{ fontSize: 13, color: '#7a9aaa', marginTop: 4 }}>สรุปยอดสั่งซื้อแยกตาม Supplier และ Item</div>
           </div>
-          <button
-            onClick={exportExcel}
-            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-xl hover:bg-green-700 shadow-sm transition"
-          >
+          {/* KPI cards */}
+          {[
+            { icon: '📦', value: totalQty.toLocaleString(), label: 'Units Ordered', bg: '#3d8b82' },
+            { icon: '💰', value: totalFob > 0 ? `$${fmt(totalFob, 0)}` : '—', label: 'FOB Value', bg: '#d4962a' },
+            { icon: '🏭', value: String(totalSuppliers), label: 'Suppliers', bg: '#c85a3a' },
+            { icon: '📋', value: String(totalInvoices), label: 'Invoices', bg: '#6b5ea8' },
+          ].map(card => (
+            <div key={card.label} style={{ background: card.bg, borderRadius: 14, padding: '14px 20px', minWidth: 130, display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ fontSize: 26 }}>{card.icon}</span>
+              <div>
+                <div style={{ fontSize: 22, fontWeight: 900, color: '#fff', lineHeight: 1.1 }}>{card.value}</div>
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.75)', fontWeight: 600, marginTop: 2 }}>{card.label}</div>
+              </div>
+            </div>
+          ))}
+          <button onClick={exportExcel}
+            style={{ background: 'rgba(61,139,130,0.25)', border: '1.5px solid #3d8b82', color: '#5ec5ba', borderRadius: 10, padding: '10px 18px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
             ↓ Export Excel
           </button>
         </div>
+      </div>
 
-        {/* Month picker */}
-        <div className="bg-white border border-gray-200 rounded-2xl px-5 py-4 mb-5 shadow-sm">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-black text-gray-400 uppercase tracking-widest">เลือกเดือน (BL Date)</span>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setSelectedMonths(new Set(allMonthKeys))}
-                className="text-xs text-blue-600 hover:underline"
-              >ทั้งหมด</button>
-              <span className="text-gray-300">|</span>
-              <button
-                onClick={() => setSelectedMonths(new Set())}
-                className="text-xs text-gray-400 hover:underline"
-              >ล้าง</button>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {allMonthKeys.map(k => (
-              <button
-                key={k}
-                onClick={() => toggleMonth(k)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
-                  selectedMonths.has(k)
-                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                    : 'bg-white text-gray-500 border-gray-200 hover:border-blue-300 hover:text-blue-600'
-                }`}
-              >
-                {mLabel(k)}
-              </button>
-            ))}
-          </div>
+      {/* ── Month filter bar ── */}
+      <div style={{ background: '#18303c', padding: '10px 32px' }}>
+        <div style={{ maxWidth: 1400, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 10, fontWeight: 800, color: '#5a8a9a', textTransform: 'uppercase', letterSpacing: '0.12em', marginRight: 6 }}>Period:</span>
+          {allMonthKeys.map(k => (
+            <button key={k} onClick={() => toggleMonth(k)} style={{
+              padding: '3px 10px', borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: 'pointer', transition: 'all 0.15s',
+              background: selectedMonths.has(k) ? '#d4962a' : 'transparent',
+              color: selectedMonths.has(k) ? '#1a2d3a' : '#6a8a9a',
+              border: selectedMonths.has(k) ? '1px solid #d4962a' : '1px solid #2a4a5a',
+            }}>{mLabel(k)}</button>
+          ))}
+          <span style={{ color: '#2a4a5a', margin: '0 4px' }}>|</span>
+          <button onClick={() => setSelectedMonths(new Set(allMonthKeys))}
+            style={{ color: '#3d8b82', background: 'none', border: 'none', fontSize: 10, cursor: 'pointer', fontWeight: 700 }}>All</button>
+          <button onClick={() => setSelectedMonths(new Set())}
+            style={{ color: '#5a8a9a', background: 'none', border: 'none', fontSize: 10, cursor: 'pointer' }}>Clear</button>
           {selectedMonths.size > 0 && (
-            <p className="text-xs text-gray-400 mt-2">
-              เลือก {selectedMonths.size} เดือน · {filteredLines.length.toLocaleString()} รายการ · {[...new Set(filteredLines.map(l => l.invoice_no))].length} Invoice
-            </p>
+            <span style={{ color: '#4a7a8a', fontSize: 10, marginLeft: 8 }}>
+              {selectedMonths.size} month{selectedMonths.size > 1 ? 's' : ''} · {filteredLines.length.toLocaleString()} lines
+            </span>
           )}
         </div>
+      </div>
 
-        {loading ? (
-          <div className="text-center py-20 text-gray-400">กำลังโหลด...</div>
-        ) : (
-          <div className="flex gap-5">
-            {/* ─── Left panel ─── */}
-            <div className="w-72 shrink-0 flex flex-col gap-4">
-              {/* Tab toggle */}
-              <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
-                <div className="flex border-b border-gray-100">
-                  {(['supplier', 'item'] as const).map(t => (
-                    <button
-                      key={t}
-                      onClick={() => setActiveTab(t)}
-                      className={`flex-1 py-2.5 text-xs font-bold transition ${
-                        activeTab === t ? 'bg-blue-50 text-blue-700 border-b-2 border-blue-600' : 'text-gray-400 hover:text-gray-700'
-                      }`}
-                    >
-                      {t === 'supplier' ? 'By Supplier' : 'By Item'}
-                    </button>
-                  ))}
-                </div>
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: '80px 0', color: '#aaa', fontSize: 14 }}>กำลังโหลด...</div>
+      ) : (
+        <div style={{ maxWidth: 1400, margin: '0 auto', padding: '20px 24px', display: 'grid', gridTemplateColumns: '260px 1fr', gap: 16 }}>
 
-                {activeTab === 'supplier' ? (
-                  <div className="divide-y divide-gray-50 max-h-[560px] overflow-y-auto">
-                    {supplierSummary.length === 0 ? (
-                      <p className="text-xs text-gray-400 p-4 text-center">ไม่มีข้อมูล</p>
-                    ) : supplierSummary.map((s, si) => (
-                      <div key={s.supplier} className="px-4 py-3">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <div className="w-2.5 h-2.5 rounded-full shrink-0"
-                              style={{ background: SUPPLIER_COLORS[si % SUPPLIER_COLORS.length] }} />
-                            <span className="text-sm font-bold text-gray-800 truncate">{s.supplier}</span>
-                          </div>
-                          <span className="text-xs text-gray-400 shrink-0">{s.invoiceCount} inv</span>
-                        </div>
-                        <div className="mt-1.5 flex items-center gap-3 text-xs text-gray-500 pl-4">
-                          <span><strong className="text-gray-800">{s.qty.toLocaleString()}</strong> pcs</span>
-                          <span>{s.itemCount} items</span>
-                          {s.fob > 0 && <span className="text-emerald-600 font-semibold">{fmt(s.fob, 0)}</span>}
-                        </div>
-                      </div>
-                    ))}
+          {/* ── Left column ── */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+            {/* Donut: Units by Supplier */}
+            <div style={{ background: '#faf5ee', border: '1px solid #e2d8c8', borderRadius: 16, padding: '16px 16px 12px' }}>
+              <div style={{ fontSize: 11, fontWeight: 800, color: '#5a4a3a', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10, textAlign: 'center' }}>
+                Units by Supplier
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'center' }}>
+                <DonutChart
+                  slices={supplierSummary.slice(0, 8).map((s, i) => ({ label: s.supplier, value: s.qty, color: PALETTE[i % PALETTE.length] }))}
+                  total={totalQty}
+                />
+              </div>
+              <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                {supplierSummary.slice(0, 6).map((s, i) => (
+                  <div key={s.supplier} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                    <div style={{ width: 9, height: 9, borderRadius: '50%', background: PALETTE[i % PALETTE.length], flexShrink: 0 }} />
+                    <span style={{ fontSize: 11, color: '#6a5a4a', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.supplier}</span>
+                    <span style={{ fontSize: 10, fontWeight: 800, color: '#4a3a2a' }}>
+                      {totalQty > 0 ? ((s.qty / totalQty) * 100).toFixed(0) : 0}%
+                    </span>
                   </div>
-                ) : (
-                  <div className="p-3 flex flex-col gap-2">
-                    <input
-                      type="text"
-                      placeholder="ค้นหา Item Code / ชื่อ..."
-                      value={itemSearch}
-                      onChange={e => setItemSearch(e.target.value)}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-xs outline-none focus:border-blue-400"
-                    />
-                    <div className="max-h-[510px] overflow-y-auto divide-y divide-gray-50">
-                      {filteredItemSummary.slice(0, 100).map(item => (
-                        <button
-                          key={item.code}
-                          onClick={() => setSelectedItem(selectedItem === item.code ? null : item.code)}
-                          className={`w-full text-left px-2 py-2.5 rounded-lg transition-all ${
-                            selectedItem === item.code
-                              ? 'bg-blue-50 border border-blue-200'
-                              : 'hover:bg-gray-50'
-                          }`}
-                        >
-                          <div className="text-xs font-bold text-gray-800 font-mono truncate">{item.code}</div>
-                          <div className="text-[10px] text-gray-400 truncate mt-0.5">{item.description}</div>
-                          <div className="text-xs text-blue-700 font-semibold mt-0.5">{item.totalQty.toLocaleString()} pcs</div>
-                        </button>
-                      ))}
-                      {filteredItemSummary.length === 0 && (
-                        <p className="text-xs text-gray-400 p-3 text-center">ไม่พบ item</p>
-                      )}
-                    </div>
-                  </div>
-                )}
+                ))}
               </div>
             </div>
 
-            {/* ─── Main content ─── */}
-            <div className="flex-1 min-w-0 flex flex-col gap-4">
-
-              {/* Item detail panel (when item selected) */}
-              {selectedItemData && (
-                <div className="bg-white border border-blue-200 rounded-2xl shadow-sm p-5">
-                  <div className="flex items-start justify-between mb-4">
-                    <div>
-                      <div className="text-xs font-black text-blue-500 uppercase tracking-widest mb-1">Item Detail</div>
-                      <h2 className="text-lg font-black text-gray-900 font-mono">{selectedItemData.code}</h2>
-                      <p className="text-sm text-gray-500 mt-0.5">{selectedItemData.description}</p>
+            {/* Supplier ranked list */}
+            <div style={{ background: '#faf5ee', border: '1px solid #e2d8c8', borderRadius: 16, overflow: 'hidden', flex: 1 }}>
+              <div style={{ padding: '10px 14px', borderBottom: '1px solid #e2d8c8', fontSize: 11, fontWeight: 800, color: '#5a4a3a', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                Supplier Breakdown
+              </div>
+              <div style={{ maxHeight: 340, overflowY: 'auto' }}>
+                {supplierSummary.length === 0 ? (
+                  <div style={{ padding: 20, textAlign: 'center', color: '#bbb', fontSize: 12 }}>ไม่มีข้อมูล</div>
+                ) : supplierSummary.map((s, i) => (
+                  <div key={s.supplier} style={{ padding: '9px 14px', borderBottom: '1px solid #f0ebe0', display: 'flex', alignItems: 'flex-start', gap: 9 }}>
+                    <div style={{ width: 10, height: 10, borderRadius: '50%', background: PALETTE[i % PALETTE.length], marginTop: 3, flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: '#3a2a1a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.supplier}</div>
+                      <div style={{ fontSize: 10, color: '#9a8a7a', marginTop: 2 }}>
+                        <strong style={{ color: '#3a2a1a' }}>{s.qty.toLocaleString()}</strong> pcs · {s.itemCount} items · {s.invoiceCount} inv
+                      </div>
+                      {s.fob > 0 && <div style={{ fontSize: 10, color: '#3d8b82', fontWeight: 700, marginTop: 1 }}>${fmt(s.fob, 0)}</div>}
                     </div>
-                    <button onClick={() => setSelectedItem(null)}
-                      className="text-gray-300 hover:text-gray-600 text-xl leading-none">✕</button>
                   </div>
+                ))}
+              </div>
+            </div>
+          </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    {/* Supplier breakdown */}
-                    <div>
-                      <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">ยอดแยก Supplier</p>
-                      <div className="space-y-2">
-                        {Array.from(selectedItemData.suppliers.entries())
-                          .sort((a, b) => b[1].qty - a[1].qty)
-                          .map(([sup, v], si) => {
-                            const pct = selectedItemData.totalQty > 0 ? (v.qty / selectedItemData.totalQty) * 100 : 0
-                            return (
-                              <div key={sup}>
-                                <div className="flex items-center justify-between text-xs mb-0.5">
-                                  <span className="font-semibold text-gray-700">{sup}</span>
-                                  <span className="text-gray-500">{v.qty.toLocaleString()} pcs · {pct.toFixed(0)}%</span>
-                                </div>
-                                <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                                  <div className="h-full rounded-full"
-                                    style={{ width: `${pct}%`, background: SUPPLIER_COLORS[si % SUPPLIER_COLORS.length] }} />
-                                </div>
-                              </div>
-                            )
-                          })}
-                      </div>
-                      <div className="mt-3 pt-2 border-t border-gray-100 text-xs text-gray-500">
-                        รวม <strong className="text-gray-800">{selectedItemData.totalQty.toLocaleString()}</strong> pcs
-                        {selectedItemData.totalFob > 0 && (
-                          <> · FOB <strong className="text-emerald-600">{fmt(selectedItemData.totalFob, 0)}</strong></>
-                        )}
-                      </div>
-                    </div>
+          {/* ── Right column ── */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
 
-                    {/* Monthly chart */}
-                    <div>
-                      <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">ยอดสั่งรายเดือน (pcs)</p>
-                      {(() => {
-                        const chartMonths = generateMonthKeys(12)
-                        const chartData = chartMonths.map(k => ({
-                          label: mLabel(k).slice(0, 3),
-                          value: selectedItemData.byMonth.get(k) || 0,
-                        }))
-                        return <BarChart data={chartData} />
-                      })()}
+            {/* Line chart */}
+            <div style={{ background: '#faf5ee', border: '1px solid #e2d8c8', borderRadius: 16, padding: '16px 20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+                <div style={{ fontSize: 12, fontWeight: 800, color: '#5a4a3a', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                  Monthly Units — Top Suppliers (12 months)
+                </div>
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                  {lineSeries.map(s => (
+                    <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <div style={{ width: 18, height: 3, borderRadius: 2, background: s.color }} />
+                      <span style={{ fontSize: 10, color: '#8a7a6a' }}>{s.label.length > 14 ? s.label.slice(0, 14) + '…' : s.label}</span>
                     </div>
+                  ))}
+                </div>
+              </div>
+              {lineSeries.length === 0 ? (
+                <div style={{ height: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ccc', fontSize: 12 }}>ไม่มีข้อมูล</div>
+              ) : (
+                <LineChart months={chart12Months} series={lineSeries} />
+              )}
+            </div>
+
+            {/* Item detail panel */}
+            {selectedItemData && (
+              <div style={{ background: '#faf5ee', border: '2px solid #3d8b82', borderRadius: 16, padding: '18px 20px' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 14 }}>
+                  <div>
+                    <div style={{ fontSize: 9, fontWeight: 800, color: '#3d8b82', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 4 }}>Item Detail</div>
+                    <div style={{ fontSize: 20, fontWeight: 900, color: '#2a2a1a', fontFamily: 'monospace' }}>{selectedItemData.code}</div>
+                    <div style={{ fontSize: 12, color: '#8a7a6a', marginTop: 2 }}>{selectedItemData.description}</div>
+                  </div>
+                  <button onClick={() => setSelectedItem(null)}
+                    style={{ background: 'none', border: 'none', fontSize: 18, color: '#ccc', cursor: 'pointer', padding: 4 }}>✕</button>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+                  <div>
+                    <div style={{ fontSize: 9, fontWeight: 800, color: '#9a8a7a', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 10 }}>By Supplier</div>
+                    {Array.from(selectedItemData.suppliers.entries()).sort((a, b) => b[1].qty - a[1].qty).map(([sup, v], si) => {
+                      const pct = selectedItemData.totalQty > 0 ? (v.qty / selectedItemData.totalQty) * 100 : 0
+                      return (
+                        <div key={sup} style={{ marginBottom: 9 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 4 }}>
+                            <span style={{ fontWeight: 600, color: '#4a3a2a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '65%' }}>{sup}</span>
+                            <span style={{ color: '#8a7a6a', flexShrink: 0 }}>{v.qty.toLocaleString()} · {pct.toFixed(0)}%</span>
+                          </div>
+                          <div style={{ height: 7, background: '#ede8df', borderRadius: 4, overflow: 'hidden' }}>
+                            <div style={{ height: '100%', width: `${pct}%`, background: PALETTE[si % PALETTE.length], borderRadius: 4 }} />
+                          </div>
+                        </div>
+                      )
+                    })}
+                    <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid #e8dcc8', fontSize: 11, color: '#8a7a6a' }}>
+                      รวม <strong style={{ color: '#3a2a1a' }}>{selectedItemData.totalQty.toLocaleString()}</strong> pcs
+                      {selectedItemData.totalFob > 0 && <> · FOB <strong style={{ color: '#3d7a5a' }}>${fmt(selectedItemData.totalFob, 0)}</strong></>}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 9, fontWeight: 800, color: '#9a8a7a', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>ยอดสั่งรายเดือน (pcs)</div>
+                    <MiniBarChart data={generateMonthKeys(12).map(k => ({ label: mLabel(k).slice(0, 3), value: selectedItemData.byMonth.get(k) || 0 }))} />
                   </div>
                 </div>
-              )}
+              </div>
+            )}
 
-              {/* Lines table */}
-              <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
-                <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
-                  <span className="text-sm font-bold text-gray-700">
-                    {selectedItem ? `รายการของ ${selectedItem}` : 'รายการทั้งหมด'}
-                    <span className="ml-2 text-xs font-normal text-gray-400">
-                      {(selectedItem
-                        ? filteredLines.filter(l => l.item_code === selectedItem)
-                        : filteredLines
-                      ).length.toLocaleString()} rows
-                    </span>
-                  </span>
-                  {selectedItem && (
-                    <button onClick={() => setSelectedItem(null)}
-                      className="text-xs text-blue-500 hover:underline">ดูทั้งหมด</button>
+            {/* Items grid + detail table */}
+            <div style={{ background: '#faf5ee', border: '1px solid #e2d8c8', borderRadius: 16, overflow: 'hidden' }}>
+              {/* Header row */}
+              <div style={{ padding: '12px 16px', borderBottom: '1px solid #e2d8c8', display: 'flex', alignItems: 'center', gap: 10, background: '#f5efe4' }}>
+                <button onClick={() => setShowDetail(false)}
+                  style={{ padding: '4px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer', border: 'none',
+                    background: !showDetail ? '#d4962a' : 'transparent', color: !showDetail ? '#fff' : '#8a7a6a' }}>
+                  By Item
+                </button>
+                <button onClick={() => setShowDetail(true)}
+                  style={{ padding: '4px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer', border: 'none',
+                    background: showDetail ? '#d4962a' : 'transparent', color: showDetail ? '#fff' : '#8a7a6a' }}>
+                  Detail Lines
+                </button>
+                <input type="text" placeholder="Search item code / name…" value={itemSearch} onChange={e => setItemSearch(e.target.value)}
+                  style={{ flex: 1, border: '1px solid #e2d8c8', borderRadius: 8, padding: '5px 10px', fontSize: 11, background: '#fff', outline: 'none', color: '#3a2a1a' }} />
+                <button onClick={exportExcel}
+                  style={{ padding: '5px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, background: '#3d8b82', color: '#fff', border: 'none', cursor: 'pointer', flexShrink: 0 }}>
+                  ↓ Export
+                </button>
+              </div>
+
+              {!showDetail ? (
+                /* Item cards */
+                <div style={{ maxHeight: 360, overflowY: 'auto', padding: 12, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(145px, 1fr))', gap: 8 }}>
+                  {filteredItemSummary.slice(0, 120).map(item => (
+                    <button key={item.code}
+                      onClick={() => setSelectedItem(selectedItem === item.code ? null : item.code)}
+                      style={{
+                        textAlign: 'left', padding: '11px 12px', borderRadius: 10, cursor: 'pointer', transition: 'all 0.15s',
+                        background: selectedItem === item.code ? '#3d8b82' : '#fff',
+                        border: `1.5px solid ${selectedItem === item.code ? '#3d8b82' : '#e2d8c8'}`,
+                        boxShadow: selectedItem === item.code ? '0 2px 8px rgba(61,139,130,0.25)' : 'none',
+                      }}>
+                      <div style={{ fontSize: 11, fontWeight: 800, color: selectedItem === item.code ? '#fff' : '#3a2a1a', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {item.code}
+                      </div>
+                      <div style={{ fontSize: 9, color: selectedItem === item.code ? 'rgba(255,255,255,0.65)' : '#9a8a7a', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {item.description || '—'}
+                      </div>
+                      <div style={{ marginTop: 8, fontSize: 18, fontWeight: 900, color: selectedItem === item.code ? '#fff' : '#d4962a', lineHeight: 1 }}>
+                        {item.totalQty.toLocaleString()}
+                      </div>
+                      <div style={{ fontSize: 9, color: selectedItem === item.code ? 'rgba(255,255,255,0.55)' : '#bbb', marginTop: 1 }}>pcs</div>
+                    </button>
+                  ))}
+                  {filteredItemSummary.length === 0 && (
+                    <div style={{ gridColumn: '1/-1', textAlign: 'center', padding: '30px 0', color: '#bbb', fontSize: 12 }}>ไม่พบ item</div>
                   )}
                 </div>
-                <div className="overflow-x-auto">
-                  <table className="text-xs w-full border-collapse">
+              ) : (
+                /* Detail table */
+                <div style={{ overflowX: 'auto', maxHeight: 360, overflowY: 'auto' }}>
+                  <table style={{ fontSize: 11, width: '100%', borderCollapse: 'collapse', minWidth: 800 }}>
                     <thead>
-                      <tr className="bg-gray-50 text-gray-500 text-left">
-                        {['Item no','Item name','Supplier','Vendor Code','QTY','Invoice','PO','FOB Unit','FOB Total','Currency'].map(h => (
-                          <th key={h} className="px-3 py-2.5 font-bold border-b border-gray-100 whitespace-nowrap">{h}</th>
+                      <tr style={{ background: '#f0ebe0', position: 'sticky', top: 0, zIndex: 1 }}>
+                        {['Item no', 'Item name', 'Supplier', 'Vendor Code', 'QTY', 'Invoice', 'PO', 'FOB Unit', 'FOB Total', 'CCY'].map(h => (
+                          <th key={h} style={{ padding: '8px 10px', textAlign: h === 'QTY' || h === 'FOB Unit' || h === 'FOB Total' ? 'right' : 'left', fontSize: 10, fontWeight: 800, color: '#8a7a6a', whiteSpace: 'nowrap', borderBottom: '1px solid #e2d8c8' }}>{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
-                      {(selectedItem
-                        ? filteredLines.filter(l => l.item_code === selectedItem)
-                        : filteredLines
-                      ).slice(0, 500).map((l, i) => (
-                        <tr key={i}
-                          className={`border-b border-gray-50 hover:bg-blue-50/40 cursor-pointer transition-colors ${
-                            selectedItem === l.item_code ? 'bg-blue-50/20' : ''
-                          }`}
-                          onClick={() => setSelectedItem(l.item_code)}
-                        >
-                          <td className="px-3 py-2 font-mono text-gray-800 whitespace-nowrap">{l.item_code}</td>
-                          <td className="px-3 py-2 text-gray-600 max-w-[200px] truncate" title={l.description}>{l.description}</td>
-                          <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{l.supplier}</td>
-                          <td className="px-3 py-2 font-mono text-gray-500">{l.vendor_code || '—'}</td>
-                          <td className="px-3 py-2 text-right font-semibold text-gray-800">{l.qty.toLocaleString()}</td>
-                          <td className="px-3 py-2 whitespace-nowrap">
-                            <Link href={`/dashboard/${l.invoice_id}`}
-                              onClick={e => e.stopPropagation()}
-                              className="text-blue-600 hover:underline">
-                              {l.invoice_no}
-                            </Link>
+                      {(selectedItem ? filteredLines.filter(l => l.item_code === selectedItem) : filteredLines).slice(0, 500).map((l, i) => (
+                        <tr key={i} onClick={() => setSelectedItem(l.item_code)}
+                          style={{ borderBottom: '1px solid #f5efe8', cursor: 'pointer', background: i % 2 === 0 ? '#fff' : '#faf7f2' }}>
+                          <td style={{ padding: '7px 10px', fontFamily: 'monospace', color: '#3a2a1a', whiteSpace: 'nowrap', fontWeight: 700 }}>{l.item_code}</td>
+                          <td style={{ padding: '7px 10px', color: '#6a5a4a', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.description}</td>
+                          <td style={{ padding: '7px 10px', color: '#5a4a3a', whiteSpace: 'nowrap' }}>{l.supplier}</td>
+                          <td style={{ padding: '7px 10px', fontFamily: 'monospace', color: '#9a8a7a' }}>{l.vendor_code || '—'}</td>
+                          <td style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 700, color: '#2a2a1a' }}>{l.qty.toLocaleString()}</td>
+                          <td style={{ padding: '7px 10px', whiteSpace: 'nowrap' }}>
+                            <Link href={`/dashboard/${l.invoice_id}`} onClick={e => e.stopPropagation()}
+                              style={{ color: '#3d8b82', textDecoration: 'none', fontWeight: 600 }}>{l.invoice_no}</Link>
                           </td>
-                          <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{l.po || '—'}</td>
-                          <td className="px-3 py-2 text-right text-gray-700">
-                            {l.fob_price != null ? fmt(l.fob_price) : <span className="text-gray-300">—</span>}
-                          </td>
-                          <td className="px-3 py-2 text-right font-semibold text-emerald-700">
-                            {l.fob_total != null ? fmt(l.fob_total, 0) : <span className="text-gray-300 font-normal">—</span>}
-                          </td>
-                          <td className="px-3 py-2 text-gray-400">{l.currency || '—'}</td>
+                          <td style={{ padding: '7px 10px', color: '#9a8a7a', whiteSpace: 'nowrap' }}>{l.po || '—'}</td>
+                          <td style={{ padding: '7px 10px', textAlign: 'right', color: '#5a4a3a' }}>{l.fob_price != null ? fmt(l.fob_price) : '—'}</td>
+                          <td style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 700, color: '#3d7a5a' }}>{l.fob_total != null ? fmt(l.fob_total, 0) : '—'}</td>
+                          <td style={{ padding: '7px 10px', color: '#aaa' }}>{l.currency || '—'}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                   {filteredLines.length > 500 && !selectedItem && (
-                    <p className="text-xs text-gray-400 text-center py-3">
-                      แสดง 500 รายการแรก จาก {filteredLines.length.toLocaleString()} — เลือก Item หรือ filter เดือนเพื่อดูทั้งหมด
-                    </p>
+                    <div style={{ textAlign: 'center', padding: '10px 0', color: '#aaa', fontSize: 11 }}>
+                      แสดง 500 รายการแรก จาก {filteredLines.length.toLocaleString()} — เลือก Item เพื่อดูทั้งหมด
+                    </div>
                   )}
                 </div>
-              </div>
+              )}
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   )
 }
