@@ -37,13 +37,15 @@ function computeStatus(
   const base = status || 'อยู่ที่จีน'
   const norm = (base === 'ถึงคลัง' || base === 'ถึงไทย กำลังเข้าคลัง') ? 'กำลังเข้าคลัง' : base
   const today = new Date(); today.setHours(0, 0, 0, 0)
+  if (arrival && norm !== 'อยู่ที่จีน') {
+    const cd = new Date(arrival + 'T00:00:00'); cd.setHours(0, 0, 0, 0)
+    if (today > cd) return 'เข้าคลังแล้ว'
+  }
   if (norm === 'On board' && etaDate) {
     const eta = new Date(etaDate + 'T00:00:00'); eta.setHours(0, 0, 0, 0)
     if (today >= eta) return 'กำลังเข้าคลัง'
   }
   if (!arrival || norm === 'อยู่ที่จีน') return norm
-  const cd = new Date((arrivalEnd || arrival) + 'T00:00:00'); cd.setHours(0, 0, 0, 0)
-  if (today > cd) return 'เข้าคลังแล้ว'
   return norm
 }
 

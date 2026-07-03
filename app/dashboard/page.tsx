@@ -34,19 +34,19 @@ const STATUS_BADGE: Record<string, string> = {
 // - ถ้าพ้นวันประมาณการเข้าคลังแล้ว → เข้าคลังแล้ว
 function computeStatus(status: string | null, arrival: string | null, arrivalEnd: string | null, etaDate?: string | null): string {
   const base = status || 'อยู่ที่จีน'
-  // normalize legacy value
   const normalized = (base === 'ถึงคลัง' || base === 'ถึงไทย กำลังเข้าคลัง') ? 'กำลังเข้าคลัง' : base
   const today = new Date(); today.setHours(0, 0, 0, 0)
+  // Check arrival date FIRST — if today is past the start of the arrival window, goods are in warehouse
+  if (arrival && normalized !== 'อยู่ที่จีน') {
+    const checkDate = new Date(arrival + 'T00:00:00'); checkDate.setHours(0, 0, 0, 0)
+    if (today > checkDate) return 'เข้าคลังแล้ว'
+  }
   // On board + past ETA → กำลังเข้าคลัง
   if (normalized === 'On board' && etaDate) {
-    const eta = new Date(etaDate + 'T00:00:00')
-    eta.setHours(0, 0, 0, 0)
+    const eta = new Date(etaDate + 'T00:00:00'); eta.setHours(0, 0, 0, 0)
     if (today >= eta) return 'กำลังเข้าคลัง'
   }
   if (!arrival || normalized === 'อยู่ที่จีน') return normalized
-  const checkDate = new Date(arrivalEnd || arrival)
-  checkDate.setHours(0, 0, 0, 0)
-  if (today > checkDate) return 'เข้าคลังแล้ว'
   return normalized
 }
 
