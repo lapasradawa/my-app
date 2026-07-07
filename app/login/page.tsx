@@ -21,16 +21,39 @@ export default function LoginPage() {
     return () => subscription.unsubscribe()
   }, [])
 
+  function isRbsEmail(e: string) {
+    return e.toLowerCase().endsWith('@rbs-groups.com')
+  }
+  function rbsPrefix(e: string) {
+    return e.split('@')[0]
+  }
+
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
     setError('')
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) {
-      setError('อีเมลหรือรหัสผ่านไม่ถูกต้อง')
-    } else {
+
+    const { error: signInErr } = await supabase.auth.signInWithPassword({ email, password })
+
+    if (!signInErr) {
       router.replace('/')
+      return
     }
+
+    // Auto-register for @rbs-groups.com if password matches email prefix
+    if (isRbsEmail(email) && password === rbsPrefix(email)) {
+      const { error: signUpErr } = await supabase.auth.signUp({ email, password })
+      if (!signUpErr) {
+        // Sign in immediately after sign up (email confirmation is disabled)
+        const { error: signInErr2 } = await supabase.auth.signInWithPassword({ email, password })
+        if (!signInErr2) {
+          router.replace('/')
+          return
+        }
+      }
+    }
+
+    setError('อีเมลหรือรหัสผ่านไม่ถูกต้อง')
     setLoading(false)
   }
 
@@ -134,6 +157,11 @@ export default function LoginPage() {
                 onFocus={e => (e.target.style.borderColor = '#3d8b82')}
                 onBlur={e => (e.target.style.borderColor = '#e2d8c8')}
               />
+              {isRbsEmail(email) && (
+                <div style={{ fontSize: 11, color: '#3d8b82', marginTop: 5 }}>
+                  💡 ใส่อักษรหน้า @ เช่น email คือ <b>{email}</b> → รหัสคือ <b>{rbsPrefix(email)}</b>
+                </div>
+              )}
             </div>
 
             {error && (
