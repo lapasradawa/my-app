@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Import PO Matching",
-  description: "CI / Packing List PO Matching Tool",
+  title: "Global Sourcing",
+  description: "Global Sourcing — Import PO Management",
 };
 
 export default function RootLayout({
