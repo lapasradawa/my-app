@@ -154,7 +154,7 @@ export default function LoginPage() {
           </form>
 
           <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid #e8dcc8', textAlign: 'center', fontSize: 11, color: '#b0a090' }}>
-            สำหรับทีม RBS Buying · ติดต่อ Admin เพื่อขอสิทธิ์
+            หากเข้าไม่ได้ หรือยังไม่ได้ลงทะเบียน · ติดต่อทีมงานเพื่อขอสิทธิ
           </div>
         </div>
       </div>
