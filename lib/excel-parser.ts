@@ -123,7 +123,8 @@ function parseContainerSheet(sheet: XLSX.WorkSheet): Record<string, number> {
 // Matches both "#1-Cntr-FCIU6571413/..." and "Cntr-TIIU044096/..." formats
 const CNTR_RE = /(?:#\d+-)?Cntr-([A-Z][A-Z0-9]+)/i
 // Matches ISO container/seal format "CSNU2005017/CX478086" — container number is before "/"
-const CNTR_ISO_RE = /([A-Z]{4}\d{7})\/[A-Z0-9]+/i
+// Allow 6–7 digits to handle non-standard container numbers like HPCU309649
+const CNTR_ISO_RE = /([A-Z]{4}\d{6,7})\/[A-Z0-9]+/i
 
 // Check if a sheet contains inline container markers (LITELON or DC30 style)
 function hasCombinedPLMarkers(sheet: XLSX.WorkSheet): boolean {
