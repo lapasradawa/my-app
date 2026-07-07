@@ -157,11 +157,6 @@ export default function LoginPage() {
                 onFocus={e => (e.target.style.borderColor = '#3d8b82')}
                 onBlur={e => (e.target.style.borderColor = '#e2d8c8')}
               />
-              {isRbsEmail(email) && (
-                <div style={{ fontSize: 11, color: '#3d8b82', marginTop: 5 }}>
-                  💡 ใส่อักษรหน้า @ เช่น email คือ <b>{email}</b> → รหัสคือ <b>{rbsPrefix(email)}</b>
-                </div>
-              )}
             </div>
 
             {error && (
