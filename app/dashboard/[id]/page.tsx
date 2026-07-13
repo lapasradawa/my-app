@@ -60,6 +60,7 @@ interface Invoice {
   cost_saving: number | null
   cost_saving_pct: number | null
   cost_saving_file_url: string | null
+  source_file_url: string | null
   exchange_rate: number | null
   exchange_rates: ExchangeRateEntry[] | null
   estimated_arrival: string | null
@@ -722,8 +723,21 @@ export default function InvoiceDetailPage() {
           </div>
         </div>
 
-        {/* Documents + Cost Saving — 3 equal columns */}
-        <div className="grid grid-cols-3 gap-4 mb-6">
+        {/* Documents + Cost Saving — 4 equal columns */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          {/* ไฟล์ Invoice ต้นฉบับ */}
+          <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <p className="text-xs text-gray-400 mb-2">ไฟล์ Invoice ต้นฉบับ</p>
+            {invoice.source_file_url ? (
+              <a href={invoice.source_file_url} target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-800 font-medium">
+                <span>📥</span> ดาวน์โหลด Excel
+              </a>
+            ) : (
+              <p className="text-xs text-gray-300 italic">ไม่มีไฟล์</p>
+            )}
+          </div>
+
           {/* ใบขน */}
           <div className="bg-white rounded-xl border border-gray-200 p-4">
             <p className="text-xs text-gray-400 mb-2">เอกสารใบขน</p>

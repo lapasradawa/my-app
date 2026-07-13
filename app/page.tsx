@@ -19,6 +19,7 @@ interface HistoryItem {
 
 export default function Home() {
   const inputRef = useRef<HTMLInputElement>(null)
+  const sourceFileRef = useRef<File | null>(null)
   const [result, setResult] = useState<ProcessResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -75,6 +76,7 @@ export default function Home() {
     setResult(null)
     setSavedId(null)
     setFilename(file.name)
+    sourceFileRef.current = file
     try {
       const buffer = await file.arrayBuffer()
       const data = processExcel(buffer)
@@ -107,6 +109,19 @@ export default function Home() {
           vendor_code: vendorCode.trim() || null,
         }).eq('id', savedId)
       } else {
+        // Upload original Excel file to storage
+        let sourceFileUrl: string | null = null
+        const srcFile = sourceFileRef.current
+        if (srcFile) {
+          const ext = srcFile.name.split('.').pop()
+          const path = `source/${Date.now()}-${srcFile.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
+          const { error: upErr } = await supabase.storage.from('payment-proofs').upload(path, srcFile, { upsert: true })
+          if (!upErr) {
+            const { data: urlData } = supabase.storage.from('payment-proofs').getPublicUrl(path)
+            sourceFileUrl = urlData.publicUrl
+          }
+        }
+
         const { data, error: err } = await supabase.from('invoices').insert({
           invoice_no: invoiceName,
           filename,
@@ -116,6 +131,7 @@ export default function Home() {
           currency: result.currency || null,
           supplier: vendorName.trim() || null,
           vendor_code: vendorCode.trim() || null,
+          source_file_url: sourceFileUrl,
         }).select('id').single()
         if (err) throw new Error(err.message)
         if (data) setSavedId(data.id)
