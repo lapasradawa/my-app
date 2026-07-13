@@ -293,7 +293,10 @@ export default function InvoiceDetailPage() {
       const ext = file.name.split('.').pop()
       const path = `${id}/${type}-${Date.now()}.${ext}`
       const { error } = await supabase.storage.from('payment-proofs').upload(path, file, { upsert: true })
-      if (error) return
+      if (error) {
+        alert(`อัปโหลดไม่สำเร็จ: ${error.message}`)
+        return
+      }
       const { data: urlData } = supabase.storage.from('payment-proofs').getPublicUrl(path)
       const url = urlData.publicUrl
       const field = type === 'baikon' ? 'baikon_url' : 'bl_doc_url'
@@ -321,7 +324,10 @@ export default function InvoiceDetailPage() {
       const ext = file.name.split('.').pop()
       const path = `${id}/cost-saving-${Date.now()}.${ext}`
       const { error } = await supabase.storage.from('payment-proofs').upload(path, file, { upsert: true })
-      if (error) return
+      if (error) {
+        alert(`อัปโหลดไม่สำเร็จ: ${error.message}`)
+        return
+      }
       const { data: urlData } = supabase.storage.from('payment-proofs').getPublicUrl(path)
       const url = urlData.publicUrl
       await supabase.from('invoices').update({ cost_saving_file_url: url }).eq('id', id)
