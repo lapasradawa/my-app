@@ -266,9 +266,15 @@ export default function QCDetailPage() {
                               <li key={code}
                                 className="px-2 py-1.5 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-0"
                                 onMouseDown={() => {
-                                  setItem(i, 'item_code', code)
-                                  if (p.description) setItem(i, 'product_description', p.description)
-                                  if (p.fob_price != null) setItem(i, 'unit_price', p.fob_price)
+                                  const items = [...form.items]
+                                  items[i] = {
+                                    ...items[i],
+                                    item_code: code,
+                                    product_description: p.description || items[i].product_description,
+                                    unit_price: p.fob_price ?? items[i].unit_price,
+                                    total: Math.round((items[i].qty) * (p.fob_price ?? items[i].unit_price) * 100) / 100,
+                                  }
+                                  set('items', items)
                                   setOpenDropdown(null)
                                 }}>
                                 <div className="font-mono font-semibold text-gray-800">{code}</div>
