@@ -275,14 +275,33 @@ export async function exportQCReportExcel(data: QCReportData) {
     ws2.getRow(8).height = 13
     mg(ws2, 8, 1, 8, 8); cl(ws2, 8, 1, 'Part 5 : PHOTO', { bold: true, size: 9, bg: 'FFD9D9D9' }); rb(ws2, 8, 1, 8, 8)
 
-    // ── Photo grid: 2 columns, each photo = 10 rows × 18pt (~3.4cm tall) ──
-    const PHOTO_ROWS = 10
-    const ROW_H = 18
+    // ── Photo grid: 3 columns × N rows ──────────────────────────────
+    // Convert character-width position to fractional column index
+    function charToCol(chars: number): number {
+      let cum = 0
+      for (let i = 0; i < COL_WIDTHS.length; i++) {
+        if (chars <= cum + COL_WIDTHS[i]) return i + (chars - cum) / COL_WIDTHS[i]
+        cum += COL_WIDTHS[i]
+      }
+      return COL_WIDTHS.length
+    }
+
+    const totalW = COL_WIDTHS.reduce((a, b) => a + b, 0)  // 98
+    const margin = 1.5   // char units of margin on each side
+    const gap = 2        // char units of gap between photos
+    const photoW = (totalW - margin * 2 - gap * 2) / 3    // ~30.33 chars per photo
+
+    // 3 equal photo column positions (in char units)
+    const photoLeftChars  = [margin, margin + photoW + gap, margin + (photoW + gap) * 2]
+    const photoRightChars = photoLeftChars.map(x => x + photoW)
+
+    const PHOTO_ROWS = 18  // rows per photo block
+    const ROW_H = 16       // pt per row → each photo = 288pt ≈ 4"
+
     for (let i = 0; i < photos.length; i++) {
-      const gridRow = Math.floor(i / 2)
-      const gridCol = i % 2
-      const rowStart = 9 + gridRow * PHOTO_ROWS  // 1-indexed
-      const colStart = gridCol === 0 ? 0 : 4       // 0-indexed for tl/br
+      const gridRow = Math.floor(i / 3)
+      const gridCol = i % 3
+      const rowStart = 9 + gridRow * PHOTO_ROWS  // 1-indexed Excel row
 
       // Set row heights for this photo block
       for (let pr = rowStart; pr < rowStart + PHOTO_ROWS; pr++) {
@@ -296,8 +315,8 @@ export async function exportQCReportExcel(data: QCReportData) {
         const ext = url.includes('.png') ? 'png' : url.includes('.gif') ? 'gif' : 'jpeg'
         const photoId = wb.addImage({ buffer: photoBuf, extension: ext as 'jpeg' | 'png' | 'gif' })
         ws2.addImage(photoId, {
-          tl: { col: colStart, row: rowStart - 1 },
-          br: { col: colStart + 4, row: rowStart - 1 + PHOTO_ROWS },
+          tl: { col: charToCol(photoLeftChars[gridCol]),  row: rowStart - 1 },
+          br: { col: charToCol(photoRightChars[gridCol]), row: rowStart - 1 + PHOTO_ROWS },
           editAs: 'oneCell',
         })
       } catch { /* skip failed photos */ }
