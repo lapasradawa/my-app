@@ -62,31 +62,18 @@ export async function exportQCReportExcel(data: QCReportData) {
     logoId = wb.addImage({ buffer: buf, extension: 'png' })
   } catch { /* logo optional */ }
 
-  const ws = wb.addWorksheet('QC Report', {
-    pageSetup: {
-      paperSize: 9,           // A4
-      orientation: 'portrait',
-      fitToPage: true,
-      fitToWidth: 1,
-      fitToHeight: 1,         // force single page
-      margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 },
-    },
+  // Shared column widths for both sheets (total 98 chars ≈ A4 portrait)
+  const COL_WIDTHS = [9, 13, 22, 8, 11, 11, 10, 14]
+  // Shared A4 page setup
+  const A4_SETUP = (fitToHeight: number): Partial<ExcelJS.PageSetup> => ({
+    paperSize: 9, orientation: 'portrait', fitToPage: true,
+    fitToWidth: 1, fitToHeight,
+    margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 },
   })
 
-  // ── Column widths: total ~95 chars → fits A4 portrait ─────────────
-  // A=logo/NO, B=item code/label, C=desc/value, D=qty/label,
-  // E=unit price/value, F=total/label, G=qty def/value, H=remark
-  ws.columns = [
-    { width: 9 },   // A
-    { width: 13 },  // B
-    { width: 22 },  // C
-    { width: 8 },   // D
-    { width: 11 },  // E
-    { width: 11 },  // F
-    { width: 10 },  // G
-    { width: 14 },  // H
-  ]
-  // Total: 9+13+22+8+11+11+10+14 = 98 ✓
+  const ws = wb.addWorksheet('QC Report', { pageSetup: A4_SETUP(1) })
+
+  ws.columns = COL_WIDTHS.map(w => ({ width: w }))
 
   // ── Rows 1-2: Header ─────────────────────────────────────────────
   ws.getRow(1).height = 22
@@ -249,14 +236,8 @@ export async function exportQCReportExcel(data: QCReportData) {
   // ── Sheet 2: Part 5 PHOTO ─────────────────────────────────────────
   const photos = data.photo_urls || []
   if (photos.length > 0) {
-    const ws2 = wb.addWorksheet('Part 5 - Photo', {
-      pageSetup: {
-        paperSize: 9, orientation: 'portrait', fitToPage: true,
-        fitToWidth: 1, fitToHeight: 0,
-        margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 },
-      },
-    })
-    ws2.columns = ws.columns
+    const ws2 = wb.addWorksheet('Part 5 - Photo', { pageSetup: A4_SETUP(0) })
+    ws2.columns = COL_WIDTHS.map(w => ({ width: w }))
 
     // ── Header (same as sheet 1) ──
     ws2.getRow(1).height = 22; ws2.getRow(2).height = 16
@@ -294,9 +275,9 @@ export async function exportQCReportExcel(data: QCReportData) {
     ws2.getRow(8).height = 13
     mg(ws2, 8, 1, 8, 8); cl(ws2, 8, 1, 'Part 5 : PHOTO', { bold: true, size: 9, bg: 'FFD9D9D9' }); rb(ws2, 8, 1, 8, 8)
 
-    // ── Photo grid: 2 columns, each photo = 14 rows × 28pt ──
-    const PHOTO_ROWS = 14
-    const ROW_H = 28
+    // ── Photo grid: 2 columns, each photo = 10 rows × 18pt (~3.4cm tall) ──
+    const PHOTO_ROWS = 10
+    const ROW_H = 18
     for (let i = 0; i < photos.length; i++) {
       const gridRow = Math.floor(i / 2)
       const gridCol = i % 2
