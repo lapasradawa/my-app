@@ -78,7 +78,7 @@ export async function exportQCReportExcel(data: QCReportData) {
 
   // Columns: A=1 B=2 C=3 D=4 E=5 F=6 G=7 H=8
   ws.columns = [
-    { width: 6 },   // A - NO.
+    { width: 12 },  // A - NO.
     { width: 16 },  // B - ITEM CODE / label
     { width: 28 },  // C - PRODUCT DESCRIPTION / value
     { width: 10 },  // D - QTY / label
