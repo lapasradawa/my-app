@@ -120,35 +120,29 @@ export async function exportQCReportExcel(data: QCReportData) {
   ws.getRow(5).height = MH
   ws.getRow(6).height = MH
 
-  // Row 3: Subject | Supplier Company | Destuffing Date
+  // Row 3: Subject | Supplier Company label (merged D3:D4) + value (merged E3:E4) | Destuffing Date
   cl(ws, 3, 1, 'Subject :', { bold: true, size: 8 }); ab(ws, 3, 1)
   mg(ws, 3, 2, 3, 3); cl(ws, 3, 2, 'QUALITY CLAIM', { size: 8 }); rb(ws, 3, 2, 3, 3)
-  cl(ws, 3, 4, 'Supplier company :', { bold: true, size: 8 }); ab(ws, 3, 4)
+  mg(ws, 3, 4, 4, 4); cl(ws, 3, 4, 'Supplier company :', { bold: true, size: 8, wrap: true, valign: 'top' }); rb(ws, 3, 4, 4, 4)
   mg(ws, 3, 5, 4, 5); cl(ws, 3, 5, data.supplier_company, { size: 8, wrap: true, valign: 'top' }); rb(ws, 3, 5, 4, 5)
   cl(ws, 3, 6, 'Destuffing Date :', { bold: true, size: 8 }); ab(ws, 3, 6)
   mg(ws, 3, 7, 3, 8); cl(ws, 3, 7, data.destuffing_date, { size: 8 }); rb(ws, 3, 7, 3, 8)
 
-  // Row 4: Customer Company | [Supplier cont.] | Issue Found Date
+  // Row 4: Customer Company | [D4/E4 already merged above] | Issue Found Date
   cl(ws, 4, 1, 'Customer Company :', { bold: true, size: 8, wrap: true }); ab(ws, 4, 1)
   mg(ws, 4, 2, 4, 3); cl(ws, 4, 2, 'RETAIL BUSINESS SOLUTION CO., LTD', { size: 8, wrap: true }); rb(ws, 4, 2, 4, 3)
-  cl(ws, 4, 4, '', { size: 8 }); ab(ws, 4, 4)
   cl(ws, 4, 6, 'Issue Found Date :', { bold: true, size: 8 }); ab(ws, 4, 6)
   mg(ws, 4, 7, 4, 8); cl(ws, 4, 7, data.issue_found_date, { size: 8 }); rb(ws, 4, 7, 4, 8)
 
-  // Row 5: Address | Invoice | Attachment
-  cl(ws, 5, 1, 'Address :', { bold: true, size: 8 }); ab(ws, 5, 1)
+  // Rows 5-6: Address (A5:A6) | address text (B-C merged 5-6) | Invoice/PO | Attachment (F5:F6) + value (G-H 5-6)
+  mg(ws, 5, 1, 6, 1); cl(ws, 5, 1, 'Address :', { bold: true, size: 8, valign: 'top' }); rb(ws, 5, 1, 6, 1)
   mg(ws, 5, 2, 6, 3); cl(ws, 5, 2, '387 SUKHONTHASAWAT RD., LADPRAO, LADPRAO, BANGKOK, THAILAND 10230', { size: 8, wrap: true, valign: 'top' }); rb(ws, 5, 2, 6, 3)
   cl(ws, 5, 4, 'Invoice :', { bold: true, size: 8 }); ab(ws, 5, 4)
   cl(ws, 5, 5, data.invoice_no, { size: 8 }); ab(ws, 5, 5)
-  cl(ws, 5, 6, 'Attachment :', { bold: true, size: 8 }); ab(ws, 5, 6)
-  mg(ws, 5, 7, 5, 8); cl(ws, 5, 7, data.attachment_desc || 'PO, Photos', { size: 8 }); rb(ws, 5, 7, 5, 8)
-
-  // Row 6: [Addr cont.] | PO No. | blank
-  cl(ws, 6, 1, '', { size: 8 }); ab(ws, 6, 1)
+  mg(ws, 5, 6, 6, 6); cl(ws, 5, 6, 'Attachment :', { bold: true, size: 8, valign: 'top' }); rb(ws, 5, 6, 6, 6)
+  mg(ws, 5, 7, 6, 8); cl(ws, 5, 7, data.attachment_desc || 'PO, Photos', { size: 8, valign: 'top' }); rb(ws, 5, 7, 6, 8)
   cl(ws, 6, 4, 'PO No. :', { bold: true, size: 8 }); ab(ws, 6, 4)
   cl(ws, 6, 5, data.po_no, { size: 8 }); ab(ws, 6, 5)
-  cl(ws, 6, 6, '', { size: 8 }); ab(ws, 6, 6)
-  mg(ws, 6, 7, 6, 8); cl(ws, 6, 7, '', { size: 8 }); rb(ws, 6, 7, 6, 8)
 
   // ── Spacer ───────────────────────────────────────────────────────
   ws.getRow(7).height = 5
@@ -166,7 +160,7 @@ export async function exportQCReportExcel(data: QCReportData) {
   ws.getRow(r).height = descH
   mg(ws, r, 1, r, 8); cl(ws, r, 1, data.description || '', { size: 8, wrap: true, valign: 'top' }); rb(ws, r, 1, r, 8)
 
-  r++; ws.getRow(r).height = 26
+  r++; ws.getRow(r).height = 20
   const hdrs = ['NO.', 'ITEM CODE', 'PRODUCT\nDESCRIPTION', 'QTY\n(PCS)', 'UNIT PRICE\n(CNY)', 'TOTAL\n(CNY)', 'QTY\nDEFECTIVE', 'REMARK']
   hdrs.forEach((h, ci) => {
     cl(ws, r, ci + 1, h, { bold: true, size: 8, align: 'center', bg: 'FFD9D9D9', wrap: true })
@@ -278,26 +272,22 @@ export async function exportQCReportExcel(data: QCReportData) {
     ;[3, 4, 5, 6].forEach(rr => { ws2.getRow(rr).height = MH })
     cl(ws2, 3, 1, 'Subject :', { bold: true, size: 8 }); ab(ws2, 3, 1)
     mg(ws2, 3, 2, 3, 3); cl(ws2, 3, 2, 'QUALITY CLAIM', { size: 8 }); rb(ws2, 3, 2, 3, 3)
-    cl(ws2, 3, 4, 'Supplier company :', { bold: true, size: 8 }); ab(ws2, 3, 4)
+    mg(ws2, 3, 4, 4, 4); cl(ws2, 3, 4, 'Supplier company :', { bold: true, size: 8, wrap: true, valign: 'top' }); rb(ws2, 3, 4, 4, 4)
     mg(ws2, 3, 5, 4, 5); cl(ws2, 3, 5, data.supplier_company, { size: 8, wrap: true, valign: 'top' }); rb(ws2, 3, 5, 4, 5)
     cl(ws2, 3, 6, 'Destuffing Date :', { bold: true, size: 8 }); ab(ws2, 3, 6)
     mg(ws2, 3, 7, 3, 8); cl(ws2, 3, 7, data.destuffing_date, { size: 8 }); rb(ws2, 3, 7, 3, 8)
     cl(ws2, 4, 1, 'Customer Company :', { bold: true, size: 8, wrap: true }); ab(ws2, 4, 1)
     mg(ws2, 4, 2, 4, 3); cl(ws2, 4, 2, 'RETAIL BUSINESS SOLUTION CO., LTD', { size: 8, wrap: true }); rb(ws2, 4, 2, 4, 3)
-    cl(ws2, 4, 4, '', { size: 8 }); ab(ws2, 4, 4)
     cl(ws2, 4, 6, 'Issue Found Date :', { bold: true, size: 8 }); ab(ws2, 4, 6)
     mg(ws2, 4, 7, 4, 8); cl(ws2, 4, 7, data.issue_found_date, { size: 8 }); rb(ws2, 4, 7, 4, 8)
-    cl(ws2, 5, 1, 'Address :', { bold: true, size: 8 }); ab(ws2, 5, 1)
+    mg(ws2, 5, 1, 6, 1); cl(ws2, 5, 1, 'Address :', { bold: true, size: 8, valign: 'top' }); rb(ws2, 5, 1, 6, 1)
     mg(ws2, 5, 2, 6, 3); cl(ws2, 5, 2, '387 SUKHONTHASAWAT RD., LADPRAO, LADPRAO, BANGKOK, THAILAND 10230', { size: 8, wrap: true, valign: 'top' }); rb(ws2, 5, 2, 6, 3)
     cl(ws2, 5, 4, 'Invoice :', { bold: true, size: 8 }); ab(ws2, 5, 4)
     cl(ws2, 5, 5, data.invoice_no, { size: 8 }); ab(ws2, 5, 5)
-    cl(ws2, 5, 6, 'Attachment :', { bold: true, size: 8 }); ab(ws2, 5, 6)
-    mg(ws2, 5, 7, 5, 8); cl(ws2, 5, 7, data.attachment_desc || 'PO, Photos', { size: 8 }); rb(ws2, 5, 7, 5, 8)
-    cl(ws2, 6, 1, '', { size: 8 }); ab(ws2, 6, 1)
+    mg(ws2, 5, 6, 6, 6); cl(ws2, 5, 6, 'Attachment :', { bold: true, size: 8, valign: 'top' }); rb(ws2, 5, 6, 6, 6)
+    mg(ws2, 5, 7, 6, 8); cl(ws2, 5, 7, data.attachment_desc || 'PO, Photos', { size: 8, valign: 'top' }); rb(ws2, 5, 7, 6, 8)
     cl(ws2, 6, 4, 'PO No. :', { bold: true, size: 8 }); ab(ws2, 6, 4)
     cl(ws2, 6, 5, data.po_no, { size: 8 }); ab(ws2, 6, 5)
-    cl(ws2, 6, 6, '', { size: 8 }); ab(ws2, 6, 6)
-    mg(ws2, 6, 7, 6, 8); cl(ws2, 6, 7, '', { size: 8 }); rb(ws2, 6, 7, 6, 8)
 
     // ── Part 5 header ──
     ws2.getRow(7).height = 5
