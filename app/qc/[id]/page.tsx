@@ -22,6 +22,7 @@ interface QCReport {
   description: string; items: QCItem[]; corrective_actions: string[]; corrective_action_comment: string
   root_cause: string; preventive_action: string; verification_accepted: boolean | null
   verification_comment: string; status: string; closure_file_url: string | null
+  photo_urls: string[]
 }
 
 const EMPTY: Omit<QCReport, 'id'> = {
@@ -30,6 +31,7 @@ const EMPTY: Omit<QCReport, 'id'> = {
   items: [], corrective_actions: [], corrective_action_comment: '',
   root_cause: '', preventive_action: '', verification_accepted: null,
   verification_comment: '', status: 'open', closure_file_url: null,
+  photo_urls: [],
 }
 
 const EMPTY_ITEM: QCItem = { item_code: '', product_description: '', qty: 0, unit_price: 0, total: 0, qty_defective: 0, remark: '' }
@@ -46,6 +48,8 @@ export default function QCDetailPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
   const closureRef = useRef<HTMLInputElement>(null)
+  const photoRef = useRef<HTMLInputElement>(null)
+  const [uploadingPhotos, setUploadingPhotos] = useState(false)
   const [form, setForm] = useState<Omit<QCReport, 'id'>>(EMPTY)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -118,6 +122,28 @@ export default function QCDetailPage() {
       alert('อัปโหลดไม่สำเร็จ: ' + error.message)
     }
     setUploadingClosure(false)
+  }
+
+  async function uploadPhotos(files: FileList) {
+    setUploadingPhotos(true)
+    const newUrls: string[] = []
+    for (const file of Array.from(files)) {
+      const path = `qc-photos/${id}/${Date.now()}-${file.name}`
+      const { error } = await supabase.storage.from('payment-proofs').upload(path, file, { upsert: true })
+      if (!error) {
+        const { data: urlData } = supabase.storage.from('payment-proofs').getPublicUrl(path)
+        newUrls.push(urlData.publicUrl)
+      }
+    }
+    if (newUrls.length > 0) {
+      const updated = [...(form.photo_urls || []), ...newUrls]
+      set('photo_urls', updated)
+    }
+    setUploadingPhotos(false)
+  }
+
+  function removePhoto(url: string) {
+    set('photo_urls', (form.photo_urls || []).filter(u => u !== url))
   }
 
   async function handleExport() {
@@ -390,6 +416,34 @@ export default function QCDetailPage() {
                 onChange={e => set('verification_comment', e.target.value)} placeholder="เหตุผลที่ไม่ยอมรับ..." />
             </div>
           )}
+        </div>
+
+        {/* Part 5: PHOTO */}
+        <SectionHeader title="Part 5 : PHOTO" />
+        <div className="bg-white border border-gray-300 border-t-0 rounded-b-lg p-5 mb-1">
+          {(form.photo_urls || []).length > 0 && (
+            <div className="grid grid-cols-3 gap-3 mb-4">
+              {(form.photo_urls || []).map((url, idx) => (
+                <div key={idx} className="relative group rounded-lg overflow-hidden border border-gray-200">
+                  <img src={url} alt={`photo-${idx + 1}`} className="w-full h-48 object-cover" />
+                  <button
+                    onClick={() => removePhoto(url)}
+                    className="absolute top-1.5 right-1.5 bg-red-500 hover:bg-red-600 text-white rounded-full w-6 h-6 text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    ✕
+                  </button>
+                  <div className="absolute bottom-1.5 left-1.5 bg-black/50 text-white text-xs px-1.5 py-0.5 rounded">{idx + 1}</div>
+                </div>
+              ))}
+            </div>
+          )}
+          <button
+            onClick={() => photoRef.current?.click()}
+            disabled={uploadingPhotos}
+            className="flex items-center gap-2 border-2 border-dashed border-gray-200 rounded-lg px-5 py-3 text-sm text-gray-400 hover:border-blue-300 hover:text-blue-500 transition-colors disabled:opacity-50">
+            {uploadingPhotos ? 'กำลังอัปโหลด...' : '+ เพิ่มรูปภาพ (เลือกได้หลายรูปพร้อมกัน)'}
+          </button>
+          <input ref={photoRef} type="file" accept="image/*" multiple className="hidden"
+            onChange={e => { if (e.target.files?.length) uploadPhotos(e.target.files); e.target.value = '' }} />
         </div>
 
         {/* Status + Closure */}
