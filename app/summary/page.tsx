@@ -272,9 +272,9 @@ export default function SummaryPage() {
   }, [filteredLines])
 
   const itemSummary = useMemo(() => {
-    const map = new Map<string, { description: string; totalQty: number; totalFob: number; fobByCurrency: Map<string, number>; suppliers: Map<string, { qty: number; fob: number; fobByCurrency: Map<string, number> }>; byMonth: Map<string, number> }>()
+    const map = new Map<string, { description: string; totalQty: number; totalFob: number; fobByCurrency: Map<string, number>; suppliers: Map<string, { qty: number; fob: number; fobByCurrency: Map<string, number> }>; invoiceList: Map<string, { id: string; qty: number; supplier: string }>; byMonth: Map<string, number> }>()
     for (const l of filteredLines) {
-      const cur = map.get(l.item_code) || { description: l.description, totalQty: 0, totalFob: 0, fobByCurrency: new Map(), suppliers: new Map(), byMonth: new Map() }
+      const cur = map.get(l.item_code) || { description: l.description, totalQty: 0, totalFob: 0, fobByCurrency: new Map(), suppliers: new Map(), invoiceList: new Map(), byMonth: new Map() }
       cur.totalQty += l.qty
       if (l.fob_total) {
         cur.totalFob += l.fob_total
@@ -289,6 +289,9 @@ export default function SummaryPage() {
         sup.fobByCurrency.set(ccy, (sup.fobByCurrency.get(ccy) || 0) + l.fob_total)
       }
       cur.suppliers.set(l.supplier, sup)
+      const inv = cur.invoiceList.get(l.invoice_no) || { id: l.invoice_id, qty: 0, supplier: l.supplier }
+      inv.qty += l.qty
+      cur.invoiceList.set(l.invoice_no, inv)
       if (l.month_key) cur.byMonth.set(l.month_key, (cur.byMonth.get(l.month_key) || 0) + l.qty)
       map.set(l.item_code, cur)
     }
@@ -611,6 +614,30 @@ export default function SummaryPage() {
                   <div>
                     <div style={{ fontSize: 9, fontWeight: 800, color: '#9a8a7a', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>ยอดสั่งรายเดือน (pcs)</div>
                     <MiniBarChart data={generateMonthKeys(12).map(k => ({ label: mLabel(k).slice(0, 3), value: selectedItemData.byMonth.get(k) || 0 }))} />
+                  </div>
+                </div>
+
+                {/* Invoice list */}
+                <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid #e8dcc8' }}>
+                  <div style={{ fontSize: 9, fontWeight: 800, color: '#9a8a7a', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>Invoices</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {Array.from(selectedItemData.invoiceList.entries())
+                      .sort((a, b) => b[1].qty - a[1].qty)
+                      .map(([invoiceNo, inv]) => (
+                        <a key={invoiceNo} href={`/dashboard/${inv.id}`}
+                          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 10px', borderRadius: 8, background: '#f0ece4', textDecoration: 'none', transition: 'background 0.12s' }}
+                          onMouseEnter={e => (e.currentTarget.style.background = '#e4ddd0')}
+                          onMouseLeave={e => (e.currentTarget.style.background = '#f0ece4')}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: '#3d8b82', fontFamily: 'monospace' }}>{invoiceNo}</span>
+                            <span style={{ fontSize: 10, color: '#9a8a7a' }}>{inv.supplier}</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: '#3a2a1a' }}>{inv.qty.toLocaleString()} pcs</span>
+                            <span style={{ fontSize: 10, color: '#3d8b82' }}>→</span>
+                          </div>
+                        </a>
+                      ))}
                   </div>
                 </div>
               </div>
