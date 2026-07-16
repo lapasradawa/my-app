@@ -1,0 +1,144 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import { supabase } from '@/lib/supabase'
+
+interface QCReport {
+  id: string
+  report_no: string
+  supplier_company: string | null
+  invoice_no: string | null
+  issue_found_date: string | null
+  status: string
+  verification_accepted: boolean | null
+  created_at: string
+}
+
+const NAV = [
+  { href: '/', label: 'PO Matching' },
+  { href: '/dashboard', label: 'Dashboard' },
+  { href: '/calendar', label: 'Calendar' },
+  { href: '/report', label: 'Report' },
+  { href: '/summary', label: 'Summary' },
+  { href: '/compare', label: 'Cost Compare' },
+  { href: '/po-builder', label: 'PO Builder' },
+  { href: '/qc', label: 'QC Report' },
+  { href: '/guide', label: 'Guide' },
+]
+
+export default function QCPage() {
+  const router = useRouter()
+  const [reports, setReports] = useState<QCReport[]>([])
+  const [loading, setLoading] = useState(true)
+  const [creating, setCreating] = useState(false)
+
+  useEffect(() => { loadReports() }, [])
+
+  async function loadReports() {
+    const { data } = await supabase
+      .from('qc_reports')
+      .select('id, report_no, supplier_company, invoice_no, issue_found_date, status, verification_accepted, created_at')
+      .order('created_at', { ascending: false })
+    if (data) setReports(data as QCReport[])
+    setLoading(false)
+  }
+
+  async function createNew() {
+    setCreating(true)
+    const now = new Date()
+    const yy = now.getFullYear()
+    const mm = String(now.getMonth() + 1).padStart(2, '0')
+    const { data: existing } = await supabase
+      .from('qc_reports')
+      .select('report_no')
+      .like('report_no', `RBSQC${yy}/${mm}-%`)
+      .order('report_no', { ascending: false })
+      .limit(1)
+    const seq = existing?.[0]
+      ? parseInt(existing[0].report_no.split('-').pop() || '0') + 1
+      : 1
+    const report_no = `RBSQC${yy}/${mm}-${String(seq).padStart(3, '0')}`
+    const { data, error } = await supabase
+      .from('qc_reports')
+      .insert({ report_no, status: 'open', items: [], corrective_actions: [] })
+      .select('id').single()
+    if (!error && data) router.push(`/qc/${data.id}`)
+    setCreating(false)
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <nav className="bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-6 text-sm flex-wrap">
+        <span className="font-bold text-gray-900 mr-2">Import PO</span>
+        {NAV.map(n => (
+          <Link key={n.href} href={n.href}
+            className={n.href === '/qc' ? 'text-blue-600 font-semibold' : 'text-gray-500 hover:text-gray-800 transition-colors'}>
+            {n.label}
+          </Link>
+        ))}
+      </nav>
+
+      <div className="max-w-5xl mx-auto px-6 py-8">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">QC Report</h1>
+            <p className="text-sm text-gray-500 mt-1">รายงานคุณภาพและการเคลม Supplier</p>
+          </div>
+          <button onClick={createNew} disabled={creating}
+            className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors disabled:opacity-50">
+            {creating ? 'กำลังสร้าง...' : '+ สร้าง QC Report ใหม่'}
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="text-center py-16 text-gray-400 text-sm">กำลังโหลด...</div>
+        ) : reports.length === 0 ? (
+          <div className="text-center py-16 text-gray-400">
+            <div className="text-4xl mb-3">📋</div>
+            <p className="text-sm">ยังไม่มี QC Report</p>
+            <p className="text-xs mt-1">กด "สร้าง QC Report ใหม่" เพื่อเริ่มต้น</p>
+          </div>
+        ) : (
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200">
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Report No.</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Supplier</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Invoice</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Issue Date</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">สถานะ</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Verification</th>
+                </tr>
+              </thead>
+              <tbody>
+                {reports.map((r, i) => (
+                  <tr key={r.id}
+                    onClick={() => router.push(`/qc/${r.id}`)}
+                    className={`border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors ${i % 2 === 0 ? '' : 'bg-gray-50/50'}`}>
+                    <td className="px-4 py-3 font-mono font-semibold text-blue-700">{r.report_no}</td>
+                    <td className="px-4 py-3 text-gray-700">{r.supplier_company || '—'}</td>
+                    <td className="px-4 py-3 text-gray-600">{r.invoice_no || '—'}</td>
+                    <td className="px-4 py-3 text-gray-600">{r.issue_found_date ? new Date(r.issue_found_date).toLocaleDateString('th-TH') : '—'}</td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${r.status === 'closed' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
+                        {r.status === 'closed' ? '✓ ปิดจบแล้ว' : '● เปิดอยู่'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      {r.verification_accepted === true && <span className="text-green-600 text-xs font-semibold">Accepted</span>}
+                      {r.verification_accepted === false && <span className="text-red-500 text-xs font-semibold">Not Accepted</span>}
+                      {r.verification_accepted === null && <span className="text-gray-400 text-xs">รอตรวจสอบ</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
