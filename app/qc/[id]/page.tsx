@@ -163,8 +163,24 @@ export default function QCDetailPage() {
         </div>
 
         {/* Header fields */}
-        <div className="bg-white rounded-xl border border-gray-200 p-5 mb-1">
-          <div className="grid grid-cols-3 gap-4">
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-1">
+          {/* Fixed info row */}
+          <div className="grid grid-cols-3 divide-x divide-gray-100 bg-gray-50 border-b border-gray-200 text-xs">
+            <div className="px-4 py-2.5">
+              <span className="text-gray-400 font-semibold uppercase tracking-wide text-[10px]">Subject</span>
+              <div className="font-semibold text-gray-700 mt-0.5">QUALITY CLAIM</div>
+            </div>
+            <div className="px-4 py-2.5">
+              <span className="text-gray-400 font-semibold uppercase tracking-wide text-[10px]">Customer Company</span>
+              <div className="font-semibold text-gray-700 mt-0.5">RETAIL BUSINESS SOLUTION CO., LTD</div>
+            </div>
+            <div className="px-4 py-2.5">
+              <span className="text-gray-400 font-semibold uppercase tracking-wide text-[10px]">Address</span>
+              <div className="text-gray-600 mt-0.5">387 SUKHONTHASAWAT RD., LADPRAO, LADPRAO, BANGKOK, THAILAND 10230</div>
+            </div>
+          </div>
+          {/* Editable fields */}
+          <div className="p-5 grid grid-cols-3 gap-4">
             <div>
               <label className={labelCls}>Report No.</label>
               <input className={inputCls} value={form.report_no} onChange={e => set('report_no', e.target.value)} />
