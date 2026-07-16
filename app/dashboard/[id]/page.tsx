@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import type { ResultRow } from '@/lib/excel-parser'
 import { exportToExcel } from '@/lib/excel-exporter'
@@ -128,6 +128,7 @@ function PasswordGate({ onSuccess, onCancel }: { onSuccess: () => void; onCancel
 
 export default function InvoiceDetailPage() {
   const { id } = useParams<{ id: string }>()
+  const router = useRouter()
   const [invoice, setInvoice] = useState<Invoice | null>(null)
   const [loading, setLoading] = useState(true)
   const [unlocked, setUnlocked] = useState(false)
@@ -179,6 +180,26 @@ export default function InvoiceDetailPage() {
     setUnlocked(isUnlocked())
     load()
   }, [id])
+
+  async function createQCReport() {
+    if (!invoice) return
+    const now = new Date()
+    const yy = now.getFullYear()
+    const mm = String(now.getMonth() + 1).padStart(2, '0')
+    const { data: existing } = await supabase.from('qc_reports').select('report_no')
+      .like('report_no', `RBSQC${yy}/${mm}-%`).order('report_no', { ascending: false }).limit(1)
+    const seq = existing?.[0] ? parseInt(existing[0].report_no.split('-').pop() || '0') + 1 : 1
+    const report_no = `RBSQC${yy}/${mm}-${String(seq).padStart(3, '0')}`
+    const { data, error } = await supabase.from('qc_reports').insert({
+      report_no,
+      status: 'open',
+      items: [],
+      corrective_actions: [],
+      invoice_no: invoice.invoice_no,
+      supplier_company: (invoice as unknown as { supplier: string }).supplier || '',
+    }).select('id').single()
+    if (!error && data) router.push(`/qc/${data.id}`)
+  }
 
   async function load() {
     const { data } = await supabase.from('invoices').select('*').eq('id', id).single()
@@ -487,6 +508,12 @@ export default function InvoiceDetailPage() {
             )}
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={createQCReport}
+              className="px-4 py-1.5 bg-orange-500 text-white text-sm rounded-lg hover:bg-orange-600 transition-colors"
+            >
+              สร้าง QC Report
+            </button>
             <button
               onClick={() => exportToExcel(invoice.rows, invoice.container_names, invoice.invoice_no + '-PO-Matching.xlsx')}
               className="px-4 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors"

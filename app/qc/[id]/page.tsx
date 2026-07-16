@@ -56,27 +56,45 @@ export default function QCDetailPage() {
   const [saved, setSaved] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [uploadingClosure, setUploadingClosure] = useState(false)
-  const [poItems, setPoItems] = useState<{ item_code: string; description: string; fob_price: number | null; currency: string | null }[]>([])
+  const [poItems, setPoItems] = useState<{ item_code: string; description: string; fob_price: number | null; currency: string | null; invoice_id: string }[]>([])
+  const [invoicesData, setInvoicesData] = useState<{ id: string; invoice_no: string; supplier: string | null }[]>([])
+  const [suppliers, setSuppliers] = useState<string[]>([])
   const [itemSearch, setItemSearch] = useState<string[]>([])
   const [openDropdown, setOpenDropdown] = useState<number | null>(null)
+  const [openSupplierDrop, setOpenSupplierDrop] = useState(false)
+  const [supplierSearch, setSupplierSearch] = useState('')
 
   useEffect(() => {
     supabase.from('qc_reports').select('*').eq('id', id).single().then(({ data }) => {
       if (data) setForm(data as Omit<QCReport, 'id'>)
       setLoading(false)
     })
-    supabase.from('po_items').select('item_code, description, fob_price, currency')
-      .order('item_code').then(({ data }) => {
-        if (data) {
-          const unique = Array.from(new Map(data.map(r => [r.item_code, r])).values())
-          setPoItems(unique)
-          setItemSearch(unique.map(r => r.item_code))
-        }
-      })
+    supabase.from('po_items').select('item_code, description, fob_price, currency, invoice_id')
+      .order('item_code').then(({ data }) => { if (data) setPoItems(data) })
+    supabase.from('invoices').select('id, invoice_no, supplier').order('invoice_no').then(({ data }) => {
+      if (data) {
+        setInvoicesData(data)
+        const uniq = [...new Set(data.map(r => r.supplier).filter(Boolean) as string[])].sort()
+        setSuppliers(uniq)
+      }
+    })
   }, [id])
 
+  function getPoItemsForInvoice(invoice_no: string) {
+    const inv = invoicesData.find(i => i.invoice_no === invoice_no)
+    const filtered = inv ? poItems.filter(p => p.invoice_id === inv.id) : poItems
+    return Array.from(new Map(filtered.map(r => [r.item_code, r])).values())
+  }
+
   function set<K extends keyof typeof form>(k: K, v: typeof form[K]) {
-    setForm(prev => ({ ...prev, [k]: v }))
+    setForm(prev => {
+      const next = { ...prev, [k]: v }
+      if (k === 'invoice_no' && typeof v === 'string') {
+        const inv = invoicesData.find(i => i.invoice_no === v)
+        if (inv?.supplier && !prev.supplier_company) next.supplier_company = inv.supplier
+      }
+      return next
+    })
     setSaved(false)
   }
 
@@ -222,10 +240,23 @@ export default function QCDetailPage() {
               <label className={labelCls}>Report No.</label>
               <input className={inputCls} value={form.report_no} onChange={e => set('report_no', e.target.value)} />
             </div>
-            <div>
+            <div className="relative">
               <label className={labelCls}>Supplier Company</label>
-              <input className={inputCls} value={form.supplier_company} onChange={e => set('supplier_company', e.target.value)}
-                placeholder="SHANGHAI YONGGUAN COMMERCIAL EQUIPMENT CO., LTD" />
+              <input className={inputCls} value={form.supplier_company}
+                onChange={e => { set('supplier_company', e.target.value); setSupplierSearch(e.target.value.toLowerCase()); setOpenSupplierDrop(true) }}
+                onFocus={() => { setSupplierSearch(''); setOpenSupplierDrop(true) }}
+                onBlur={() => setTimeout(() => setOpenSupplierDrop(false), 150)}
+                placeholder="SHANGHAI YONGGUAN..." />
+              {openSupplierDrop && (
+                <ul className="absolute z-50 left-0 top-full max-h-48 overflow-y-auto bg-white border border-gray-300 shadow-lg rounded text-xs w-full">
+                  {suppliers.filter(s => !supplierSearch || s.toLowerCase().includes(supplierSearch)).slice(0, 30).map(s => (
+                    <li key={s} className="px-3 py-2 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-0 truncate"
+                      onMouseDown={() => { set('supplier_company', s); setOpenSupplierDrop(false) }}>
+                      {s}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
             <div>
               <label className={labelCls}>Invoice No.</label>
@@ -274,11 +305,13 @@ export default function QCDetailPage() {
                         onChange={e => {
                           setItem(i, 'item_code', e.target.value)
                           const q = e.target.value.toLowerCase()
-                          setItemSearch(poItems.filter(p => p.item_code.toLowerCase().includes(q)).map(p => p.item_code))
+                          const base = getPoItemsForInvoice(form.invoice_no)
+                          setItemSearch(base.filter(p => p.item_code.toLowerCase().includes(q)).map(p => p.item_code))
                           setOpenDropdown(i)
                         }}
                         onFocus={() => {
-                          setItemSearch(poItems.map(p => p.item_code))
+                          const base = getPoItemsForInvoice(form.invoice_no)
+                          setItemSearch(base.map(p => p.item_code))
                           setOpenDropdown(i)
                         }}
                         onBlur={() => setTimeout(() => setOpenDropdown(null), 150)}
