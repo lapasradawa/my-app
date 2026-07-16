@@ -26,6 +26,7 @@ export interface QCReportData {
   preventive_action: string
   verification_accepted: boolean | null
   verification_comment: string
+  photo_urls?: string[]
 }
 
 const BORDER: Partial<ExcelJS.Borders> = {
@@ -250,6 +251,87 @@ export async function exportQCReportExcel(data: QCReportData) {
   cl(ws, r, 1, 'FOLLOW-UP INSPECTOR\n\n\n(Mr. Weerapong Choungkrai)\nDATE…………/…………/…………', { size: 8, align: 'center', wrap: true }); rb(ws, r, 1, r, 4)
   mg(ws, r, 5, r, 8)
   cl(ws, r, 5, 'FOLLOW-UP APPROVAL\n\n\n(Mr. Noppharat Sriwichai)\nDATE…………/…………/…………', { size: 8, align: 'center', wrap: true }); rb(ws, r, 5, r, 8)
+
+  // ── Sheet 2: Part 5 PHOTO ─────────────────────────────────────────
+  const photos = data.photo_urls || []
+  if (photos.length > 0) {
+    const ws2 = wb.addWorksheet('Part 5 - Photo', {
+      pageSetup: {
+        paperSize: 9, orientation: 'portrait', fitToPage: true,
+        fitToWidth: 1, fitToHeight: 0,
+        margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 },
+      },
+    })
+    ws2.columns = ws.columns
+
+    // ── Header (same as sheet 1) ──
+    ws2.getRow(1).height = 22; ws2.getRow(2).height = 16
+    mg(ws2, 1, 1, 2, 1)
+    if (logoId !== null) ws2.addImage(logoId, { tl: { col: 0, row: 0 }, br: { col: 1, row: 2 }, editAs: 'oneCell' })
+    else cl(ws2, 1, 1, 'rbs', { bold: true, size: 16, color: 'FF004080', align: 'center' })
+    mg(ws2, 1, 2, 2, 6); cl(ws2, 1, 2, 'QUALITY CLAIM REPORT', { bold: true, size: 13, align: 'center' }); rb(ws2, 1, 2, 2, 6)
+    mg(ws2, 1, 7, 1, 8); cl(ws2, 1, 7, 'Report No.', { bold: true, size: 8, bg: 'FFD9D9D9', align: 'center' }); rb(ws2, 1, 7, 1, 8)
+    mg(ws2, 2, 7, 2, 8); cl(ws2, 2, 7, data.report_no, { bold: true, size: 10, align: 'center' }); rb(ws2, 2, 7, 2, 8)
+
+    // ── Meta rows 3-6 ──
+    const MH = 15
+    ;[3, 4, 5, 6].forEach(rr => { ws2.getRow(rr).height = MH })
+    cl(ws2, 3, 1, 'Subject :', { bold: true, size: 8 }); ab(ws2, 3, 1)
+    mg(ws2, 3, 2, 3, 3); cl(ws2, 3, 2, 'QUALITY CLAIM', { size: 8 }); rb(ws2, 3, 2, 3, 3)
+    cl(ws2, 3, 4, 'Supplier company :', { bold: true, size: 8 }); ab(ws2, 3, 4)
+    mg(ws2, 3, 5, 4, 5); cl(ws2, 3, 5, data.supplier_company, { size: 8, wrap: true, valign: 'top' }); rb(ws2, 3, 5, 4, 5)
+    cl(ws2, 3, 6, 'Destuffing Date :', { bold: true, size: 8 }); ab(ws2, 3, 6)
+    mg(ws2, 3, 7, 3, 8); cl(ws2, 3, 7, data.destuffing_date, { size: 8 }); rb(ws2, 3, 7, 3, 8)
+    cl(ws2, 4, 1, 'Customer Company :', { bold: true, size: 8, wrap: true }); ab(ws2, 4, 1)
+    mg(ws2, 4, 2, 4, 3); cl(ws2, 4, 2, 'RETAIL BUSINESS SOLUTION CO., LTD', { size: 8, wrap: true }); rb(ws2, 4, 2, 4, 3)
+    cl(ws2, 4, 4, '', { size: 8 }); ab(ws2, 4, 4)
+    cl(ws2, 4, 6, 'Issue Found Date :', { bold: true, size: 8 }); ab(ws2, 4, 6)
+    mg(ws2, 4, 7, 4, 8); cl(ws2, 4, 7, data.issue_found_date, { size: 8 }); rb(ws2, 4, 7, 4, 8)
+    cl(ws2, 5, 1, 'Address :', { bold: true, size: 8 }); ab(ws2, 5, 1)
+    mg(ws2, 5, 2, 6, 3); cl(ws2, 5, 2, '387 SUKHONTHASAWAT RD., LADPRAO, LADPRAO, BANGKOK, THAILAND 10230', { size: 8, wrap: true, valign: 'top' }); rb(ws2, 5, 2, 6, 3)
+    cl(ws2, 5, 4, 'Invoice :', { bold: true, size: 8 }); ab(ws2, 5, 4)
+    cl(ws2, 5, 5, data.invoice_no, { size: 8 }); ab(ws2, 5, 5)
+    cl(ws2, 5, 6, 'Attachment :', { bold: true, size: 8 }); ab(ws2, 5, 6)
+    mg(ws2, 5, 7, 5, 8); cl(ws2, 5, 7, data.attachment_desc || 'PO, Photos', { size: 8 }); rb(ws2, 5, 7, 5, 8)
+    cl(ws2, 6, 1, '', { size: 8 }); ab(ws2, 6, 1)
+    cl(ws2, 6, 4, 'PO No. :', { bold: true, size: 8 }); ab(ws2, 6, 4)
+    cl(ws2, 6, 5, data.po_no, { size: 8 }); ab(ws2, 6, 5)
+    cl(ws2, 6, 6, '', { size: 8 }); ab(ws2, 6, 6)
+    mg(ws2, 6, 7, 6, 8); cl(ws2, 6, 7, '', { size: 8 }); rb(ws2, 6, 7, 6, 8)
+
+    // ── Part 5 header ──
+    ws2.getRow(7).height = 5
+    ws2.getRow(8).height = 13
+    mg(ws2, 8, 1, 8, 8); cl(ws2, 8, 1, 'Part 5 : PHOTO', { bold: true, size: 9, bg: 'FFD9D9D9' }); rb(ws2, 8, 1, 8, 8)
+
+    // ── Photo grid: 2 columns, each photo = 14 rows × 28pt ──
+    const PHOTO_ROWS = 14
+    const ROW_H = 28
+    for (let i = 0; i < photos.length; i++) {
+      const gridRow = Math.floor(i / 2)
+      const gridCol = i % 2
+      const rowStart = 9 + gridRow * PHOTO_ROWS  // 1-indexed
+      const colStart = gridCol === 0 ? 0 : 4       // 0-indexed for tl/br
+
+      // Set row heights for this photo block
+      for (let pr = rowStart; pr < rowStart + PHOTO_ROWS; pr++) {
+        ws2.getRow(pr).height = ROW_H
+      }
+
+      try {
+        const res = await fetch(photos[i])
+        const photoBuf = await res.arrayBuffer()
+        const url = photos[i].toLowerCase()
+        const ext = url.includes('.png') ? 'png' : url.includes('.gif') ? 'gif' : 'jpeg'
+        const photoId = wb.addImage({ buffer: photoBuf, extension: ext as 'jpeg' | 'png' | 'gif' })
+        ws2.addImage(photoId, {
+          tl: { col: colStart, row: rowStart - 1 },
+          br: { col: colStart + 4, row: rowStart - 1 + PHOTO_ROWS },
+          editAs: 'oneCell',
+        })
+      } catch { /* skip failed photos */ }
+    }
+  }
 
   // ── Export ────────────────────────────────────────────────────────
   const buf = await wb.xlsx.writeBuffer()
