@@ -59,6 +59,15 @@ function merge(ws: ExcelJS.Worksheet, r1: number, c1: number, r2: number, c2: nu
 
 export async function exportQCReportExcel(data: QCReportData) {
   const wb = new ExcelJS.Workbook()
+
+  // Load logo image
+  let logoId: number | null = null
+  try {
+    const res = await fetch('/rbs-logo.png')
+    const buf = await res.arrayBuffer()
+    logoId = wb.addImage({ buffer: buf, extension: 'png' })
+  } catch { /* logo optional */ }
+
   const ws = wb.addWorksheet('QC Report', {
     pageSetup: {
       paperSize: 9, orientation: 'portrait', fitToPage: true,
@@ -83,9 +92,13 @@ export async function exportQCReportExcel(data: QCReportData) {
   ws.getRow(1).height = 22
   ws.getRow(2).height = 18
 
-  // Logo placeholder (col A, rows 1-2)
+  // Logo (col A, rows 1-2)
   merge(ws, 1, 1, 2, 1)
-  cell(ws, 1, 1, 'rbs', { bold: true, size: 16, color: 'FF004080', align: 'center' })
+  if (logoId !== null) {
+    ws.addImage(logoId, { tl: { col: 0, row: 0 }, br: { col: 1, row: 2 }, editAs: 'oneCell' })
+  } else {
+    cell(ws, 1, 1, 'rbs', { bold: true, size: 16, color: 'FF004080', align: 'center' })
+  }
 
   // Title (cols B-F, rows 1-2)
   merge(ws, 1, 2, 2, 6)
