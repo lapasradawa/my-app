@@ -52,12 +52,23 @@ export default function QCDetailPage() {
   const [saved, setSaved] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [uploadingClosure, setUploadingClosure] = useState(false)
+  const [poItems, setPoItems] = useState<{ item_code: string; description: string; fob_price: number | null; currency: string | null }[]>([])
+  const [itemSearch, setItemSearch] = useState<string[]>([])
+  const [openDropdown, setOpenDropdown] = useState<number | null>(null)
 
   useEffect(() => {
     supabase.from('qc_reports').select('*').eq('id', id).single().then(({ data }) => {
       if (data) setForm(data as Omit<QCReport, 'id'>)
       setLoading(false)
     })
+    supabase.from('po_items').select('item_code, description, fob_price, currency')
+      .order('item_code').then(({ data }) => {
+        if (data) {
+          const unique = Array.from(new Map(data.map(r => [r.item_code, r])).values())
+          setPoItems(unique)
+          setItemSearch(unique.map(r => r.item_code))
+        }
+      })
   }, [id])
 
   function set<K extends keyof typeof form>(k: K, v: typeof form[K]) {
@@ -229,12 +240,50 @@ export default function QCDetailPage() {
                 {form.items.map((item, i) => (
                   <tr key={i}>
                     <td className="border border-gray-200 px-2 py-1 text-center text-gray-500">{i + 1}</td>
-                    {(['item_code', 'product_description'] as const).map(k => (
-                      <td key={k} className="border border-gray-200 p-0">
-                        <input className="w-full px-2 py-1.5 text-xs outline-none focus:bg-blue-50 min-w-[120px]"
-                          value={item[k]} onChange={e => setItem(i, k, e.target.value)} />
-                      </td>
-                    ))}
+                    {/* item_code combobox */}
+                    <td className="border border-gray-200 p-0 relative">
+                      <input
+                        className="w-full px-2 py-1.5 text-xs outline-none focus:bg-blue-50 min-w-[140px]"
+                        value={item.item_code}
+                        onChange={e => {
+                          setItem(i, 'item_code', e.target.value)
+                          const q = e.target.value.toLowerCase()
+                          setItemSearch(poItems.filter(p => p.item_code.toLowerCase().includes(q)).map(p => p.item_code))
+                          setOpenDropdown(i)
+                        }}
+                        onFocus={() => {
+                          setItemSearch(poItems.map(p => p.item_code))
+                          setOpenDropdown(i)
+                        }}
+                        onBlur={() => setTimeout(() => setOpenDropdown(null), 150)}
+                        placeholder="item code…"
+                      />
+                      {openDropdown === i && itemSearch.length > 0 && (
+                        <ul className="absolute z-50 left-0 top-full max-h-48 overflow-y-auto bg-white border border-gray-300 shadow-lg rounded text-xs w-56">
+                          {itemSearch.slice(0, 50).map(code => {
+                            const p = poItems.find(x => x.item_code === code)!
+                            return (
+                              <li key={code}
+                                className="px-2 py-1.5 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-0"
+                                onMouseDown={() => {
+                                  setItem(i, 'item_code', code)
+                                  if (p.description) setItem(i, 'product_description', p.description)
+                                  if (p.fob_price != null) setItem(i, 'unit_price', p.fob_price)
+                                  setOpenDropdown(null)
+                                }}>
+                                <div className="font-mono font-semibold text-gray-800">{code}</div>
+                                {p.description && <div className="text-gray-400 truncate max-w-[200px]">{p.description}</div>}
+                              </li>
+                            )
+                          })}
+                        </ul>
+                      )}
+                    </td>
+                    {/* product_description */}
+                    <td className="border border-gray-200 p-0">
+                      <input className="w-full px-2 py-1.5 text-xs outline-none focus:bg-blue-50 min-w-[120px]"
+                        value={item.product_description} onChange={e => setItem(i, 'product_description', e.target.value)} />
+                    </td>
                     {(['qty', 'unit_price', 'total', 'qty_defective'] as const).map(k => (
                       <td key={k} className="border border-gray-200 p-0">
                         <input type="number" className="w-full px-2 py-1.5 text-xs outline-none focus:bg-blue-50 text-right min-w-[70px]"
