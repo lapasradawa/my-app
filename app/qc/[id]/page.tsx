@@ -56,8 +56,8 @@ export default function QCDetailPage() {
   const [saved, setSaved] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [uploadingClosure, setUploadingClosure] = useState(false)
-  const [poItems, setPoItems] = useState<{ item_code: string; description: string; fob_price: number | null; currency: string | null; invoice_id: string }[]>([])
-  const [invoicesData, setInvoicesData] = useState<{ id: string; invoice_no: string; supplier: string | null }[]>([])
+  const [poItems, setPoItems] = useState<{ item_code: string; description: string; fob_price: number | null; currency: string | null }[]>([])
+  const [invoicesData, setInvoicesData] = useState<{ id: string; invoice_no: string; supplier: string | null; rows: { code?: string }[] }[]>([])
   const [suppliers, setSuppliers] = useState<string[]>([])
   const [itemSearch, setItemSearch] = useState<string[]>([])
   const [openDropdown, setOpenDropdown] = useState<number | null>(null)
@@ -69,11 +69,16 @@ export default function QCDetailPage() {
       if (data) setForm(data as Omit<QCReport, 'id'>)
       setLoading(false)
     })
-    supabase.from('po_items').select('item_code, description, fob_price, currency, invoice_id')
-      .order('item_code').then(({ data }) => { if (data) setPoItems(data) })
-    supabase.from('invoices').select('id, invoice_no, supplier').order('invoice_no').then(({ data }) => {
+    supabase.from('po_items').select('item_code, description, fob_price, currency')
+      .order('item_code').then(({ data }) => {
+        if (data) {
+          const unique = Array.from(new Map(data.map(r => [r.item_code, r])).values())
+          setPoItems(unique)
+        }
+      })
+    supabase.from('invoices').select('id, invoice_no, supplier, rows').order('invoice_no').then(({ data }) => {
       if (data) {
-        setInvoicesData(data)
+        setInvoicesData(data as typeof invoicesData)
         const uniq = [...new Set(data.map(r => r.supplier).filter(Boolean) as string[])].sort()
         setSuppliers(uniq)
       }
@@ -81,9 +86,12 @@ export default function QCDetailPage() {
   }, [id])
 
   function getPoItemsForInvoice(invoice_no: string) {
+    if (!invoice_no) return poItems
     const inv = invoicesData.find(i => i.invoice_no === invoice_no)
-    const filtered = inv ? poItems.filter(p => p.invoice_id === inv.id) : poItems
-    return Array.from(new Map(filtered.map(r => [r.item_code, r])).values())
+    if (!inv || !inv.rows?.length) return poItems
+    const codes = new Set(inv.rows.map(r => r.code).filter(Boolean) as string[])
+    const filtered = poItems.filter(p => codes.has(p.item_code))
+    return filtered.length > 0 ? filtered : poItems
   }
 
   function set<K extends keyof typeof form>(k: K, v: typeof form[K]) {
