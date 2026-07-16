@@ -2,10 +2,14 @@
   "permissions": {
     "allow": [
       "Bash(gh run *)",
-      "Bash(mkdir -p /Users/minionz/Desktop/my-app/app/summary)"
+      "Bash(mkdir -p /Users/minionz/Desktop/my-app/app/summary)",
+      "Bash(xargs cat)",
+      "Bash(node -e \"require\\('exceljs'\\)\")",
+      "Bash(mkdir -p /Users/minionz/Desktop/my-app/app/qc/\\\\[id\\\\])"
     ],
     "additionalDirectories": [
-      "/Users/minionz/Desktop/my-app/app"
+      "/Users/minionz/Desktop/my-app/app",
+      "/Users/minionz/Desktop/my-app/app/qc"
     ]
   }
 }

@@ -148,6 +148,7 @@ export default function CalendarPage() {
         <Link href="/summary" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">Summary</Link>
         <Link href="/compare" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">Cost Compare</Link>
         <Link href="/po-builder" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">PO Builder</Link>
+        <Link href="/qc" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">QC Report</Link>
         <Link href="/guide" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">Guide</Link>
         <div className="ml-auto"><LockButton /></div>
       </nav>
