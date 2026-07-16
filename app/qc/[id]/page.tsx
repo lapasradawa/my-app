@@ -5,6 +5,33 @@ import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { exportQCReportExcel, type QCItem } from '@/lib/qc-excel'
+import { isUnlocked, tryUnlock } from '@/lib/auth'
+
+function PasswordGate({ onSuccess, onCancel }: { onSuccess: () => void; onCancel: () => void }) {
+  const [pw, setPw] = useState('')
+  const [err, setErr] = useState(false)
+  function attempt() {
+    if (tryUnlock(pw)) { onSuccess() }
+    else { setErr(true); setPw('') }
+  }
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
+      <div className="bg-white rounded-2xl shadow-xl p-6 w-80">
+        <h3 className="font-semibold text-gray-800 mb-3">ใส่รหัสผ่านเพื่อดำเนินการ</h3>
+        <input autoFocus type="password" value={pw}
+          onChange={e => { setPw(e.target.value); setErr(false) }}
+          onKeyDown={e => e.key === 'Enter' && attempt()}
+          placeholder="รหัสผ่าน"
+          className={`w-full border rounded-lg px-3 py-2 text-sm outline-none mb-2 ${err ? 'border-red-400' : 'border-gray-300 focus:border-blue-400'}`} />
+        {err && <p className="text-red-500 text-xs mb-2">รหัสผ่านไม่ถูกต้อง</p>}
+        <div className="flex gap-2 justify-end">
+          <button onClick={onCancel} className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">ยกเลิก</button>
+          <button onClick={attempt} className="px-4 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">ยืนยัน</button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 const NAV = [
   { href: '/', label: 'PO Matching' }, { href: '/dashboard', label: 'Dashboard' },
@@ -56,6 +83,13 @@ export default function QCDetailPage() {
   const [saved, setSaved] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [uploadingClosure, setUploadingClosure] = useState(false)
+  const [showPW, setShowPW] = useState(false)
+  const [pwCallback, setPwCallback] = useState<(() => void) | null>(null)
+
+  function requireUnlock(action: () => void) {
+    if (isUnlocked()) { action() }
+    else { setPwCallback(() => action); setShowPW(true) }
+  }
   const [poItems, setPoItems] = useState<{ item_code: string; description: string; fob_price: number | null; currency: string | null }[]>([])
   const [invoicesData, setInvoicesData] = useState<{ id: string; invoice_no: string; supplier: string | null; rows: { code?: string }[] }[]>([])
   const [suppliers, setSuppliers] = useState<string[]>([])
@@ -217,11 +251,11 @@ export default function QCDetailPage() {
               className="bg-green-600 hover:bg-green-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors disabled:opacity-50">
               {exporting ? 'กำลัง Export...' : '↓ Export Excel'}
             </button>
-            <button onClick={save} disabled={saving}
+            <button onClick={() => requireUnlock(save)} disabled={saving}
               className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors disabled:opacity-50">
               {saving ? 'กำลังบันทึก...' : saved ? '✓ บันทึกแล้ว' : 'บันทึก'}
             </button>
-            <button onClick={deleteReport} className="text-xs text-red-400 hover:text-red-600 px-2 py-2">ลบ</button>
+            <button onClick={() => requireUnlock(deleteReport)} className="text-xs text-red-400 hover:text-red-600 px-2 py-2">ลบ</button>
           </div>
         </div>
 
@@ -525,12 +559,15 @@ export default function QCDetailPage() {
 
         {/* Bottom save */}
         <div className="flex justify-end mt-4 pb-8">
-          <button onClick={save} disabled={saving}
+          <button onClick={() => requireUnlock(save)} disabled={saving}
             className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-6 py-2.5 rounded-lg transition-colors disabled:opacity-50">
             {saving ? 'กำลังบันทึก...' : saved ? '✓ บันทึกแล้ว' : 'บันทึก'}
           </button>
         </div>
       </div>
+      {showPW && pwCallback && (
+        <PasswordGate onSuccess={() => { setShowPW(false); pwCallback() }} onCancel={() => setShowPW(false)} />
+      )}
     </div>
   )
 }

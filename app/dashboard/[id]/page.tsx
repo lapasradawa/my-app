@@ -509,7 +509,7 @@ export default function InvoiceDetailPage() {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={createQCReport}
+              onClick={() => requireUnlock(createQCReport)}
               className="px-4 py-1.5 bg-orange-500 text-white text-sm rounded-lg hover:bg-orange-600 transition-colors"
             >
               สร้าง QC Report
