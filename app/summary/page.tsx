@@ -58,7 +58,7 @@ function fmtFobByCurrency(map: Map<string, number>): string {
   return Array.from(map.entries())
     .filter(([, v]) => v > 0)
     .sort((a, b) => b[1] - a[1])
-    .map(([ccy, amt]) => `${ccy} ${fmt(amt, 0)}`)
+    .map(([ccy, amt]) => `${ccy} ${fmt(amt, 2)}`)
     .join(' · ')
 }
 
