@@ -54,6 +54,14 @@ function mLabel(k: string): string {
   const names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
   return `${names[parseInt(m) - 1]} ${y}`
 }
+function fmtFobByCurrency(map: Map<string, number>): string {
+  return Array.from(map.entries())
+    .filter(([, v]) => v > 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(([ccy, amt]) => `${ccy} ${fmt(amt, 0)}`)
+    .join(' · ')
+}
+
 function fmt(n: number, dec = 2) {
   return n.toLocaleString(undefined, { minimumFractionDigits: dec, maximumFractionDigits: dec })
 }
@@ -246,11 +254,15 @@ export default function SummaryPage() {
   }, [allLines, selectedMonths])
 
   const supplierSummary = useMemo(() => {
-    const map = new Map<string, { qty: number; fob: number; items: Set<string>; invoices: Set<string> }>()
+    const map = new Map<string, { qty: number; fob: number; fobByCurrency: Map<string, number>; items: Set<string>; invoices: Set<string> }>()
     for (const l of filteredLines) {
-      const cur = map.get(l.supplier) || { qty: 0, fob: 0, items: new Set(), invoices: new Set() }
+      const cur = map.get(l.supplier) || { qty: 0, fob: 0, fobByCurrency: new Map(), items: new Set(), invoices: new Set() }
       cur.qty += l.qty
-      if (l.fob_total) cur.fob += l.fob_total
+      if (l.fob_total) {
+        cur.fob += l.fob_total
+        const ccy = l.currency || '?'
+        cur.fobByCurrency.set(ccy, (cur.fobByCurrency.get(ccy) || 0) + l.fob_total)
+      }
       cur.items.add(l.item_code); cur.invoices.add(l.invoice_no)
       map.set(l.supplier, cur)
     }
@@ -260,13 +272,22 @@ export default function SummaryPage() {
   }, [filteredLines])
 
   const itemSummary = useMemo(() => {
-    const map = new Map<string, { description: string; totalQty: number; totalFob: number; suppliers: Map<string, { qty: number; fob: number }>; byMonth: Map<string, number> }>()
+    const map = new Map<string, { description: string; totalQty: number; totalFob: number; fobByCurrency: Map<string, number>; suppliers: Map<string, { qty: number; fob: number; fobByCurrency: Map<string, number> }>; byMonth: Map<string, number> }>()
     for (const l of filteredLines) {
-      const cur = map.get(l.item_code) || { description: l.description, totalQty: 0, totalFob: 0, suppliers: new Map(), byMonth: new Map() }
+      const cur = map.get(l.item_code) || { description: l.description, totalQty: 0, totalFob: 0, fobByCurrency: new Map(), suppliers: new Map(), byMonth: new Map() }
       cur.totalQty += l.qty
-      if (l.fob_total) cur.totalFob += l.fob_total
-      const sup = cur.suppliers.get(l.supplier) || { qty: 0, fob: 0 }
-      sup.qty += l.qty; if (l.fob_total) sup.fob += l.fob_total
+      if (l.fob_total) {
+        cur.totalFob += l.fob_total
+        const ccy = l.currency || '?'
+        cur.fobByCurrency.set(ccy, (cur.fobByCurrency.get(ccy) || 0) + l.fob_total)
+      }
+      const sup = cur.suppliers.get(l.supplier) || { qty: 0, fob: 0, fobByCurrency: new Map() }
+      sup.qty += l.qty
+      if (l.fob_total) {
+        sup.fob += l.fob_total
+        const ccy = l.currency || '?'
+        sup.fobByCurrency.set(ccy, (sup.fobByCurrency.get(ccy) || 0) + l.fob_total)
+      }
       cur.suppliers.set(l.supplier, sup)
       if (l.month_key) cur.byMonth.set(l.month_key, (cur.byMonth.get(l.month_key) || 0) + l.qty)
       map.set(l.item_code, cur)
@@ -520,7 +541,7 @@ export default function SummaryPage() {
                       <div style={{ fontSize: 10, color: '#9a8a7a', marginTop: 2 }}>
                         <strong style={{ color: '#3a2a1a' }}>{s.qty.toLocaleString()}</strong> pcs · {s.itemCount} items · {s.invoiceCount} inv
                       </div>
-                      {s.fob > 0 && <div style={{ fontSize: 10, color: '#3d8b82', fontWeight: 700, marginTop: 1 }}>${fmt(s.fob, 0)}</div>}
+                      {s.fobByCurrency.size > 0 && <div style={{ fontSize: 10, color: '#3d8b82', fontWeight: 700, marginTop: 1 }}>{fmtFobByCurrency(s.fobByCurrency)}</div>}
                     </div>
                   </div>
                 ))}
@@ -584,7 +605,7 @@ export default function SummaryPage() {
                     })}
                     <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid #e8dcc8', fontSize: 11, color: '#8a7a6a' }}>
                       รวม <strong style={{ color: '#3a2a1a' }}>{selectedItemData.totalQty.toLocaleString()}</strong> pcs
-                      {selectedItemData.totalFob > 0 && <> · FOB <strong style={{ color: '#3d7a5a' }}>${fmt(selectedItemData.totalFob, 0)}</strong></>}
+                      {selectedItemData.fobByCurrency.size > 0 && <> · FOB <strong style={{ color: '#3d7a5a' }}>{fmtFobByCurrency(selectedItemData.fobByCurrency)}</strong></>}
                     </div>
                   </div>
                   <div>
