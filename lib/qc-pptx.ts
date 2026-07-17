@@ -1,5 +1,3 @@
-import PptxGenJS from 'pptxgenjs'
-
 export interface QCSlideData {
   report_no: string
   supplier_company: string | null
@@ -23,6 +21,7 @@ function toBase64(buffer: ArrayBuffer): string {
 }
 
 export async function exportQCSummaryPptx(reports: QCSlideData[], fileName = 'QC-Summary') {
+  const { default: PptxGenJS } = await import('pptxgenjs')
   const pptx = new PptxGenJS()
   pptx.layout = 'LAYOUT_WIDE'  // 13.33" × 7.5"
 
