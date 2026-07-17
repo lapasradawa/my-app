@@ -216,22 +216,21 @@ export default function QCSummaryPage() {
     <div style={{ background: '#ede5d4', minHeight: '100vh', fontFamily: 'system-ui,-apple-system,sans-serif' }}>
 
       {/* Nav */}
-      <nav className="bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-4 sticky top-0 z-20 shadow-sm text-sm flex-wrap">
-        <span className="font-bold text-gray-800">Import PO</span>
-        <span className="text-gray-300">|</span>
+      <nav className="bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-6 text-sm sticky top-0 z-20 shadow-sm flex-wrap">
+        <span className="font-bold text-gray-900">Import PO</span>
         {NAV.map(n => (
           <Link key={n.href} href={n.href} className="text-gray-500 hover:text-gray-800 transition-colors">{n.label}</Link>
         ))}
         <div className="relative group">
-          <span className="text-sm text-gray-500 cursor-default hover:text-gray-800">Summary ▾</span>
+          <span className="text-blue-600 cursor-default">Summary ▾</span>
           <div className="absolute left-0 top-full pt-1 hidden group-hover:block z-50">
             <div className="bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[150px]">
               <Link href="/summary" className="block px-4 py-2 text-sm text-gray-700 hover:bg-blue-50">Item Summary</Link>
-              <Link href="/qc/summary" className="block px-4 py-2 text-sm text-amber-700 font-semibold hover:bg-blue-50">QC Summary</Link>
+              <Link href="/qc/summary" className="block px-4 py-2 text-sm text-gray-700 hover:bg-blue-50">QC Summary</Link>
             </div>
           </div>
         </div>
-        <Link href="/qc" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">QC Report</Link>
+        <Link href="/qc" className="text-gray-500 hover:text-gray-800 transition-colors">QC Report</Link>
       </nav>
 
       {/* Hero header */}
