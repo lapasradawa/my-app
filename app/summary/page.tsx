@@ -380,7 +380,15 @@ export default function SummaryPage() {
         <Link href="/dashboard" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">Dashboard</Link>
         <Link href="/calendar" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">Calendar</Link>
         <Link href="/report" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">Report</Link>
-        <Link href="/summary" className="text-sm text-blue-600 font-semibold">Summary</Link>
+        <div className="relative group">
+          <span className="text-sm text-blue-600 font-semibold cursor-default">Summary ▾</span>
+          <div className="absolute left-0 top-full pt-1 hidden group-hover:block z-50">
+            <div className="bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[150px]">
+              <Link href="/summary" className="block px-4 py-2 text-sm text-blue-600 font-semibold hover:bg-blue-50">Item Summary</Link>
+              <Link href="/qc/summary" className="block px-4 py-2 text-sm text-gray-700 hover:bg-blue-50">QC Summary</Link>
+            </div>
+          </div>
+        </div>
         <Link href="/compare" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">Cost Compare</Link>
         <Link href="/po-builder" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">PO Builder</Link>
         <Link href="/qc" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">QC Report</Link>

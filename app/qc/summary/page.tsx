@@ -107,7 +107,7 @@ function MonthlyBarChart({ months, values }: { months: string[]; values: number[
 const NAV = [
   { href: '/', label: 'PO Matching' }, { href: '/dashboard', label: 'Dashboard' },
   { href: '/calendar', label: 'Calendar' }, { href: '/report', label: 'Report' },
-  { href: '/summary', label: 'Summary' }, { href: '/compare', label: 'Cost Compare' },
+  { href: '/compare', label: 'Cost Compare' },
   { href: '/po-builder', label: 'PO Builder' }, { href: '/guide', label: 'Guide' },
 ]
 
@@ -223,14 +223,15 @@ export default function QCSummaryPage() {
           <Link key={n.href} href={n.href} className="text-gray-500 hover:text-gray-800 transition-colors">{n.label}</Link>
         ))}
         <div className="relative group">
-          <span className="text-amber-600 font-semibold cursor-default">QC Report ▾</span>
+          <span className="text-sm text-gray-500 cursor-default hover:text-gray-800">Summary ▾</span>
           <div className="absolute left-0 top-full pt-1 hidden group-hover:block z-50">
-            <div className="bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[140px]">
-              <Link href="/qc" className="block px-4 py-2 text-sm text-gray-700 hover:bg-orange-50">รายการ QC</Link>
-              <Link href="/qc/summary" className="block px-4 py-2 text-sm text-amber-700 font-semibold hover:bg-orange-50">QC Summary</Link>
+            <div className="bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[150px]">
+              <Link href="/summary" className="block px-4 py-2 text-sm text-gray-700 hover:bg-blue-50">Item Summary</Link>
+              <Link href="/qc/summary" className="block px-4 py-2 text-sm text-amber-700 font-semibold hover:bg-blue-50">QC Summary</Link>
             </div>
           </div>
         </div>
+        <Link href="/qc" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">QC Report</Link>
       </nav>
 
       {/* Hero header */}
