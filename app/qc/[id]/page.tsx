@@ -37,8 +37,7 @@ const NAV = [
   { href: '/', label: 'PO Matching' }, { href: '/dashboard', label: 'Dashboard' },
   { href: '/calendar', label: 'Calendar' }, { href: '/report', label: 'Report' },
   { href: '/summary', label: 'Summary' }, { href: '/compare', label: 'Cost Compare' },
-  { href: '/po-builder', label: 'PO Builder' }, { href: '/qc', label: 'QC Report' },
-  { href: '/guide', label: 'Guide' },
+  { href: '/po-builder', label: 'PO Builder' }, { href: '/guide', label: 'Guide' },
 ]
 
 const CA_OPTIONS = ['REPLACEMENT IN NEXT SHIPMENT', 'CREDIT NOTE / REFUND', 'REWORK / REPAIR', 'OTHER']
@@ -49,7 +48,7 @@ interface QCReport {
   description: string; items: QCItem[]; corrective_actions: string[]; corrective_action_comment: string
   root_cause: string; preventive_action: string; verification_accepted: boolean | null
   verification_comment: string; status: string; closure_file_url: string | null
-  photo_urls: string[]
+  photo_urls: string[]; issue_types: string[]
 }
 
 const EMPTY: Omit<QCReport, 'id'> = {
@@ -58,7 +57,7 @@ const EMPTY: Omit<QCReport, 'id'> = {
   items: [], corrective_actions: [], corrective_action_comment: '',
   root_cause: '', preventive_action: '', verification_accepted: null,
   verification_comment: '', status: 'open', closure_file_url: null,
-  photo_urls: [],
+  photo_urls: [], issue_types: [],
 }
 
 const EMPTY_ITEM: QCItem = { item_code: '', product_description: '', qty: 0, unit_price: 0, total: 0, qty_defective: 0, remark: '' }
@@ -97,10 +96,13 @@ export default function QCDetailPage() {
   const [openDropdown, setOpenDropdown] = useState<number | null>(null)
   const [openSupplierDrop, setOpenSupplierDrop] = useState(false)
   const [supplierSearch, setSupplierSearch] = useState('')
+  const [issueTypeOptions, setIssueTypeOptions] = useState<string[]>([])
+  const [issueTypeInput, setIssueTypeInput] = useState('')
+  const [showIssueTypeDrop, setShowIssueTypeDrop] = useState(false)
 
   useEffect(() => {
     supabase.from('qc_reports').select('*').eq('id', id).single().then(({ data }) => {
-      if (data) setForm(data as Omit<QCReport, 'id'>)
+      if (data) setForm({ ...data, issue_types: data.issue_types ?? [] } as Omit<QCReport, 'id'>)
       setLoading(false)
     })
     supabase.from('po_items').select('item_code, description, fob_price, currency')
@@ -117,15 +119,21 @@ export default function QCDetailPage() {
         setSuppliers(uniq)
       }
     })
+    supabase.from('qc_reports').select('issue_types').then(({ data }) => {
+      if (data) {
+        const all = data.flatMap(r => r.issue_types ?? [])
+        setIssueTypeOptions([...new Set(all)].sort())
+      }
+    })
   }, [id])
 
-  function getPoItemsForInvoice(invoice_no: string) {
-    if (!invoice_no) return poItems
+  function getItemsForDropdown(invoice_no: string): { item_code: string; description: string; fob_price: number | null; currency: string | null; inInvoice: boolean }[] {
+    if (!invoice_no) return poItems.map(p => ({ ...p, inInvoice: false }))
     const inv = invoicesData.find(i => i.invoice_no === invoice_no)
-    if (!inv || !inv.rows?.length) return poItems
-    const codes = new Set(inv.rows.map(r => r.code).filter(Boolean) as string[])
-    const filtered = poItems.filter(p => codes.has(p.item_code))
-    return filtered.length > 0 ? filtered : poItems
+    const codes = new Set((inv?.rows ?? []).map(r => r.code).filter(Boolean) as string[])
+    const inInv = poItems.filter(p => codes.has(p.item_code)).map(p => ({ ...p, inInvoice: true }))
+    const others = poItems.filter(p => !codes.has(p.item_code)).map(p => ({ ...p, inInvoice: false }))
+    return [...inInv, ...others]
   }
 
   function set<K extends keyof typeof form>(k: K, v: typeof form[K]) {
@@ -228,11 +236,17 @@ export default function QCDetailPage() {
       <nav className="bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-5 text-sm flex-wrap">
         <span className="font-bold text-gray-900 mr-2">Import PO</span>
         {NAV.map(n => (
-          <Link key={n.href} href={n.href}
-            className={n.href === '/qc' ? 'text-blue-600 font-semibold' : 'text-gray-500 hover:text-gray-800 transition-colors'}>
-            {n.label}
-          </Link>
+          <Link key={n.href} href={n.href} className="text-gray-500 hover:text-gray-800 transition-colors">{n.label}</Link>
         ))}
+        <div className="relative group">
+          <span className="text-blue-600 font-semibold cursor-default">QC Report ▾</span>
+          <div className="absolute left-0 top-full pt-1 hidden group-hover:block z-50">
+            <div className="bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[140px]">
+              <Link href="/qc" className="block px-4 py-2 text-sm text-gray-700 hover:bg-blue-50">รายการ QC</Link>
+              <Link href="/qc/summary" className="block px-4 py-2 text-sm text-gray-700 hover:bg-blue-50">QC Summary</Link>
+            </div>
+          </div>
+        </div>
       </nav>
 
       <div className="max-w-5xl mx-auto px-6 py-6">
@@ -326,6 +340,76 @@ export default function QCDetailPage() {
           <textarea className={`${inputCls} min-h-[80px] resize-y`} value={form.description}
             onChange={e => set('description', e.target.value)} placeholder="อธิบายปัญหาที่พบ..." />
 
+          {/* Issue Types */}
+          <div className="mt-4">
+            <label className={labelCls}>Issue Type</label>
+            <div className="flex flex-wrap gap-2 mb-2">
+              {(form.issue_types ?? []).map(t => (
+                <span key={t} className="inline-flex items-center gap-1 px-2.5 py-1 bg-orange-100 text-orange-700 rounded-full text-xs font-semibold">
+                  {t}
+                  <button type="button" onClick={() => set('issue_types', form.issue_types.filter(x => x !== t))}
+                    className="ml-0.5 text-orange-400 hover:text-orange-700 leading-none">×</button>
+                </span>
+              ))}
+            </div>
+            <div className="relative w-72">
+              <input
+                className={inputCls}
+                value={issueTypeInput}
+                onChange={e => { setIssueTypeInput(e.target.value); setShowIssueTypeDrop(true) }}
+                onFocus={() => setShowIssueTypeDrop(true)}
+                onBlur={() => setTimeout(() => setShowIssueTypeDrop(false), 150)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && issueTypeInput.trim()) {
+                    e.preventDefault()
+                    const t = issueTypeInput.trim()
+                    if (!form.issue_types.includes(t)) set('issue_types', [...form.issue_types, t])
+                    if (!issueTypeOptions.includes(t)) setIssueTypeOptions(prev => [...prev, t].sort())
+                    setIssueTypeInput('')
+                    setShowIssueTypeDrop(false)
+                  }
+                }}
+                placeholder="พิมพ์แล้วกด Enter หรือเลือกจาก dropdown…"
+              />
+              {showIssueTypeDrop && (
+                <ul className="absolute z-50 left-0 top-full mt-1 max-h-48 overflow-y-auto bg-white border border-gray-300 shadow-lg rounded text-sm w-full">
+                  {[
+                    ...['Packing Quality', 'Working Process', 'Product Quality', 'Loading Process'],
+                    ...issueTypeOptions,
+                  ]
+                    .filter((t, i, arr) => arr.indexOf(t) === i)
+                    .filter(t => !issueTypeInput || t.toLowerCase().includes(issueTypeInput.toLowerCase()))
+                    .filter(t => !(form.issue_types ?? []).includes(t))
+                    .map(t => (
+                      <li key={t}
+                        className="px-3 py-2 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-0"
+                        onMouseDown={() => {
+                          set('issue_types', [...(form.issue_types ?? []), t])
+                          if (!issueTypeOptions.includes(t)) setIssueTypeOptions(prev => [...prev, t].sort())
+                          setIssueTypeInput('')
+                          setShowIssueTypeDrop(false)
+                        }}>
+                        {t}
+                      </li>
+                    ))
+                  }
+                  {issueTypeInput.trim() && !['Packing Quality', 'Working Process', 'Product Quality', 'Loading Process', ...issueTypeOptions].includes(issueTypeInput.trim()) && (
+                    <li className="px-3 py-2 text-blue-600 hover:bg-blue-50 cursor-pointer font-semibold"
+                      onMouseDown={() => {
+                        const t = issueTypeInput.trim()
+                        set('issue_types', [...(form.issue_types ?? []), t])
+                        setIssueTypeOptions(prev => [...prev, t].sort())
+                        setIssueTypeInput('')
+                        setShowIssueTypeDrop(false)
+                      }}>
+                      + เพิ่ม "{issueTypeInput.trim()}"
+                    </li>
+                  )}
+                </ul>
+              )}
+            </div>
+          </div>
+
           <div className="mt-4 overflow-x-auto">
             <table className="w-full text-xs border-collapse">
               <thead>
@@ -347,44 +431,59 @@ export default function QCDetailPage() {
                         onChange={e => {
                           setItem(i, 'item_code', e.target.value)
                           const q = e.target.value.toLowerCase()
-                          const base = getPoItemsForInvoice(form.invoice_no)
-                          setItemSearch(base.filter(p => p.item_code.toLowerCase().includes(q)).map(p => p.item_code))
+                          const base = getItemsForDropdown(form.invoice_no)
+                          setItemSearch(base.filter(p => p.item_code.toLowerCase().includes(q) || p.description?.toLowerCase().includes(q)).map(p => p.item_code))
                           setOpenDropdown(i)
                         }}
                         onFocus={() => {
-                          const base = getPoItemsForInvoice(form.invoice_no)
-                          setItemSearch(base.map(p => p.item_code))
+                          const base = getItemsForDropdown(form.invoice_no)
+                          const q = item.item_code.toLowerCase()
+                          const filtered = q
+                            ? base.filter(p => p.item_code.toLowerCase().includes(q) || p.description?.toLowerCase().includes(q))
+                            : base
+                          setItemSearch(filtered.map(p => p.item_code))
                           setOpenDropdown(i)
                         }}
                         onBlur={() => setTimeout(() => setOpenDropdown(null), 150)}
                         placeholder="item code…"
                       />
-                      {openDropdown === i && itemSearch.length > 0 && (
-                        <ul className="absolute z-50 left-0 top-full max-h-48 overflow-y-auto bg-white border border-gray-300 shadow-lg rounded text-xs w-56">
-                          {itemSearch.slice(0, 50).map(code => {
-                            const p = poItems.find(x => x.item_code === code)!
-                            return (
-                              <li key={code}
-                                className="px-2 py-1.5 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-0"
-                                onMouseDown={() => {
-                                  const items = [...form.items]
-                                  items[i] = {
-                                    ...items[i],
-                                    item_code: code,
-                                    product_description: p.description || items[i].product_description,
-                                    unit_price: p.fob_price ?? items[i].unit_price,
-                                    total: Math.round((items[i].qty) * (p.fob_price ?? items[i].unit_price) * 100) / 100,
-                                  }
-                                  set('items', items)
-                                  setOpenDropdown(null)
-                                }}>
-                                <div className="font-mono font-semibold text-gray-800">{code}</div>
-                                {p.description && <div className="text-gray-400 truncate max-w-[200px]">{p.description}</div>}
-                              </li>
-                            )
-                          })}
-                        </ul>
-                      )}
+                      {openDropdown === i && itemSearch.length > 0 && (() => {
+                        const allItems = getItemsForDropdown(form.invoice_no)
+                        const displayed = itemSearch.slice(0, 60).map(code => allItems.find(x => x.item_code === code)!)
+                        const hasInvoiceItems = displayed.some(p => p?.inInvoice)
+                        const hasOtherItems = displayed.some(p => p && !p.inInvoice)
+                        return (
+                          <ul className="absolute z-50 left-0 top-full max-h-56 overflow-y-auto bg-white border border-gray-300 shadow-lg rounded text-xs w-56">
+                            {displayed.map((p, idx) => {
+                              if (!p) return null
+                              const prevP = idx > 0 ? displayed[idx - 1] : null
+                              const showSep = hasInvoiceItems && hasOtherItems && !p.inInvoice && (idx === 0 || prevP?.inInvoice)
+                              return (
+                                <li key={p.item_code}>
+                                  {showSep && <div className="px-2 py-1 text-gray-400 bg-gray-50 border-b border-gray-200 font-medium" style={{ fontSize: 10 }}>— Items อื่นๆ —</div>}
+                                  <div
+                                    className="px-2 py-1.5 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-0"
+                                    onMouseDown={() => {
+                                      const items = [...form.items]
+                                      items[i] = {
+                                        ...items[i],
+                                        item_code: p.item_code,
+                                        product_description: p.description || items[i].product_description,
+                                        unit_price: p.fob_price ?? items[i].unit_price,
+                                        total: Math.round((items[i].qty) * (p.fob_price ?? items[i].unit_price) * 100) / 100,
+                                      }
+                                      set('items', items)
+                                      setOpenDropdown(null)
+                                    }}>
+                                    <div className={`font-mono font-semibold ${p.inInvoice ? 'text-blue-700' : 'text-gray-800'}`}>{p.item_code}</div>
+                                    {p.description && <div className="text-gray-400 truncate max-w-[200px]">{p.description}</div>}
+                                  </div>
+                                </li>
+                              )
+                            })}
+                          </ul>
+                        )
+                      })()}
                     </td>
                     {/* product_description */}
                     <td className="border border-gray-200 p-0">

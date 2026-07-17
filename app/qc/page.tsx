@@ -51,7 +51,6 @@ const NAV = [
   { href: '/summary', label: 'Summary' },
   { href: '/compare', label: 'Cost Compare' },
   { href: '/po-builder', label: 'PO Builder' },
-  { href: '/qc', label: 'QC Report' },
   { href: '/guide', label: 'Guide' },
 ]
 
@@ -107,11 +106,17 @@ export default function QCPage() {
       <nav className="bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-6 text-sm flex-wrap">
         <span className="font-bold text-gray-900 mr-2">Import PO</span>
         {NAV.map(n => (
-          <Link key={n.href} href={n.href}
-            className={n.href === '/qc' ? 'text-blue-600 font-semibold' : 'text-gray-500 hover:text-gray-800 transition-colors'}>
-            {n.label}
-          </Link>
+          <Link key={n.href} href={n.href} className="text-gray-500 hover:text-gray-800 transition-colors">{n.label}</Link>
         ))}
+        <div className="relative group">
+          <span className="text-blue-600 font-semibold cursor-default">QC Report ▾</span>
+          <div className="absolute left-0 top-full pt-1 hidden group-hover:block z-50">
+            <div className="bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[140px]">
+              <Link href="/qc" className="block px-4 py-2 text-sm text-blue-600 font-semibold hover:bg-blue-50">รายการ QC</Link>
+              <Link href="/qc/summary" className="block px-4 py-2 text-sm text-gray-700 hover:bg-blue-50">QC Summary</Link>
+            </div>
+          </div>
+        </div>
       </nav>
 
       <div className="max-w-5xl mx-auto px-6 py-8">
