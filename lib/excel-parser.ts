@@ -232,7 +232,14 @@ function extractTotalAndCurrency(sheet: XLSX.WorkSheet): { totalAmount: number; 
         else if (/€/.test(cellStr)) currency = 'EUR'
         else if (/£/.test(cellStr)) currency = 'GBP'
       }
-      const num = typeof cell === 'number' ? cell : parseFloat(cellStr.replace(/[^0-9.]/g, ''))
+      let num: number
+      if (typeof cell === 'number') {
+        num = cell
+      } else {
+        // Only accept strings that look like currency numbers, not PO codes like POSOR2603-0140
+        const cleaned = cellStr.replace(/[$¥€£,\s]/g, '')
+        num = /^-?\d{1,3}(,\d{3})*(\.\d+)?$|^-?\d+(\.\d+)?$/.test(cleaned) ? parseFloat(cleaned.replace(/,/g, '')) : NaN
+      }
       if (!isNaN(num) && num > 10) {
         totalAmount = num
         break
