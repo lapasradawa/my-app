@@ -5,7 +5,13 @@
       "Bash(mkdir -p /Users/minionz/Desktop/my-app/app/summary)",
       "Bash(xargs cat)",
       "Bash(node -e \"require\\('exceljs'\\)\")",
-      "Bash(mkdir -p /Users/minionz/Desktop/my-app/app/qc/\\\\[id\\\\])"
+      "Bash(mkdir -p /Users/minionz/Desktop/my-app/app/qc/\\\\[id\\\\])",
+      "Bash(find /Users/minionz/Desktop -name \"*.png\" -o -name \"*.jpg\" -o -name \"*.jpeg\" 2>/dev/null | grep -v \".app\" | head -10)",
+      "Read(//Users/minionz/Desktop/**)",
+      "Bash(git -C /Users/minionz/Desktop/my-app status)",
+      "Bash(git -C /Users/minionz/Desktop/my-app log --oneline -3)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" https://import-project-zeta.vercel.app/qc/summary)",
+      "Bash(perl -0777 -i -pe ' *)"
     ],
     "additionalDirectories": [
       "/Users/minionz/Desktop/my-app/app",

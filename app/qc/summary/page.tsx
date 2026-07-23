@@ -108,7 +108,7 @@ const NAV = [
   { href: '/', label: 'PO Matching' }, { href: '/dashboard', label: 'Dashboard' },
   { href: '/calendar', label: 'Calendar' }, { href: '/report', label: 'Report' },
   { href: '/compare', label: 'Cost Compare' },
-  { href: '/po-builder', label: 'PO Builder' }, { href: '/guide', label: 'Guide' },
+  { href: '/po-builder', label: 'PO Builder' },
 ]
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -231,6 +231,7 @@ export default function QCSummaryPage() {
           </div>
         </div>
         <Link href="/qc" className="text-gray-500 hover:text-gray-800 transition-colors">QC Report</Link>
+        <Link href="/guide" className="text-gray-500 hover:text-gray-800 transition-colors">Guide</Link>
       </nav>
 
       {/* Hero header */}

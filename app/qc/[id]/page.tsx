@@ -37,7 +37,7 @@ const NAV = [
   { href: '/', label: 'PO Matching' }, { href: '/dashboard', label: 'Dashboard' },
   { href: '/calendar', label: 'Calendar' }, { href: '/report', label: 'Report' },
   { href: '/compare', label: 'Cost Compare' },
-  { href: '/po-builder', label: 'PO Builder' }, { href: '/guide', label: 'Guide' },
+  { href: '/po-builder', label: 'PO Builder' },
 ]
 
 const CA_OPTIONS = ['REPLACEMENT IN NEXT SHIPMENT', 'CREDIT NOTE / REFUND', 'REWORK / REPAIR', 'OTHER']
@@ -248,6 +248,7 @@ export default function QCDetailPage() {
           </div>
         </div>
         <Link href="/qc" className="text-blue-600">QC Report</Link>
+        <Link href="/guide" className="text-gray-500 hover:text-gray-800 transition-colors">Guide</Link>
       </nav>
 
       <div className="max-w-5xl mx-auto px-6 py-6">

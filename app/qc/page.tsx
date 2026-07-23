@@ -50,7 +50,6 @@ const NAV = [
   { href: '/report', label: 'Report' },
   { href: '/compare', label: 'Cost Compare' },
   { href: '/po-builder', label: 'PO Builder' },
-  { href: '/guide', label: 'Guide' },
 ]
 
 export default function QCPage() {
@@ -117,6 +116,7 @@ export default function QCPage() {
           </div>
         </div>
         <Link href="/qc" className="text-blue-600">QC Report</Link>
+        <Link href="/guide" className="text-gray-500 hover:text-gray-800 transition-colors">Guide</Link>
       </nav>
 
       <div className="max-w-5xl mx-auto px-6 py-8">

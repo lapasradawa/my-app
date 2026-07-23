@@ -146,7 +146,6 @@ export default function CalendarPage() {
         <Link href="/report" className="text-gray-500 hover:text-gray-800 transition-colors">Report</Link>
         <Link href="/compare" className="text-gray-500 hover:text-gray-800 transition-colors">Cost Compare</Link>
         <Link href="/po-builder" className="text-gray-500 hover:text-gray-800 transition-colors">PO Builder</Link>
-        <Link href="/guide" className="text-gray-500 hover:text-gray-800 transition-colors">Guide</Link>
         <div className="relative group">
           <span className="text-gray-500 cursor-default hover:text-gray-800">Summary ▾</span>
           <div className="absolute left-0 top-full pt-1 hidden group-hover:block z-50">
@@ -157,6 +156,7 @@ export default function CalendarPage() {
           </div>
         </div>
         <Link href="/qc" className="text-gray-500 hover:text-gray-800 transition-colors">QC Report</Link>
+        <Link href="/guide" className="text-gray-500 hover:text-gray-800 transition-colors">Guide</Link>
         <div className="ml-auto"><LockButton /></div>
       </nav>
 
