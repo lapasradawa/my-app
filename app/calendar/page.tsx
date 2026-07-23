@@ -138,7 +138,7 @@ export default function CalendarPage() {
   return (
     <div className="h-screen overflow-hidden flex flex-col" style={{ background: '#f1f5f9' }}>
       {/* Nav */}
-      <nav className="shrink-0 bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-4 z-20 shadow-sm">
+      <nav className="shrink-0 bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-4 sticky top-0 z-20 shadow-sm">
         <span className="font-bold text-gray-800 text-sm">Import PO</span>
         <span className="text-gray-300">|</span>
         <Link href="/" className="text-sm text-gray-500 hover:text-gray-800 transition-colors">PO Matching</Link>
