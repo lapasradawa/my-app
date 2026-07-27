@@ -585,7 +585,7 @@ export default function ComparePage() {
                             if (!p) return (
                               <Fragment key={s}>
                                 <td className="px-3 py-2 text-center text-gray-200 border-l border-gray-100">—</td>
-                                <td className="px-3 py-2 text-center text-gray-200">—</td>
+                                <td className="px-3 py-2 text-center text-gray-400">—</td>
                                 <td className="px-3 py-2 text-center text-gray-200 border-r border-gray-100">—</td>
                               </Fragment>
                             )

@@ -215,11 +215,11 @@ export default function PoBuilderPage() {
                         <tr key={i} className="border-b border-gray-100 hover:bg-gray-50/50">
                           <td className="px-3 py-2 text-gray-400 text-xs">{i + 1}</td>
                           <td className="px-3 py-2 font-mono text-gray-800 text-xs whitespace-nowrap">{item.item_code}</td>
-                          <td className="px-3 py-2 text-gray-600 text-xs">{item.description || <span className="text-gray-300">—</span>}</td>
+                          <td className="px-3 py-2 text-gray-600 text-xs">{item.description || <span className="text-gray-400">—</span>}</td>
                           <td className="px-3 py-2 text-right text-gray-700 text-xs whitespace-nowrap">
                             {item.fob_price !== null
                               ? `${fmtN(item.fob_price)} ${item.currency}`
-                              : <span className="text-gray-300">ไม่พบราคา</span>}
+                              : <span className="text-gray-400">ไม่พบราคา</span>}
                           </td>
                           <td className="px-3 py-2 text-right">
                             <input
@@ -233,7 +233,7 @@ export default function PoBuilderPage() {
                           <td className="px-3 py-2 text-right font-medium text-xs">
                             {qty > 0 && item.fob_price !== null
                               ? <span className="text-gray-700">{fmtN(total)} {item.currency}</span>
-                              : <span className="text-gray-300">—</span>}
+                              : <span className="text-gray-400">—</span>}
                           </td>
                           <td className="px-3 py-2 text-center">
                             <button onClick={() => removePoItem(i)} className="text-gray-300 hover:text-red-400 transition-colors text-xs">✕</button>

@@ -769,7 +769,7 @@ export default function InvoiceDetailPage() {
                 <span>📥</span> ดาวน์โหลด Excel
               </a>
             ) : (
-              <p className="text-xs text-gray-300 italic">ไม่มีไฟล์</p>
+              <p className="text-xs text-gray-400 italic">ไม่มีไฟล์</p>
             )}
           </div>
 
@@ -857,10 +857,10 @@ export default function InvoiceDetailPage() {
             ) : (
               <div className="mb-3 space-y-1">
                 <p className="text-sm font-semibold text-gray-800">
-                  {invoice.cost_saving != null ? `${invoice.cost_saving.toLocaleString()} THB` : <span className="text-gray-300 font-normal">—</span>}
+                  {invoice.cost_saving != null ? `${invoice.cost_saving.toLocaleString()} THB` : <span className="text-gray-400 font-normal">—</span>}
                 </p>
                 <p className="text-sm font-semibold text-green-600">
-                  {invoice.cost_saving_pct != null ? `${invoice.cost_saving_pct}%` : <span className="text-gray-300 font-normal">—</span>}
+                  {invoice.cost_saving_pct != null ? `${invoice.cost_saving_pct}%` : <span className="text-gray-400 font-normal">—</span>}
                 </p>
               </div>
             )}

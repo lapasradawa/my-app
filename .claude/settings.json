@@ -11,7 +11,10 @@
       "Bash(git -C /Users/minionz/Desktop/my-app status)",
       "Bash(git -C /Users/minionz/Desktop/my-app log --oneline -3)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" https://import-project-zeta.vercel.app/qc/summary)",
-      "Bash(perl -0777 -i -pe ' *)"
+      "Bash(perl -0777 -i -pe ' *)",
+      "Bash(perl -0777 -i -pe 's/className=\"text-gray-300\">—</span>/className=\"text-gray-400\">—<\\\\/span>/g' /Users/minionz/Desktop/my-app/app/po-builder/page.tsx /Users/minionz/Desktop/my-app/app/dashboard/page.tsx /Users/minionz/Desktop/my-app/app/dashboard/[id]/page.tsx /Users/minionz/Desktop/my-app/app/report/page.tsx)",
+      "Bash(perl -0777 -i -pe 's/className=\"px-3 py-2 text-center text-gray-200\">—</td>/className=\"px-3 py-2 text-center text-gray-400\">—<\\\\/td>/g' /Users/minionz/Desktop/my-app/app/compare/page.tsx)",
+      "Bash(perl -0777 -i -pe 's/text-gray-300 italic\">ไม่มีไฟล์/text-gray-400 italic\">ไม่มีไฟล์/g' /Users/minionz/Desktop/my-app/app/dashboard/[id]/page.tsx)"
     ],
     "additionalDirectories": [
       "/Users/minionz/Desktop/my-app/app",

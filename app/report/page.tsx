@@ -84,7 +84,7 @@ function fmt(n: number | null | undefined, dec = 2): string {
 function Cell({ v, gray }: { v: string; gray?: boolean }) {
   return (
     <td className={`px-3 py-2 border border-gray-200 text-right text-gray-700 ${gray ? 'bg-gray-100' : ''}`}>
-      {v || <span className="text-gray-300">—</span>}
+      {v || <span className="text-gray-400">—</span>}
     </td>
   )
 }
@@ -377,19 +377,19 @@ export default function ReportPage() {
                           className={`px-3 py-2 border border-gray-200 text-right text-gray-700 ${c.actualThb == null ? 'bg-gray-100' : 'cursor-pointer hover:bg-blue-50 hover:underline'}`}
                           onClick={() => { if (c.actualThb != null) setRateDetail(inv) }}
                         >
-                          {fmt(c.actualThb) || <span className="text-gray-300">—</span>}
+                          {fmt(c.actualThb) || <span className="text-gray-400">—</span>}
                         </td>
                         <td className="px-3 py-2 border border-gray-200 text-center text-gray-600 whitespace-nowrap text-xs">
-                          {dueDateStr(inv.bl_date) || <span className="text-gray-300">—</span>}
+                          {dueDateStr(inv.bl_date) || <span className="text-gray-400">—</span>}
                         </td>
                         <td className="px-3 py-2 border border-gray-200 text-center text-gray-600 whitespace-nowrap text-xs">
-                          {fmtDate(inv.payment_date) || <span className="text-gray-300">—</span>}
+                          {fmtDate(inv.payment_date) || <span className="text-gray-400">—</span>}
                         </td>
                         <td className="px-3 py-2 border border-gray-200 text-right text-gray-700">
-                          {inv.cost_saving != null ? fmt(inv.cost_saving) : <span className="text-gray-300">—</span>}
+                          {inv.cost_saving != null ? fmt(inv.cost_saving) : <span className="text-gray-400">—</span>}
                         </td>
                         <td className="px-3 py-2 border border-gray-200 text-right text-gray-700">
-                          {inv.cost_saving_pct != null ? `${inv.cost_saving_pct}%` : <span className="text-gray-300">—</span>}
+                          {inv.cost_saving_pct != null ? `${inv.cost_saving_pct}%` : <span className="text-gray-400">—</span>}
                         </td>
                         <td className="px-3 py-2 border border-gray-200 text-center">
                           {unlocked ? (
@@ -405,7 +405,7 @@ export default function ReportPage() {
                             </div>
                           ) : (
                             <span className="text-xs text-gray-600 whitespace-nowrap">
-                              {fmtDate(commVal) || <span className="text-gray-300">—</span>}
+                              {fmtDate(commVal) || <span className="text-gray-400">—</span>}
                             </span>
                           )}
                         </td>

@@ -402,7 +402,7 @@ export default function DashboardPage() {
                             className="text-xs border border-gray-200 rounded px-2 py-1 outline-none focus:border-blue-400 w-36 text-gray-700"
                           />
                         ) : (
-                          <span className="text-xs text-gray-700">{inv.supplier || <span className="text-gray-300">—</span>}</span>
+                          <span className="text-xs text-gray-700">{inv.supplier || <span className="text-gray-400">—</span>}</span>
                         )}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
@@ -429,7 +429,7 @@ export default function DashboardPage() {
                             className="text-xs border border-gray-300 rounded px-2 py-1 outline-none focus:border-blue-400 text-gray-700"
                           />
                         ) : (
-                          <span className="text-xs text-gray-600">{fmtDate(inv.eta_date) || <span className="text-gray-300">—</span>}</span>
+                          <span className="text-xs text-gray-600">{fmtDate(inv.eta_date) || <span className="text-gray-400">—</span>}</span>
                         )}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
@@ -463,14 +463,14 @@ export default function DashboardPage() {
                       <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-600">
                         {(() => {
                           const due = computeDueDate(inv.bl_date)
-                          if (!due) return <span className="text-gray-300">—</span>
+                          if (!due) return <span className="text-gray-400">—</span>
                           return due.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
                         })()}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         {(() => {
                           const p = getPaymentLabel(inv.payment_status, inv.bl_date)
-                          if (p.label === '—') return <span className="text-gray-300 text-xs">—</span>
+                          if (p.label === '—') return <span className="text-gray-400 text-xs">—</span>
                           return (
                             <span className={`text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${p.colorClass}`}>
                               {p.label}
