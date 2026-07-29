@@ -115,6 +115,7 @@ const SUPPLIER_COLORS = [
 
 const HISTORY_KEY = 'order-plan-history'
 const MAX_HISTORY = 20
+const TEMPLATE_KEY = 'order-plan-template'
 
 function readHistory(): HistorySession[] {
   try { return JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '[]') } catch { return [] }
@@ -147,7 +148,22 @@ export default function OrderPlanPage() {
   const [history, setHistory] = useState<HistorySession[]>([])
   const [showHistory, setShowHistory] = useState(false)
 
-  useEffect(() => { loadProjects(); loadSettings(); setHistory(readHistory()) }, [])
+  const [allParsedCache, setAllParsedCache] = useState<ParsedRow[]>([])
+  const [templateCodes, setTemplateCodes] = useState<Set<string> | null>(null)
+  const [templateInfo, setTemplateInfo] = useState<{ fileName: string; count: number } | null>(null)
+  const templateFileRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    loadProjects(); loadSettings(); setHistory(readHistory())
+    try {
+      const saved = localStorage.getItem(TEMPLATE_KEY)
+      if (saved) {
+        const data = JSON.parse(saved) as { codes: string[]; fileName: string }
+        setTemplateCodes(new Set(data.codes))
+        setTemplateInfo({ fileName: data.fileName, count: data.codes.length })
+      }
+    } catch { /* corrupt storage */ }
+  }, [])
 
   async function loadSettings() {
     const { data } = await supabase.from('cost_settings').select('key, value')
@@ -184,12 +200,12 @@ export default function OrderPlanPage() {
       if (colA === '#' || colB.includes('item') || colB.includes('code')) { dataStart = i + 1; break }
     }
 
-    const parsed: ParsedRow[] = []
+    const allParsed: ParsedRow[] = []
     for (let i = dataStart; i < raw.length; i++) {
       const row = raw[i] as unknown[]
       const itemCode = String(row[1] ?? '').trim()
       if (!itemCode || itemCode.toLowerCase().includes('total') || itemCode.toLowerCase().includes('รวม')) continue
-      parsed.push({
+      allParsed.push({
         item_code: itemCode,
         description: String(row[2] ?? '').trim(),
         stock_thai: Number(row[3]) || 0,
@@ -202,9 +218,68 @@ export default function OrderPlanPage() {
       })
     }
 
-    setParsedCache(parsed)
-    await buildPlanRows(parsed, selectedProject)
+    setAllParsedCache(allParsed)
+    const filtered = templateCodes ? allParsed.filter(r => templateCodes.has(r.item_code)) : allParsed
+    setParsedCache(filtered)
+    await buildPlanRows(filtered, selectedProject)
     setLoading(false)
+  }
+
+  async function handleTemplateFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const buffer = await file.arrayBuffer()
+    const wb = XLSX.read(buffer, { type: 'array' })
+    const ws = wb.Sheets[wb.SheetNames[0]]
+    const raw = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '' })
+
+    // Find which column has item codes (header row), default col 0
+    let codeCol = 0
+    let dataStart = 0
+    for (let i = 0; i < Math.min(raw.length, 10); i++) {
+      const row = raw[i] as unknown[]
+      for (let c = 0; c < row.length; c++) {
+        const cell = String(row[c] ?? '').toLowerCase()
+        if (cell.includes('item') || cell === 'item code' || cell === 'itemcode') {
+          codeCol = c; dataStart = i + 1; break
+        }
+      }
+      if (dataStart > 0) break
+    }
+
+    const codes: string[] = []
+    for (let i = dataStart; i < raw.length; i++) {
+      const row = raw[i] as unknown[]
+      const code = String(row[codeCol] ?? '').trim()
+      if (code && !code.toLowerCase().includes('total') && !code.toLowerCase().includes('รวม')) {
+        codes.push(code)
+      }
+    }
+
+    const newSet = new Set(codes)
+    setTemplateCodes(newSet)
+    setTemplateInfo({ fileName: file.name, count: codes.length })
+    localStorage.setItem(TEMPLATE_KEY, JSON.stringify({ codes, fileName: file.name }))
+
+    // Re-filter if stock_dashboard already loaded
+    if (allParsedCache.length > 0) {
+      const filtered = allParsedCache.filter(r => newSet.has(r.item_code))
+      setParsedCache(filtered)
+      setLoading(true)
+      await buildPlanRows(filtered, selectedProject)
+      setLoading(false)
+    }
+    e.target.value = ''
+  }
+
+  function clearTemplate() {
+    setTemplateCodes(null)
+    setTemplateInfo(null)
+    localStorage.removeItem(TEMPLATE_KEY)
+    if (allParsedCache.length > 0) {
+      setParsedCache(allParsedCache)
+      buildPlanRows(allParsedCache, selectedProject)
+    }
   }
 
   async function buildPlanRows(parsed: ParsedRow[], project: string) {
@@ -612,6 +687,25 @@ export default function OrderPlanPage() {
                 </select>
               </div>
               <div>
+                <label className="text-sm text-gray-600 font-medium block mb-1.5">Template Item Code</label>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {templateInfo ? (
+                    <>
+                      <span className="text-xs font-semibold text-green-700 bg-green-50 border border-green-200 px-2.5 py-1 rounded-lg">✓ {templateInfo.count} items</span>
+                      <span className="text-xs text-gray-400 truncate max-w-[150px]">{templateInfo.fileName}</span>
+                      <button onClick={() => templateFileRef.current?.click()} className="text-xs text-blue-500 hover:text-blue-700 whitespace-nowrap">อัพเดต</button>
+                      <button onClick={clearTemplate} className="text-gray-300 hover:text-red-400 text-xs">✕</button>
+                    </>
+                  ) : (
+                    <button onClick={() => templateFileRef.current?.click()}
+                      className="px-4 py-1.5 border border-dashed border-gray-300 rounded-lg text-sm text-gray-500 hover:bg-gray-50 hover:border-gray-400 transition-colors">
+                      เลือก Template
+                    </button>
+                  )}
+                  <input ref={templateFileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleTemplateFile} />
+                </div>
+              </div>
+              <div>
                 <label className="text-sm text-gray-600 font-medium block mb-1.5">stock_dashboard Excel</label>
                 <div className="flex items-center gap-2">
                   <button onClick={() => fileRef.current?.click()} className="px-4 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors">เลือกไฟล์</button>
@@ -667,7 +761,9 @@ export default function OrderPlanPage() {
           {rows.length > 0 && (
             <div className="mt-4 border-t border-gray-100 pt-3 flex items-center gap-3 flex-wrap">
               <span className="text-xs text-gray-400">
-                {rows.length} items{selectedProject ? ` · DDP จาก ${selectedProject}` : ''}
+                {rows.length} items
+                {templateInfo ? <span className="text-green-600"> (template {templateInfo.count})</span> : ''}
+                {selectedProject ? ` · DDP จาก ${selectedProject}` : ''}
                 {hasStock ? ` · Stock: ${supplierStocks.map(s => s.supplierName).join(', ')}` : ''}
               </span>
               {ddpSuppliers.length > 0 && (
