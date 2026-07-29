@@ -60,7 +60,6 @@ interface SupplierStock {
   items: Record<string, StockItem>
 }
 
-// supplier -> item_code -> [batch1qty, batch2qty]
 type LoadingPlan = Record<string, Record<string, [string, string]>>
 
 interface StatusPopup {
@@ -68,6 +67,25 @@ interface StatusPopup {
   description: string
   supplierName: string
   stockItem: StockItem
+}
+
+interface HistorySession {
+  id: string
+  savedAt: string
+  fileName: string
+  itemCount: number
+  parsedCache: ParsedRow[]
+  loadingPlan: LoadingPlan
+  supplierStocks: SupplierStock[]
+  selectedProject: string
+  supplierY: Record<string, string>
+}
+
+const HISTORY_KEY = 'order-plan-history'
+const MAX_HISTORY = 20
+
+function readHistory(): HistorySession[] {
+  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '[]') } catch { return [] }
 }
 
 export default function OrderPlanPage() {
@@ -93,7 +111,14 @@ export default function OrderPlanPage() {
   const [supplierY, setSupplierY] = useState<Record<string, string>>({})
   const [statusPopup, setStatusPopup] = useState<StatusPopup | null>(null)
 
-  useEffect(() => { loadProjects(); loadSettings() }, [])
+  const [history, setHistory] = useState<HistorySession[]>([])
+  const [showHistory, setShowHistory] = useState(false)
+
+  useEffect(() => {
+    loadProjects()
+    loadSettings()
+    setHistory(readHistory())
+  }, [])
 
   async function loadSettings() {
     const { data } = await supabase.from('cost_settings').select('key, value')
@@ -275,17 +300,95 @@ export default function OrderPlanPage() {
     return computeW(row) - row.next_month - getRemaining(sel, row.item_code)
   }
 
-  function fmtN(n: number) {
-    if (n === 0) return '—'
-    return n.toLocaleString(undefined, { maximumFractionDigits: 0 })
+  // ── History ──────────────────────────────────────────────────────────
+  function saveSession() {
+    if (parsedCache.length === 0) return
+    const session: HistorySession = {
+      id: Date.now().toString(),
+      savedAt: new Date().toISOString(),
+      fileName,
+      itemCount: parsedCache.length,
+      parsedCache,
+      loadingPlan,
+      supplierStocks,
+      selectedProject,
+      supplierY,
+    }
+    try {
+      const existing = readHistory()
+      const updated = [session, ...existing].slice(0, MAX_HISTORY)
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(updated))
+      setHistory(updated)
+    } catch { /* ignore storage errors */ }
   }
 
-  function fmtF(n: number) {
-    return n.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+  async function restoreSession(session: HistorySession) {
+    setParsedCache(session.parsedCache)
+    setFileName(session.fileName)
+    setLoadingPlan(session.loadingPlan)
+    setSupplierStocks(session.supplierStocks)
+    setSelectedProject(session.selectedProject)
+    setSupplierY(session.supplierY)
+    setShowHistory(false)
+    setLoading(true)
+    await buildPlanRows(session.parsedCache, session.selectedProject)
+    setLoading(false)
   }
+
+  function deleteSession(id: string) {
+    const updated = history.filter(s => s.id !== id)
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(updated))
+    setHistory(updated)
+  }
+
+  // ── Export Excel ──────────────────────────────────────────────────────
+  function exportExcel() {
+    const ddpCols = Math.min(ddpSuppliers.length, 5)
+    const headers: string[] = [
+      'Item Code', 'Description',
+      ...Array.from({ length: ddpCols }, (_, i) => `DDP ${ddpSuppliers[i] ?? i + 1} (THB)`),
+      'PO ไทย', 'Stock ไทย', 'PO ไทย/2', 'ลงเรือ', 'W1', 'W2', 'W3+4', 'Next Month',
+      'เหลือให้ W3W4', 'เหลือให้ Next Month', 'ต้องสั่ง',
+      ...supplierStocks.flatMap(ss => [`Stock ${ss.supplierName}`, 'โหลด 1', 'โหลด 2', 'คงเหลือ`${ss.supplierName}`']),
+      ...(supplierStocks.length > 0 ? ['รวมโหลด', 'Stock หลังโหลด', 'เลือก Sup', 'แนะนำสั่ง PO'] : []),
+    ]
+
+    const dataRows = rows.map(row => {
+      const V = computeV(row.item_code)
+      const W = computeW(row)
+      const Z = computeZ(row)
+      return [
+        row.item_code,
+        row.description,
+        ...Array.from({ length: ddpCols }, (_, i) => row.ddp_prices[i] ? parseFloat(row.ddp_prices[i].ddp_thb.toFixed(2)) : ''),
+        row.po_thai, row.stock_thai,
+        parseFloat(row.L.toFixed(1)),
+        row.lonsua, row.week1, row.week2, row.week3_4, row.next_month,
+        parseFloat(row.S.toFixed(1)), parseFloat(row.T.toFixed(1)), parseFloat(row.U.toFixed(1)),
+        ...supplierStocks.flatMap(ss => {
+          const stockQty = getStockItem(ss.supplierName, row.item_code)?.total ?? 0
+          const plan = loadingPlan[ss.supplierName]?.[row.item_code] ?? ['', '']
+          const remaining = getRemaining(ss.supplierName, row.item_code)
+          return [stockQty || '', Number(plan[0]) || '', Number(plan[1]) || '', stockQty > 0 ? parseFloat(remaining.toFixed(1)) : '']
+        }),
+        ...(supplierStocks.length > 0 ? [V || '', parseFloat(W.toFixed(1)), supplierY[row.item_code] ?? '', Z !== null ? parseFloat(Z.toFixed(1)) : ''] : []),
+      ]
+    })
+
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...dataRows])
+    ws['!cols'] = [{ wch: 18 }, { wch: 40 }, ...headers.slice(2).map(() => ({ wch: 14 }))]
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Order Plan')
+    XLSX.writeFile(wb, `Order_Plan_${new Date().toISOString().slice(0, 10)}.xlsx`)
+  }
+
+  // ── Formatting ────────────────────────────────────────────────────────
+  function fmtN(n: number) { return n > 0 ? n.toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—' }
+  function fmtF(n: number) { return n.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) }
+  function fmtDdp(n: number) { return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
 
   const ddpCols = Math.min(ddpSuppliers.length, 5)
-  const hasStockUploaded = supplierStocks.length > 0
+  const hasStock = supplierStocks.length > 0
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -312,14 +415,33 @@ export default function OrderPlanPage() {
       </nav>
 
       <div className="max-w-full mx-auto px-6 py-8">
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold text-gray-900">Order Plan (สั่งโหลด)</h1>
-          <p className="text-sm text-gray-500 mt-1">อัพโหลด stock_dashboard Excel และเลือก Project เพื่อดูแผนการสั่งโหลด</p>
+        <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Order Plan (สั่งโหลด)</h1>
+            <p className="text-sm text-gray-500 mt-1">อัพโหลด stock_dashboard Excel และเลือก Project เพื่อดูแผนการสั่งโหลด</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {rows.length > 0 && (
+              <>
+                <button onClick={saveSession}
+                  className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors">
+                  บันทึก
+                </button>
+                <button onClick={exportExcel}
+                  className="px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors">
+                  ↓ Export Excel
+                </button>
+              </>
+            )}
+            <button onClick={() => setShowHistory(true)}
+              className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-1.5">
+              ประวัติ {history.length > 0 && <span className="bg-gray-200 text-gray-600 text-xs rounded-full px-1.5">{history.length}</span>}
+            </button>
+          </div>
         </div>
 
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 mb-6">
           <div className="flex items-start gap-8 flex-wrap">
-            {/* Left: project + main file */}
             <div className="flex flex-col gap-4">
               <div>
                 <label className="text-sm text-gray-600 font-medium block mb-1.5">Project (ราคา DDP)</label>
@@ -342,22 +464,19 @@ export default function OrderPlanPage() {
               </div>
             </div>
 
-            {/* Right: supplier stock upload */}
             <div className="flex-1 min-w-[280px]">
-              <label className="text-sm text-gray-600 font-medium block mb-1.5">Stock ที่ Supplier (อัพโหลดทีละ Supplier)</label>
+              <label className="text-sm text-gray-600 font-medium block mb-1.5">Stock ที่ Supplier</label>
               <div className="space-y-2">
                 {supplierStocks.map(ss => (
                   <div key={ss.supplierName} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2">
                     <span className="text-xs font-semibold text-gray-700 min-w-[100px]">{ss.supplierName}</span>
                     <span className="text-xs text-gray-400 truncate flex-1">{ss.fileName}</span>
-                    <button
-                      onClick={() => updateFileRefs.current[ss.supplierName]?.click()}
+                    <button onClick={() => updateFileRefs.current[ss.supplierName]?.click()}
                       className="text-xs text-blue-500 hover:text-blue-700 whitespace-nowrap">อัพเดต</button>
                     <input type="file" accept=".xlsx,.xls" className="hidden"
                       ref={el => { updateFileRefs.current[ss.supplierName] = el }}
                       onChange={e => { const f = e.target.files?.[0]; if (f) parseSupplierStockFile(ss.supplierName, f) }} />
-                    <button
-                      onClick={() => setSupplierStocks(prev => prev.filter(s => s.supplierName !== ss.supplierName))}
+                    <button onClick={() => setSupplierStocks(prev => prev.filter(s => s.supplierName !== ss.supplierName))}
                       className="text-gray-300 hover:text-red-400 text-xs">✕</button>
                   </div>
                 ))}
@@ -371,8 +490,7 @@ export default function OrderPlanPage() {
                         <option key={s} value={s}>{s}</option>)}
                     </select>
                     {newSupplierName && (
-                      <button
-                        onClick={() => { pendingSupplierRef.current = newSupplierName; addSupplierFileRef.current?.click() }}
+                      <button onClick={() => { pendingSupplierRef.current = newSupplierName; addSupplierFileRef.current?.click() }}
                         className="text-xs px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 whitespace-nowrap">
                         Upload Stock
                       </button>
@@ -387,16 +505,12 @@ export default function OrderPlanPage() {
                   </button>
                 )}
 
-                {/* Hidden file input for adding new supplier */}
                 <input type="file" accept=".xlsx,.xls" className="hidden" ref={addSupplierFileRef}
                   onChange={async e => {
                     const f = e.target.files?.[0]
                     if (f && pendingSupplierRef.current) {
                       await parseSupplierStockFile(pendingSupplierRef.current, f)
-                      setAddingSupplier(false)
-                      setNewSupplierName('')
-                      pendingSupplierRef.current = ''
-                      e.target.value = ''
+                      setAddingSupplier(false); setNewSupplierName(''); pendingSupplierRef.current = ''; e.target.value = ''
                     }
                   }} />
               </div>
@@ -406,7 +520,7 @@ export default function OrderPlanPage() {
           {rows.length > 0 && (
             <p className="mt-4 text-xs text-gray-400 border-t border-gray-100 pt-3">
               {rows.length} items{selectedProject ? ` · DDP จาก ${selectedProject}` : ''}
-              {hasStockUploaded ? ` · Stock: ${supplierStocks.map(s => s.supplierName).join(', ')}` : ''}
+              {hasStock ? ` · Stock: ${supplierStocks.map(s => s.supplierName).join(', ')}` : ''}
             </p>
           )}
         </div>
@@ -425,19 +539,18 @@ export default function OrderPlanPage() {
                     {Array.from({ length: ddpCols }, (_, i) => (
                       <th key={i} className="px-3 py-2.5 text-right whitespace-nowrap font-semibold text-blue-600">DDP {i + 1}</th>
                     ))}
-                    <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-amber-50 text-amber-700">J: PO ไทย</th>
-                    <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-amber-50 text-amber-700">K: Stock ไทย</th>
-                    <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-amber-50 text-amber-700">L: PO/2</th>
-                    <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold">M: ลงเรือ</th>
-                    <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold">N: W1</th>
-                    <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold">O: W2</th>
-                    <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold">P: W3+4</th>
-                    <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold">Q: Next</th>
-                    <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-green-50 text-green-700">S: เผื่อ W3W4</th>
-                    <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-green-50 text-green-700">T: เผื่อ Next</th>
-                    <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-red-50 text-red-700">U: ต้องสั่ง</th>
+                    <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-amber-50 text-amber-700">PO ไทย</th>
+                    <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-amber-50 text-amber-700">Stock ไทย</th>
+                    <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-amber-50 text-amber-700">PO ไทย/2</th>
+                    <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold">ลงเรือ</th>
+                    <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold">W1</th>
+                    <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold">W2</th>
+                    <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold">W3+4</th>
+                    <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold">Next Month</th>
+                    <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-green-50 text-green-700">เหลือให้ W3W4</th>
+                    <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-green-50 text-green-700">เหลือให้ Next</th>
+                    <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-red-50 text-red-700">ต้องสั่ง</th>
 
-                    {/* Per-supplier columns */}
                     {supplierStocks.map(ss => (
                       <>
                         <th key={`h-${ss.supplierName}-stk`} className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-indigo-50 text-indigo-700 border-l border-indigo-100">
@@ -449,11 +562,11 @@ export default function OrderPlanPage() {
                       </>
                     ))}
 
-                    {hasStockUploaded && <>
-                      <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-violet-50 text-violet-700 border-l border-violet-100">V: รวมโหลด</th>
-                      <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-violet-50 text-violet-700">W: Stock หลังโหลด</th>
-                      <th className="px-3 py-2.5 text-center whitespace-nowrap font-semibold">Y: เลือก Sup</th>
-                      <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-orange-50 text-orange-700">Z: แนะนำสั่ง PO</th>
+                    {hasStock && <>
+                      <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-violet-50 text-violet-700 border-l border-violet-100">รวมโหลด</th>
+                      <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-violet-50 text-violet-700">Stock หลังโหลด</th>
+                      <th className="px-3 py-2.5 text-center whitespace-nowrap font-semibold">เลือก Sup</th>
+                      <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-orange-50 text-orange-700">แนะนำสั่ง PO</th>
                     </>}
                   </tr>
                 </thead>
@@ -476,8 +589,8 @@ export default function OrderPlanPage() {
                             <td key={j} className="px-3 py-2 text-right whitespace-nowrap">
                               {p ? (
                                 <span>
-                                  <span className="text-gray-400">{p.supplier} </span>
-                                  <span className="text-gray-700 font-medium">{Math.round(p.ddp_thb).toLocaleString()}</span>
+                                  <span className="text-gray-400 mr-1">{p.supplier}</span>
+                                  <span className="text-gray-700 font-medium">{fmtDdp(p.ddp_thb)}</span>
                                 </span>
                               ) : <span className="text-gray-300">—</span>}
                             </td>
@@ -498,20 +611,17 @@ export default function OrderPlanPage() {
                           {fmtF(row.U)}
                         </td>
 
-                        {/* Per-supplier */}
                         {supplierStocks.map(ss => {
                           const stockItem = getStockItem(ss.supplierName, row.item_code)
                           const stockQty = stockItem?.total ?? 0
                           const plan = loadingPlan[ss.supplierName]?.[row.item_code] ?? ['', '']
                           const remaining = getRemaining(ss.supplierName, row.item_code)
-                          const remNeg = stockQty > 0 && remaining < 0
 
                           return (
                             <>
                               <td key={`${ss.supplierName}-stk`} className="px-3 py-2 text-right bg-indigo-50/20 whitespace-nowrap border-l border-indigo-50">
                                 {stockQty > 0 ? (
-                                  <button
-                                    onClick={() => stockItem && setStatusPopup({ itemCode: row.item_code, description: row.description, supplierName: ss.supplierName, stockItem })}
+                                  <button onClick={() => stockItem && setStatusPopup({ itemCode: row.item_code, description: row.description, supplierName: ss.supplierName, stockItem })}
                                     className="text-indigo-600 hover:underline font-medium">
                                     {stockQty.toLocaleString()}
                                   </button>
@@ -529,21 +639,19 @@ export default function OrderPlanPage() {
                                   placeholder="0"
                                   className="border border-gray-200 rounded px-1.5 py-1 w-20 text-right text-xs outline-none focus:border-indigo-400" />
                               </td>
-                              <td key={`${ss.supplierName}-rem`} className={`px-3 py-2 text-right whitespace-nowrap bg-indigo-50/20 font-medium ${remNeg ? 'text-red-500' : 'text-gray-700'}`}>
+                              <td key={`${ss.supplierName}-rem`} className={`px-3 py-2 text-right whitespace-nowrap bg-indigo-50/20 font-medium ${stockQty > 0 && remaining < 0 ? 'text-red-500' : 'text-gray-700'}`}>
                                 {stockQty > 0 ? fmtF(remaining) : <span className="text-gray-300">—</span>}
                               </td>
                             </>
                           )
                         })}
 
-                        {/* V W Y Z */}
-                        {hasStockUploaded && <>
+                        {hasStock && <>
                           <td className="px-3 py-2 text-right whitespace-nowrap bg-violet-50/20 font-medium text-gray-700 border-l border-violet-50">
                             {V > 0 ? V.toLocaleString() : <span className="text-gray-300">—</span>}
                           </td>
                           <td className={`px-3 py-2 text-right whitespace-nowrap bg-violet-50/20 font-semibold ${wNeg ? 'text-red-600' : 'text-gray-700'}`}>
-                            {wNeg && <span className="mr-1">⚠</span>}
-                            {fmtF(W)}
+                            {wNeg && <span className="mr-1">⚠</span>}{fmtF(W)}
                           </td>
                           <td className="px-1.5 py-1">
                             <select value={supplierY[row.item_code] ?? ''}
@@ -553,7 +661,7 @@ export default function OrderPlanPage() {
                               {supplierStocks.map(ss => <option key={ss.supplierName} value={ss.supplierName}>{ss.supplierName}</option>)}
                             </select>
                           </td>
-                          <td className={`px-3 py-2 text-right whitespace-nowrap bg-orange-50/20 font-semibold ${zNeg ? 'text-orange-600' : 'text-gray-400'}`}>
+                          <td className={`px-3 py-2 text-right whitespace-nowrap bg-orange-50/20 font-semibold`}>
                             {Z === null ? (
                               <span className="text-gray-300 font-normal text-xs">เลือก Sup</span>
                             ) : zNeg ? (
@@ -573,7 +681,7 @@ export default function OrderPlanPage() {
         )}
       </div>
 
-      {/* Status popup */}
+      {/* ── Status popup ───────────────────────────────────────────────── */}
       {statusPopup && (
         <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4" onClick={() => setStatusPopup(null)}>
           <div className="bg-white rounded-xl shadow-xl p-6 max-w-md w-full" onClick={e => e.stopPropagation()}>
@@ -585,26 +693,23 @@ export default function OrderPlanPage() {
               </div>
               <button onClick={() => setStatusPopup(null)} className="text-gray-300 hover:text-gray-600 text-lg leading-none">✕</button>
             </div>
-
             <div className="grid grid-cols-2 gap-2 mb-4">
               {[
-                { label: 'ยังไม่ผลิต', value: statusPopup.stockItem.notProduced, color: 'bg-gray-50 text-gray-700' },
-                { label: 'กำลังผลิต', value: statusPopup.stockItem.inProduction, color: 'bg-yellow-50 text-yellow-800' },
-                { label: 'ผลิตเสร็จแล้ว', value: statusPopup.stockItem.finished, color: 'bg-green-50 text-green-800' },
-                { label: 'On Board', value: statusPopup.stockItem.onBoard, color: 'bg-blue-50 text-blue-800' },
+                { label: 'ยังไม่ผลิต', value: statusPopup.stockItem.notProduced, cls: 'bg-gray-50 text-gray-700' },
+                { label: 'กำลังผลิต', value: statusPopup.stockItem.inProduction, cls: 'bg-yellow-50 text-yellow-800' },
+                { label: 'ผลิตเสร็จแล้ว', value: statusPopup.stockItem.finished, cls: 'bg-green-50 text-green-800' },
+                { label: 'On Board', value: statusPopup.stockItem.onBoard, cls: 'bg-blue-50 text-blue-800' },
               ].map(s => (
-                <div key={s.label} className={`rounded-lg p-3 ${s.color}`}>
+                <div key={s.label} className={`rounded-lg p-3 ${s.cls}`}>
                   <p className="text-xs opacity-70">{s.label}</p>
                   <p className="text-xl font-bold mt-0.5">{s.value > 0 ? s.value.toLocaleString() : '—'}</p>
                 </div>
               ))}
             </div>
-
             <div className="flex justify-between items-center border-t border-gray-100 pt-3 mb-3">
               <span className="text-xs font-semibold text-gray-500">Total</span>
               <span className="text-sm font-bold text-gray-900">{statusPopup.stockItem.total.toLocaleString()}</span>
             </div>
-
             {statusPopup.stockItem.pos.length > 0 && (
               <div>
                 <p className="text-xs font-semibold text-gray-400 mb-2">PO Detail</p>
@@ -616,6 +721,45 @@ export default function OrderPlanPage() {
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── History modal ──────────────────────────────────────────────── */}
+      {showHistory && (
+        <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4" onClick={() => setShowHistory(false)}>
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-lg w-full max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-bold text-gray-900">ประวัติ Order Plan</h3>
+              <button onClick={() => setShowHistory(false)} className="text-gray-300 hover:text-gray-600 text-lg leading-none">✕</button>
+            </div>
+
+            {history.length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-8">ยังไม่มีประวัติ กด "บันทึก" เพื่อเก็บแผนปัจจุบัน</p>
+            ) : (
+              <div className="overflow-y-auto flex-1 space-y-2">
+                {history.map(s => (
+                  <div key={s.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-3 gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-800 truncate">{s.fileName}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {new Date(s.savedAt).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' })}
+                        {' · '}{s.itemCount} items
+                        {s.selectedProject ? ` · ${s.selectedProject}` : ''}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button onClick={() => restoreSession(s)}
+                        className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                        โหลด
+                      </button>
+                      <button onClick={() => deleteSession(s.id)}
+                        className="text-xs text-gray-300 hover:text-red-400 transition-colors">✕</button>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
