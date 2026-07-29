@@ -20,6 +20,8 @@ interface ParsedRow {
 interface DdpPrice {
   supplier: string
   ddp_thb: number
+  fob_price: number
+  currency: string
 }
 
 interface PlanRow extends ParsedRow {
@@ -69,6 +71,25 @@ interface StatusPopup {
   stockItem: StockItem
 }
 
+// ── Formula popup ──────────────────────────────────────────────────────────
+interface FLine {
+  op: '' | '+' | '−' | '×' | '÷' | '='
+  label: string
+  val: number | string
+  isResult?: boolean
+  note?: string
+}
+
+interface FormulaPopup {
+  itemCode: string
+  description: string
+  colName: string
+  source?: string
+  formulaStr?: string
+  lines: FLine[]
+}
+
+// ── History ────────────────────────────────────────────────────────────────
 interface HistorySession {
   id: string
   savedAt: string
@@ -110,15 +131,12 @@ export default function OrderPlanPage() {
   const [loadingPlan, setLoadingPlan] = useState<LoadingPlan>({})
   const [supplierY, setSupplierY] = useState<Record<string, string>>({})
   const [statusPopup, setStatusPopup] = useState<StatusPopup | null>(null)
+  const [formulaPopup, setFormulaPopup] = useState<FormulaPopup | null>(null)
 
   const [history, setHistory] = useState<HistorySession[]>([])
   const [showHistory, setShowHistory] = useState(false)
 
-  useEffect(() => {
-    loadProjects()
-    loadSettings()
-    setHistory(readHistory())
-  }, [])
+  useEffect(() => { loadProjects(); loadSettings(); setHistory(readHistory()) }, [])
 
   async function loadSettings() {
     const { data } = await supabase.from('cost_settings').select('key, value')
@@ -203,7 +221,7 @@ export default function OrderPlanPage() {
       const ddp_prices: DdpPrice[] = []
       if (supplierPrices) {
         for (const [supplier, { fob_price, currency }] of supplierPrices.entries())
-          ddp_prices.push({ supplier, ddp_thb: toDdp(fob_price, currency) })
+          ddp_prices.push({ supplier, ddp_thb: toDdp(fob_price, currency), fob_price, currency })
         ddp_prices.sort((a, b) => a.ddp_thb - b.ddp_thb)
       }
       const L = r.po_thai / 2
@@ -282,17 +300,14 @@ export default function OrderPlanPage() {
   }
 
   function getRemaining(supplierName: string, itemCode: string): number {
-    const stock = getStockItem(supplierName, itemCode)?.total ?? 0
-    return stock - getLoadTotal(supplierName, itemCode)
+    return (getStockItem(supplierName, itemCode)?.total ?? 0) - getLoadTotal(supplierName, itemCode)
   }
 
   function computeV(itemCode: string): number {
     return supplierStocks.reduce((s, ss) => s + getLoadTotal(ss.supplierName, itemCode), 0)
   }
 
-  function computeW(row: PlanRow): number {
-    return row.T + computeV(row.item_code)
-  }
+  function computeW(row: PlanRow): number { return row.T + computeV(row.item_code) }
 
   function computeZ(row: PlanRow): number | null {
     const sel = supplierY[row.item_code]
@@ -300,37 +315,154 @@ export default function OrderPlanPage() {
     return computeW(row) - row.next_month - getRemaining(sel, row.item_code)
   }
 
-  // ── History ──────────────────────────────────────────────────────────
+  // ── Formula builder ────────────────────────────────────────────────────
+  function buildFormula(row: PlanRow, colType: string, supplierName?: string): FormulaPopup {
+    const base = { itemCode: row.item_code, description: row.description }
+
+    const src = (colName: string, col: string, val: number): FormulaPopup => ({
+      ...base, colName,
+      source: `ดึงจาก stock_dashboard คอลัมน์ ${col}`,
+      lines: [{ op: '=', label: colName, val, isResult: true }],
+    })
+
+    switch (colType) {
+      case 'po_thai':  return src('PO ไทย', 'G', row.po_thai)
+      case 'stock_thai': return src('Stock ไทย', 'D', row.stock_thai)
+      case 'lonsua':   return src('ลงเรือ', 'M', row.lonsua)
+      case 'week1':    return src('W1', 'N', row.week1)
+      case 'week2':    return src('W2', 'O', row.week2)
+      case 'week3_4':  return src('W3+4', 'P', row.week3_4)
+      case 'next_month': return src('Next Month', 'Q', row.next_month)
+
+      case 'L':
+        return { ...base, colName: 'PO ไทย/2', formulaStr: 'PO ไทย ÷ 2', lines: [
+          { op: '', label: 'PO ไทย', val: row.po_thai },
+          { op: '÷', label: '2', val: 2 },
+          { op: '=', label: 'PO ไทย/2', val: row.L, isResult: true },
+        ]}
+
+      case 'S':
+        return { ...base, colName: 'เหลือให้ W3W4', formulaStr: 'Stock ไทย + PO ไทย/2 − W1 − W2', lines: [
+          { op: '', label: 'Stock ไทย', val: row.stock_thai },
+          { op: '+', label: 'PO ไทย/2', val: row.L },
+          { op: '−', label: 'W1', val: row.week1 },
+          { op: '−', label: 'W2', val: row.week2 },
+          { op: '=', label: 'เหลือให้ W3W4', val: row.S, isResult: true },
+        ]}
+
+      case 'T':
+        return { ...base, colName: 'เหลือให้ Next Month', formulaStr: 'เหลือให้ W3W4 + ลงเรือ − W3+4', lines: [
+          { op: '', label: 'เหลือให้ W3W4 (S)', val: row.S },
+          { op: '+', label: 'ลงเรือ', val: row.lonsua },
+          { op: '−', label: 'W3+4', val: row.week3_4 },
+          { op: '=', label: 'เหลือให้ Next Month', val: row.T, isResult: true },
+        ]}
+
+      case 'U':
+        return { ...base, colName: 'ต้องสั่ง', formulaStr: 'เหลือให้ Next Month − Next Month', lines: [
+          { op: '', label: 'เหลือให้ Next Month (T)', val: row.T },
+          { op: '−', label: 'Next Month', val: row.next_month },
+          { op: '=', label: 'ต้องสั่ง', val: row.U, isResult: true },
+        ]}
+
+      case 'V': {
+        const lines: FLine[] = []
+        let first = true
+        supplierStocks.forEach(ss => {
+          const plan = loadingPlan[ss.supplierName]?.[row.item_code] ?? ['', '']
+          const b1 = Number(plan[0]) || 0
+          const b2 = Number(plan[1]) || 0
+          if (b1 > 0 || b2 > 0) {
+            lines.push({ op: first ? '' : '+', label: `${ss.supplierName} โหลด 1`, val: b1 })
+            lines.push({ op: '+', label: `${ss.supplierName} โหลด 2`, val: b2 })
+            first = false
+          }
+        })
+        const V = computeV(row.item_code)
+        if (lines.length === 0) lines.push({ op: '', label: '(ยังไม่ได้กรอกแผนโหลด)', val: 0 })
+        lines.push({ op: '=', label: 'รวมโหลด', val: V, isResult: true })
+        return { ...base, colName: 'รวมโหลด', formulaStr: 'Σ (โหลด 1 + โหลด 2) ทุก Supplier', lines }
+      }
+
+      case 'W': {
+        const V = computeV(row.item_code)
+        return { ...base, colName: 'Stock หลังโหลด', formulaStr: 'เหลือให้ Next Month + รวมโหลด', lines: [
+          { op: '', label: 'เหลือให้ Next Month (T)', val: row.T },
+          { op: '+', label: 'รวมโหลด (V)', val: V },
+          { op: '=', label: 'Stock หลังโหลด', val: row.T + V, isResult: true },
+        ]}
+      }
+
+      case 'remaining': {
+        const sn = supplierName ?? ''
+        const stockQty = getStockItem(sn, row.item_code)?.total ?? 0
+        const plan = loadingPlan[sn]?.[row.item_code] ?? ['', '']
+        const b1 = Number(plan[0]) || 0
+        const b2 = Number(plan[1]) || 0
+        return { ...base, colName: `คงเหลือ (${sn})`, formulaStr: 'Stock Supplier − โหลด 1 − โหลด 2', lines: [
+          { op: '', label: `Stock ${sn}`, val: stockQty },
+          { op: '−', label: 'โหลด 1', val: b1 },
+          { op: '−', label: 'โหลด 2', val: b2 },
+          { op: '=', label: `คงเหลือ ${sn}`, val: stockQty - b1 - b2, isResult: true },
+        ]}
+      }
+
+      case 'Z': {
+        const sel = supplierY[row.item_code]
+        if (!sel) return { ...base, colName: 'แนะนำเปิด PO', lines: [{ op: '', label: 'เลือก Supplier ก่อน', val: '' }] }
+        const W = computeW(row)
+        const rem = getRemaining(sel, row.item_code)
+        const Z = W - row.next_month - rem
+        return { ...base, colName: 'แนะนำเปิด PO', formulaStr: 'Stock หลังโหลด − Next Month − คงเหลือ Supplier', lines: [
+          { op: '', label: 'Stock หลังโหลด (W)', val: W },
+          { op: '−', label: 'Next Month', val: row.next_month },
+          { op: '−', label: `คงเหลือ ${sel}`, val: rem },
+          { op: '=', label: 'แนะนำเปิด PO', val: Z, isResult: true, note: Z < 0 ? `ควรสั่ง ${Math.ceil(Math.abs(Z)).toLocaleString()} ชิ้น` : 'stock เพียงพอ' },
+        ]}
+      }
+
+      default:
+        return { ...base, colName: colType, lines: [] }
+    }
+  }
+
+  function showDdpFormula(row: PlanRow, p: DdpPrice) {
+    const rate = p.currency === 'USD' ? settings.usd_rate : settings.cny_rate
+    const currencyLabel = p.currency === 'USD' ? `USD (${settings.usd_rate} ฿/USD)` : `CNY (${settings.cny_rate} ฿/CNY)`
+    setFormulaPopup({
+      itemCode: row.item_code, description: row.description,
+      colName: `DDP — ${p.supplier}`,
+      formulaStr: 'FOB Price × อัตราแลกเปลี่ยน × DDP Multiplier',
+      lines: [
+        { op: '', label: `FOB Price (${p.currency})`, val: p.fob_price },
+        { op: '×', label: currencyLabel, val: rate },
+        { op: '×', label: `DDP Multiplier`, val: settings.ddp_multiplier },
+        { op: '=', label: 'DDP (THB)', val: p.ddp_thb, isResult: true },
+      ],
+    })
+  }
+
+  // ── History ────────────────────────────────────────────────────────────
   function saveSession() {
     if (parsedCache.length === 0) return
     const session: HistorySession = {
-      id: Date.now().toString(),
-      savedAt: new Date().toISOString(),
-      fileName,
-      itemCount: parsedCache.length,
-      parsedCache,
-      loadingPlan,
-      supplierStocks,
-      selectedProject,
-      supplierY,
+      id: Date.now().toString(), savedAt: new Date().toISOString(),
+      fileName, itemCount: parsedCache.length, parsedCache,
+      loadingPlan, supplierStocks, selectedProject, supplierY,
     }
     try {
       const existing = readHistory()
       const updated = [session, ...existing].slice(0, MAX_HISTORY)
       localStorage.setItem(HISTORY_KEY, JSON.stringify(updated))
       setHistory(updated)
-    } catch { /* ignore storage errors */ }
+    } catch { /* storage full */ }
   }
 
   async function restoreSession(session: HistorySession) {
-    setParsedCache(session.parsedCache)
-    setFileName(session.fileName)
-    setLoadingPlan(session.loadingPlan)
-    setSupplierStocks(session.supplierStocks)
-    setSelectedProject(session.selectedProject)
-    setSupplierY(session.supplierY)
-    setShowHistory(false)
-    setLoading(true)
+    setParsedCache(session.parsedCache); setFileName(session.fileName)
+    setLoadingPlan(session.loadingPlan); setSupplierStocks(session.supplierStocks)
+    setSelectedProject(session.selectedProject); setSupplierY(session.supplierY)
+    setShowHistory(false); setLoading(true)
     await buildPlanRows(session.parsedCache, session.selectedProject)
     setLoading(false)
   }
@@ -341,7 +473,7 @@ export default function OrderPlanPage() {
     setHistory(updated)
   }
 
-  // ── Export Excel ──────────────────────────────────────────────────────
+  // ── Export Excel ───────────────────────────────────────────────────────
   function exportExcel() {
     const ddpCols = Math.min(ddpSuppliers.length, 5)
     const headers: string[] = [
@@ -349,8 +481,8 @@ export default function OrderPlanPage() {
       ...Array.from({ length: ddpCols }, (_, i) => `DDP ${ddpSuppliers[i] ?? i + 1} (THB)`),
       'PO ไทย', 'Stock ไทย', 'PO ไทย/2', 'ลงเรือ', 'W1', 'W2', 'W3+4', 'Next Month',
       'เหลือให้ W3W4', 'เหลือให้ Next Month', 'ต้องสั่ง',
-      ...supplierStocks.flatMap(ss => [`Stock ${ss.supplierName}`, 'โหลด 1', 'โหลด 2', 'คงเหลือ`${ss.supplierName}`']),
-      ...(supplierStocks.length > 0 ? ['รวมโหลด', 'Stock หลังโหลด', 'เลือก Sup', 'แนะนำสั่ง PO'] : []),
+      ...supplierStocks.flatMap(ss => [`Stock ${ss.supplierName}`, 'โหลด 1', 'โหลด 2', `คงเหลือ ${ss.supplierName}`]),
+      ...(supplierStocks.length > 0 ? ['รวมโหลด', 'Stock หลังโหลด', 'เลือก Sup', 'แนะนำเปิด PO'] : []),
     ]
 
     const dataRows = rows.map(row => {
@@ -358,11 +490,9 @@ export default function OrderPlanPage() {
       const W = computeW(row)
       const Z = computeZ(row)
       return [
-        row.item_code,
-        row.description,
+        row.item_code, row.description,
         ...Array.from({ length: ddpCols }, (_, i) => row.ddp_prices[i] ? parseFloat(row.ddp_prices[i].ddp_thb.toFixed(2)) : ''),
-        row.po_thai, row.stock_thai,
-        parseFloat(row.L.toFixed(1)),
+        row.po_thai, row.stock_thai, parseFloat(row.L.toFixed(1)),
         row.lonsua, row.week1, row.week2, row.week3_4, row.next_month,
         parseFloat(row.S.toFixed(1)), parseFloat(row.T.toFixed(1)), parseFloat(row.U.toFixed(1)),
         ...supplierStocks.flatMap(ss => {
@@ -382,13 +512,22 @@ export default function OrderPlanPage() {
     XLSX.writeFile(wb, `Order_Plan_${new Date().toISOString().slice(0, 10)}.xlsx`)
   }
 
-  // ── Formatting ────────────────────────────────────────────────────────
+  // ── Formatting ─────────────────────────────────────────────────────────
   function fmtN(n: number) { return n > 0 ? n.toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—' }
   function fmtF(n: number) { return n.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) }
   function fmtDdp(n: number) { return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
+  function fmtVal(v: number | string, dec = 1) {
+    if (typeof v === 'string') return v
+    return v.toLocaleString(undefined, { minimumFractionDigits: dec, maximumFractionDigits: dec })
+  }
 
   const ddpCols = Math.min(ddpSuppliers.length, 5)
   const hasStock = supplierStocks.length > 0
+
+  // Clickable cell wrapper
+  const C = ({ children, onClick, className = '' }: { children: React.ReactNode; onClick: () => void; className?: string }) => (
+    <td className={`cursor-pointer select-none ${className}`} onClick={onClick}>{children}</td>
+  )
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -418,28 +557,22 @@ export default function OrderPlanPage() {
         <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Order Plan (สั่งโหลด)</h1>
-            <p className="text-sm text-gray-500 mt-1">อัพโหลด stock_dashboard Excel และเลือก Project เพื่อดูแผนการสั่งโหลด</p>
+            <p className="text-sm text-gray-500 mt-1">คลิกที่ตัวเลขใดก็ได้เพื่อดูที่มาของค่านั้น</p>
           </div>
           <div className="flex items-center gap-2">
             {rows.length > 0 && (
               <>
-                <button onClick={saveSession}
-                  className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors">
-                  บันทึก
-                </button>
-                <button onClick={exportExcel}
-                  className="px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors">
-                  ↓ Export Excel
-                </button>
+                <button onClick={saveSession} className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors">บันทึก</button>
+                <button onClick={exportExcel} className="px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors">↓ Export Excel</button>
               </>
             )}
-            <button onClick={() => setShowHistory(true)}
-              className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-1.5">
+            <button onClick={() => setShowHistory(true)} className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-1.5">
               ประวัติ {history.length > 0 && <span className="bg-gray-200 text-gray-600 text-xs rounded-full px-1.5">{history.length}</span>}
             </button>
           </div>
         </div>
 
+        {/* Controls */}
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 mb-6">
           <div className="flex items-start gap-8 flex-wrap">
             <div className="flex flex-col gap-4">
@@ -454,10 +587,7 @@ export default function OrderPlanPage() {
               <div>
                 <label className="text-sm text-gray-600 font-medium block mb-1.5">stock_dashboard Excel</label>
                 <div className="flex items-center gap-2">
-                  <button onClick={() => fileRef.current?.click()}
-                    className="px-4 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors">
-                    เลือกไฟล์
-                  </button>
+                  <button onClick={() => fileRef.current?.click()} className="px-4 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors">เลือกไฟล์</button>
                   {fileName && <span className="text-sm text-gray-500 truncate max-w-[200px]">{fileName}</span>}
                   <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleFile} />
                 </div>
@@ -471,40 +601,31 @@ export default function OrderPlanPage() {
                   <div key={ss.supplierName} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2">
                     <span className="text-xs font-semibold text-gray-700 min-w-[100px]">{ss.supplierName}</span>
                     <span className="text-xs text-gray-400 truncate flex-1">{ss.fileName}</span>
-                    <button onClick={() => updateFileRefs.current[ss.supplierName]?.click()}
-                      className="text-xs text-blue-500 hover:text-blue-700 whitespace-nowrap">อัพเดต</button>
+                    <button onClick={() => updateFileRefs.current[ss.supplierName]?.click()} className="text-xs text-blue-500 hover:text-blue-700 whitespace-nowrap">อัพเดต</button>
                     <input type="file" accept=".xlsx,.xls" className="hidden"
                       ref={el => { updateFileRefs.current[ss.supplierName] = el }}
                       onChange={e => { const f = e.target.files?.[0]; if (f) parseSupplierStockFile(ss.supplierName, f) }} />
-                    <button onClick={() => setSupplierStocks(prev => prev.filter(s => s.supplierName !== ss.supplierName))}
-                      className="text-gray-300 hover:text-red-400 text-xs">✕</button>
+                    <button onClick={() => setSupplierStocks(prev => prev.filter(s => s.supplierName !== ss.supplierName))} className="text-gray-300 hover:text-red-400 text-xs">✕</button>
                   </div>
                 ))}
-
                 {addingSupplier ? (
                   <div className="flex items-center gap-2 bg-blue-50 rounded-lg px-3 py-2">
                     <select value={newSupplierName} onChange={e => setNewSupplierName(e.target.value)}
                       className="border border-gray-300 rounded px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white flex-1">
                       <option value="">— เลือก Supplier —</option>
-                      {allDbSuppliers.filter(s => !supplierStocks.some(ss => ss.supplierName === s)).map(s =>
-                        <option key={s} value={s}>{s}</option>)}
+                      {allDbSuppliers.filter(s => !supplierStocks.some(ss => ss.supplierName === s)).map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
                     {newSupplierName && (
                       <button onClick={() => { pendingSupplierRef.current = newSupplierName; addSupplierFileRef.current?.click() }}
-                        className="text-xs px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 whitespace-nowrap">
-                        Upload Stock
-                      </button>
+                        className="text-xs px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 whitespace-nowrap">Upload Stock</button>
                     )}
-                    <button onClick={() => { setAddingSupplier(false); setNewSupplierName('') }}
-                      className="text-xs text-gray-400 hover:text-gray-600">ยกเลิก</button>
+                    <button onClick={() => { setAddingSupplier(false); setNewSupplierName('') }} className="text-xs text-gray-400 hover:text-gray-600">ยกเลิก</button>
                   </div>
                 ) : (
-                  <button onClick={() => setAddingSupplier(true)}
-                    className="text-xs text-blue-500 hover:text-blue-700 px-3 py-2 border border-dashed border-blue-200 rounded-lg w-full text-left hover:border-blue-400 transition-colors">
+                  <button onClick={() => setAddingSupplier(true)} className="text-xs text-blue-500 hover:text-blue-700 px-3 py-2 border border-dashed border-blue-200 rounded-lg w-full text-left hover:border-blue-400 transition-colors">
                     + เพิ่ม Supplier Stock
                   </button>
                 )}
-
                 <input type="file" accept=".xlsx,.xls" className="hidden" ref={addSupplierFileRef}
                   onChange={async e => {
                     const f = e.target.files?.[0]
@@ -516,7 +637,6 @@ export default function OrderPlanPage() {
               </div>
             </div>
           </div>
-
           {rows.length > 0 && (
             <p className="mt-4 text-xs text-gray-400 border-t border-gray-100 pt-3">
               {rows.length} items{selectedProject ? ` · DDP จาก ${selectedProject}` : ''}
@@ -536,9 +656,7 @@ export default function OrderPlanPage() {
                   <tr className="bg-gray-50 text-gray-500 border-b border-gray-200">
                     <th className="px-3 py-2.5 text-left whitespace-nowrap font-semibold sticky left-0 bg-gray-50 z-10 border-r border-gray-200">Item Code</th>
                     <th className="px-3 py-2.5 text-left whitespace-nowrap font-semibold">Description</th>
-                    {Array.from({ length: ddpCols }, (_, i) => (
-                      <th key={i} className="px-3 py-2.5 text-right whitespace-nowrap font-semibold text-blue-600">DDP {i + 1}</th>
-                    ))}
+                    {Array.from({ length: ddpCols }, (_, i) => <th key={i} className="px-3 py-2.5 text-right whitespace-nowrap font-semibold text-blue-600">DDP {i + 1}</th>)}
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-amber-50 text-amber-700">PO ไทย</th>
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-amber-50 text-amber-700">Stock ไทย</th>
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-amber-50 text-amber-700">PO ไทย/2</th>
@@ -550,23 +668,17 @@ export default function OrderPlanPage() {
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-green-50 text-green-700">เหลือให้ W3W4</th>
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-green-50 text-green-700">เหลือให้ Next</th>
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-red-50 text-red-700">ต้องสั่ง</th>
-
-                    {supplierStocks.map(ss => (
-                      <>
-                        <th key={`h-${ss.supplierName}-stk`} className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-indigo-50 text-indigo-700 border-l border-indigo-100">
-                          Stock {ss.supplierName}
-                        </th>
-                        <th key={`h-${ss.supplierName}-l1`} className="px-3 py-2.5 text-center whitespace-nowrap font-semibold bg-indigo-50 text-indigo-600">โหลด 1</th>
-                        <th key={`h-${ss.supplierName}-l2`} className="px-3 py-2.5 text-center whitespace-nowrap font-semibold bg-indigo-50 text-indigo-600">โหลด 2</th>
-                        <th key={`h-${ss.supplierName}-rem`} className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-indigo-50 text-indigo-700">คงเหลือ</th>
-                      </>
-                    ))}
-
+                    {supplierStocks.map(ss => (<>
+                      <th key={`h-${ss.supplierName}-stk`} className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-indigo-50 text-indigo-700 border-l border-indigo-100">Stock {ss.supplierName}</th>
+                      <th key={`h-${ss.supplierName}-l1`} className="px-3 py-2.5 text-center whitespace-nowrap font-semibold bg-indigo-50 text-indigo-600">โหลด 1</th>
+                      <th key={`h-${ss.supplierName}-l2`} className="px-3 py-2.5 text-center whitespace-nowrap font-semibold bg-indigo-50 text-indigo-600">โหลด 2</th>
+                      <th key={`h-${ss.supplierName}-rem`} className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-indigo-50 text-indigo-700">คงเหลือ</th>
+                    </>))}
                     {hasStock && <>
                       <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-violet-50 text-violet-700 border-l border-violet-100">รวมโหลด</th>
                       <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-violet-50 text-violet-700">Stock หลังโหลด</th>
                       <th className="px-3 py-2.5 text-center whitespace-nowrap font-semibold">เลือก Sup</th>
-                      <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-orange-50 text-orange-700">แนะนำสั่ง PO</th>
+                      <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-orange-50 text-orange-700">แนะนำเปิด PO</th>
                     </>}
                   </tr>
                 </thead>
@@ -577,39 +689,34 @@ export default function OrderPlanPage() {
                     const Z = computeZ(row)
                     const wNeg = W < 0
                     const zNeg = Z !== null && Z < 0
+                    const fp = (colType: string, sup?: string) => () => setFormulaPopup(buildFormula(row, colType, sup))
 
                     return (
-                      <tr key={i} className="border-b border-gray-100 hover:bg-blue-50/20">
-                        <td className="px-3 py-2 font-mono text-gray-800 whitespace-nowrap sticky left-0 bg-white border-r border-gray-100 z-10">{row.item_code}</td>
+                      <tr key={i} className="border-b border-gray-100 hover:bg-blue-50/10 group">
+                        <td className="px-3 py-2 font-mono text-gray-800 whitespace-nowrap sticky left-0 bg-white group-hover:bg-blue-50/10 border-r border-gray-100 z-10">{row.item_code}</td>
                         <td className="px-3 py-2 text-gray-600 whitespace-nowrap max-w-[220px] overflow-hidden text-ellipsis">{row.description || <span className="text-gray-300">—</span>}</td>
 
                         {Array.from({ length: ddpCols }, (_, j) => {
                           const p = row.ddp_prices[j]
                           return (
-                            <td key={j} className="px-3 py-2 text-right whitespace-nowrap">
-                              {p ? (
-                                <span>
-                                  <span className="text-gray-400 mr-1">{p.supplier}</span>
-                                  <span className="text-gray-700 font-medium">{fmtDdp(p.ddp_thb)}</span>
-                                </span>
-                              ) : <span className="text-gray-300">—</span>}
+                            <td key={j} className="px-3 py-2 text-right whitespace-nowrap cursor-pointer hover:bg-blue-50" onClick={() => p && showDdpFormula(row, p)}>
+                              {p ? <span><span className="text-gray-400 mr-1">{p.supplier}</span><span className="text-gray-700 font-medium">{fmtDdp(p.ddp_thb)}</span></span>
+                                : <span className="text-gray-300">—</span>}
                             </td>
                           )
                         })}
 
-                        <td className="px-3 py-2 text-right text-gray-700 bg-amber-50/20 whitespace-nowrap">{fmtN(row.po_thai)}</td>
-                        <td className="px-3 py-2 text-right text-gray-700 bg-amber-50/20 whitespace-nowrap">{fmtN(row.stock_thai)}</td>
-                        <td className="px-3 py-2 text-right text-gray-700 bg-amber-50/20 whitespace-nowrap">{fmtF(row.L)}</td>
-                        <td className="px-3 py-2 text-right text-gray-700 whitespace-nowrap">{fmtN(row.lonsua)}</td>
-                        <td className="px-3 py-2 text-right text-gray-700 whitespace-nowrap">{fmtN(row.week1)}</td>
-                        <td className="px-3 py-2 text-right text-gray-700 whitespace-nowrap">{fmtN(row.week2)}</td>
-                        <td className="px-3 py-2 text-right text-gray-700 whitespace-nowrap">{fmtN(row.week3_4)}</td>
-                        <td className="px-3 py-2 text-right text-gray-700 whitespace-nowrap">{fmtN(row.next_month)}</td>
-                        <td className="px-3 py-2 text-right font-medium bg-green-50/20 whitespace-nowrap text-gray-700">{fmtF(row.S)}</td>
-                        <td className="px-3 py-2 text-right font-medium bg-green-50/20 whitespace-nowrap text-gray-700">{fmtF(row.T)}</td>
-                        <td className={`px-3 py-2 text-right font-semibold bg-red-50/20 whitespace-nowrap ${row.U < 0 ? 'text-red-600' : 'text-gray-700'}`}>
-                          {fmtF(row.U)}
-                        </td>
+                        <C className="px-3 py-2 text-right text-gray-700 bg-amber-50/20 whitespace-nowrap hover:bg-amber-100/40" onClick={fp('po_thai')}>{fmtN(row.po_thai)}</C>
+                        <C className="px-3 py-2 text-right text-gray-700 bg-amber-50/20 whitespace-nowrap hover:bg-amber-100/40" onClick={fp('stock_thai')}>{fmtN(row.stock_thai)}</C>
+                        <C className="px-3 py-2 text-right text-gray-700 bg-amber-50/20 whitespace-nowrap hover:bg-amber-100/40" onClick={fp('L')}>{fmtF(row.L)}</C>
+                        <C className="px-3 py-2 text-right text-gray-700 whitespace-nowrap hover:bg-gray-100/80" onClick={fp('lonsua')}>{fmtN(row.lonsua)}</C>
+                        <C className="px-3 py-2 text-right text-gray-700 whitespace-nowrap hover:bg-gray-100/80" onClick={fp('week1')}>{fmtN(row.week1)}</C>
+                        <C className="px-3 py-2 text-right text-gray-700 whitespace-nowrap hover:bg-gray-100/80" onClick={fp('week2')}>{fmtN(row.week2)}</C>
+                        <C className="px-3 py-2 text-right text-gray-700 whitespace-nowrap hover:bg-gray-100/80" onClick={fp('week3_4')}>{fmtN(row.week3_4)}</C>
+                        <C className="px-3 py-2 text-right text-gray-700 whitespace-nowrap hover:bg-gray-100/80" onClick={fp('next_month')}>{fmtN(row.next_month)}</C>
+                        <C className="px-3 py-2 text-right font-medium bg-green-50/20 whitespace-nowrap text-gray-700 hover:bg-green-100/40" onClick={fp('S')}>{fmtF(row.S)}</C>
+                        <C className="px-3 py-2 text-right font-medium bg-green-50/20 whitespace-nowrap text-gray-700 hover:bg-green-100/40" onClick={fp('T')}>{fmtF(row.T)}</C>
+                        <C className={`px-3 py-2 text-right font-semibold bg-red-50/20 whitespace-nowrap hover:bg-red-100/40 ${row.U < 0 ? 'text-red-600' : 'text-gray-700'}`} onClick={fp('U')}>{fmtF(row.U)}</C>
 
                         {supplierStocks.map(ss => {
                           const stockItem = getStockItem(ss.supplierName, row.item_code)
@@ -617,42 +724,35 @@ export default function OrderPlanPage() {
                           const plan = loadingPlan[ss.supplierName]?.[row.item_code] ?? ['', '']
                           const remaining = getRemaining(ss.supplierName, row.item_code)
 
-                          return (
-                            <>
-                              <td key={`${ss.supplierName}-stk`} className="px-3 py-2 text-right bg-indigo-50/20 whitespace-nowrap border-l border-indigo-50">
-                                {stockQty > 0 ? (
-                                  <button onClick={() => stockItem && setStatusPopup({ itemCode: row.item_code, description: row.description, supplierName: ss.supplierName, stockItem })}
-                                    className="text-indigo-600 hover:underline font-medium">
-                                    {stockQty.toLocaleString()}
-                                  </button>
-                                ) : <span className="text-gray-300">—</span>}
-                              </td>
-                              <td key={`${ss.supplierName}-l1`} className="px-1.5 py-1 bg-indigo-50/10">
-                                <input type="number" min="0" value={plan[0]}
-                                  onChange={e => setLoadQty(ss.supplierName, row.item_code, 0, e.target.value)}
-                                  placeholder="0"
-                                  className="border border-gray-200 rounded px-1.5 py-1 w-20 text-right text-xs outline-none focus:border-indigo-400" />
-                              </td>
-                              <td key={`${ss.supplierName}-l2`} className="px-1.5 py-1 bg-indigo-50/10">
-                                <input type="number" min="0" value={plan[1]}
-                                  onChange={e => setLoadQty(ss.supplierName, row.item_code, 1, e.target.value)}
-                                  placeholder="0"
-                                  className="border border-gray-200 rounded px-1.5 py-1 w-20 text-right text-xs outline-none focus:border-indigo-400" />
-                              </td>
-                              <td key={`${ss.supplierName}-rem`} className={`px-3 py-2 text-right whitespace-nowrap bg-indigo-50/20 font-medium ${stockQty > 0 && remaining < 0 ? 'text-red-500' : 'text-gray-700'}`}>
-                                {stockQty > 0 ? fmtF(remaining) : <span className="text-gray-300">—</span>}
-                              </td>
-                            </>
-                          )
+                          return (<>
+                            <td key={`${ss.supplierName}-stk`} className="px-3 py-2 text-right bg-indigo-50/20 whitespace-nowrap border-l border-indigo-50">
+                              {stockQty > 0 ? (
+                                <button onClick={() => stockItem && setStatusPopup({ itemCode: row.item_code, description: row.description, supplierName: ss.supplierName, stockItem })}
+                                  className="text-indigo-600 hover:underline font-medium">{stockQty.toLocaleString()}</button>
+                              ) : <span className="text-gray-300">—</span>}
+                            </td>
+                            <td key={`${ss.supplierName}-l1`} className="px-1.5 py-1 bg-indigo-50/10">
+                              <input type="number" min="0" value={plan[0]} onChange={e => setLoadQty(ss.supplierName, row.item_code, 0, e.target.value)} placeholder="0"
+                                className="border border-gray-200 rounded px-1.5 py-1 w-20 text-right text-xs outline-none focus:border-indigo-400" />
+                            </td>
+                            <td key={`${ss.supplierName}-l2`} className="px-1.5 py-1 bg-indigo-50/10">
+                              <input type="number" min="0" value={plan[1]} onChange={e => setLoadQty(ss.supplierName, row.item_code, 1, e.target.value)} placeholder="0"
+                                className="border border-gray-200 rounded px-1.5 py-1 w-20 text-right text-xs outline-none focus:border-indigo-400" />
+                            </td>
+                            <C key={`${ss.supplierName}-rem`} className={`px-3 py-2 text-right whitespace-nowrap bg-indigo-50/20 font-medium hover:bg-indigo-100/40 ${stockQty > 0 && remaining < 0 ? 'text-red-500' : 'text-gray-700'}`}
+                              onClick={fp('remaining', ss.supplierName)}>
+                              {stockQty > 0 ? fmtF(remaining) : <span className="text-gray-300">—</span>}
+                            </C>
+                          </>)
                         })}
 
                         {hasStock && <>
-                          <td className="px-3 py-2 text-right whitespace-nowrap bg-violet-50/20 font-medium text-gray-700 border-l border-violet-50">
+                          <C className="px-3 py-2 text-right whitespace-nowrap bg-violet-50/20 font-medium text-gray-700 border-l border-violet-50 hover:bg-violet-100/40" onClick={fp('V')}>
                             {V > 0 ? V.toLocaleString() : <span className="text-gray-300">—</span>}
-                          </td>
-                          <td className={`px-3 py-2 text-right whitespace-nowrap bg-violet-50/20 font-semibold ${wNeg ? 'text-red-600' : 'text-gray-700'}`}>
+                          </C>
+                          <C className={`px-3 py-2 text-right whitespace-nowrap bg-violet-50/20 font-semibold hover:bg-violet-100/40 ${wNeg ? 'text-red-600' : 'text-gray-700'}`} onClick={fp('W')}>
                             {wNeg && <span className="mr-1">⚠</span>}{fmtF(W)}
-                          </td>
+                          </C>
                           <td className="px-1.5 py-1">
                             <select value={supplierY[row.item_code] ?? ''}
                               onChange={e => setSupplierY(prev => ({ ...prev, [row.item_code]: e.target.value }))}
@@ -661,15 +761,11 @@ export default function OrderPlanPage() {
                               {supplierStocks.map(ss => <option key={ss.supplierName} value={ss.supplierName}>{ss.supplierName}</option>)}
                             </select>
                           </td>
-                          <td className={`px-3 py-2 text-right whitespace-nowrap bg-orange-50/20 font-semibold`}>
-                            {Z === null ? (
-                              <span className="text-gray-300 font-normal text-xs">เลือก Sup</span>
-                            ) : zNeg ? (
-                              <span className="text-orange-600">ควรสั่ง {Math.ceil(Math.abs(Z)).toLocaleString()}</span>
-                            ) : (
-                              <span className="text-green-600 font-normal">พอ +{fmtF(Z)}</span>
-                            )}
-                          </td>
+                          <C className="px-3 py-2 text-right whitespace-nowrap bg-orange-50/20 font-semibold hover:bg-orange-100/40" onClick={fp('Z')}>
+                            {Z === null ? <span className="text-gray-300 font-normal text-xs">เลือก Sup</span>
+                              : zNeg ? <span className="text-orange-600">ควรสั่ง {Math.ceil(Math.abs(Z)).toLocaleString()}</span>
+                                : <span className="text-green-600 font-normal">พอ +{fmtF(Z)}</span>}
+                          </C>
                         </>}
                       </tr>
                     )
@@ -681,7 +777,49 @@ export default function OrderPlanPage() {
         )}
       </div>
 
-      {/* ── Status popup ───────────────────────────────────────────────── */}
+      {/* ── Formula popup ──────────────────────────────────────────────────── */}
+      {formulaPopup && (
+        <div className="fixed inset-0 bg-black/20 z-50 flex items-center justify-center p-4" onClick={() => setFormulaPopup(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-start mb-1">
+              <div>
+                <p className="text-xs text-gray-400 font-mono">{formulaPopup.itemCode}</p>
+                <h3 className="text-base font-bold text-gray-900 mt-0.5">{formulaPopup.colName}</h3>
+              </div>
+              <button onClick={() => setFormulaPopup(null)} className="text-gray-300 hover:text-gray-600 text-lg leading-none mt-1">✕</button>
+            </div>
+
+            {formulaPopup.source && (
+              <p className="text-xs text-blue-500 mb-3 bg-blue-50 rounded-lg px-3 py-1.5">{formulaPopup.source}</p>
+            )}
+            {formulaPopup.formulaStr && (
+              <p className="text-xs text-gray-400 mb-3 font-mono bg-gray-50 rounded-lg px-3 py-1.5">{formulaPopup.formulaStr}</p>
+            )}
+
+            <div className="space-y-1 mt-2">
+              {formulaPopup.lines.map((line, idx) => (
+                <div key={idx}>
+                  {line.isResult && <div className="border-t-2 border-gray-300 my-2" />}
+                  <div className={`flex items-baseline gap-2 px-1 py-0.5 rounded ${line.isResult ? 'bg-gray-50' : ''}`}>
+                    <span className="text-xs w-4 text-right shrink-0 text-gray-400 font-mono">{line.op}</span>
+                    <span className={`flex-1 text-sm ${line.isResult ? 'font-bold text-gray-900' : 'text-gray-600'}`}>{line.label}</span>
+                    <span className={`text-sm font-mono tabular-nums shrink-0 ${line.isResult ? 'font-bold text-gray-900' : 'text-gray-700'} ${typeof line.val === 'number' && line.val < 0 ? 'text-red-600' : ''}`}>
+                      {typeof line.val === 'number' ? fmtVal(line.val, line.isResult ? 1 : 2) : line.val}
+                    </span>
+                  </div>
+                  {line.note && (
+                    <p className={`text-xs mt-1 px-5 font-medium ${typeof line.val === 'number' && line.val < 0 ? 'text-orange-600' : 'text-green-600'}`}>
+                      → {line.note}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Status popup ───────────────────────────────────────────────────── */}
       {statusPopup && (
         <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4" onClick={() => setStatusPopup(null)}>
           <div className="bg-white rounded-xl shadow-xl p-6 max-w-md w-full" onClick={e => e.stopPropagation()}>
@@ -727,7 +865,7 @@ export default function OrderPlanPage() {
         </div>
       )}
 
-      {/* ── History modal ──────────────────────────────────────────────── */}
+      {/* ── History modal ──────────────────────────────────────────────────── */}
       {showHistory && (
         <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4" onClick={() => setShowHistory(false)}>
           <div className="bg-white rounded-xl shadow-xl p-6 max-w-lg w-full max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
@@ -735,7 +873,6 @@ export default function OrderPlanPage() {
               <h3 className="font-bold text-gray-900">ประวัติ Order Plan</h3>
               <button onClick={() => setShowHistory(false)} className="text-gray-300 hover:text-gray-600 text-lg leading-none">✕</button>
             </div>
-
             {history.length === 0 ? (
               <p className="text-sm text-gray-400 text-center py-8">ยังไม่มีประวัติ กด "บันทึก" เพื่อเก็บแผนปัจจุบัน</p>
             ) : (
@@ -746,17 +883,12 @@ export default function OrderPlanPage() {
                       <p className="text-sm font-medium text-gray-800 truncate">{s.fileName}</p>
                       <p className="text-xs text-gray-500 mt-0.5">
                         {new Date(s.savedAt).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' })}
-                        {' · '}{s.itemCount} items
-                        {s.selectedProject ? ` · ${s.selectedProject}` : ''}
+                        {' · '}{s.itemCount} items{s.selectedProject ? ` · ${s.selectedProject}` : ''}
                       </p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      <button onClick={() => restoreSession(s)}
-                        className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
-                        โหลด
-                      </button>
-                      <button onClick={() => deleteSession(s.id)}
-                        className="text-xs text-gray-300 hover:text-red-400 transition-colors">✕</button>
+                      <button onClick={() => restoreSession(s)} className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">โหลด</button>
+                      <button onClick={() => deleteSession(s.id)} className="text-xs text-gray-300 hover:text-red-400 transition-colors">✕</button>
                     </div>
                   </div>
                 ))}
