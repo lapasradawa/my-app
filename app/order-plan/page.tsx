@@ -102,6 +102,17 @@ interface HistorySession {
   supplierY: Record<string, string>
 }
 
+const SUPPLIER_COLORS = [
+  { text: 'text-blue-700',    bg: 'bg-blue-100',    dot: 'bg-blue-500',    hover: 'hover:bg-blue-50' },
+  { text: 'text-emerald-700', bg: 'bg-emerald-100', dot: 'bg-emerald-500', hover: 'hover:bg-emerald-50' },
+  { text: 'text-violet-700',  bg: 'bg-violet-100',  dot: 'bg-violet-500',  hover: 'hover:bg-violet-50' },
+  { text: 'text-orange-700',  bg: 'bg-orange-100',  dot: 'bg-orange-500',  hover: 'hover:bg-orange-50' },
+  { text: 'text-rose-700',    bg: 'bg-rose-100',    dot: 'bg-rose-500',    hover: 'hover:bg-rose-50' },
+  { text: 'text-teal-700',    bg: 'bg-teal-100',    dot: 'bg-teal-500',    hover: 'hover:bg-teal-50' },
+  { text: 'text-amber-700',   bg: 'bg-amber-100',   dot: 'bg-amber-500',   hover: 'hover:bg-amber-50' },
+  { text: 'text-pink-700',    bg: 'bg-pink-100',    dot: 'bg-pink-500',    hover: 'hover:bg-pink-50' },
+]
+
 const HISTORY_KEY = 'order-plan-history'
 const MAX_HISTORY = 20
 
@@ -197,7 +208,8 @@ export default function OrderPlanPage() {
   }
 
   async function buildPlanRows(parsed: ParsedRow[], project: string) {
-    const priceMap = new Map<string, Map<string, { fob_price: number; currency: string }>>()
+    // item_code → supplier → currency → fob_price (latest per supplier+currency)
+    const rawPrices = new Map<string, Map<string, Map<string, number>>>()
     const supplierSet = new Set<string>()
 
     if (project) {
@@ -205,9 +217,12 @@ export default function OrderPlanPage() {
       if (data) {
         for (const item of data as { item_code: string; supplier: string; fob_price: number; currency: string }[]) {
           supplierSet.add(item.supplier)
-          if (!priceMap.has(item.item_code)) priceMap.set(item.item_code, new Map())
-          const sup = priceMap.get(item.item_code)!
-          if (!sup.has(item.supplier)) sup.set(item.supplier, { fob_price: item.fob_price, currency: item.currency })
+          if (!rawPrices.has(item.item_code)) rawPrices.set(item.item_code, new Map())
+          const bySupplier = rawPrices.get(item.item_code)!
+          if (!bySupplier.has(item.supplier)) bySupplier.set(item.supplier, new Map())
+          const byCurrency = bySupplier.get(item.supplier)!
+          // Keep only most-recent price per supplier+currency (ORDER BY uploaded_at DESC)
+          if (!byCurrency.has(item.currency)) byCurrency.set(item.currency, item.fob_price)
         }
       }
     }
@@ -217,11 +232,18 @@ export default function OrderPlanPage() {
     function toDdp(fob: number, currency: string) { return fob * (currency === 'USD' ? usd_rate : cny_rate) * ddp_multiplier }
 
     const planRows: PlanRow[] = parsed.map(r => {
-      const supplierPrices = priceMap.get(r.item_code)
+      const bySupplier = rawPrices.get(r.item_code)
       const ddp_prices: DdpPrice[] = []
-      if (supplierPrices) {
-        for (const [supplier, { fob_price, currency }] of supplierPrices.entries())
-          ddp_prices.push({ supplier, ddp_thb: toDdp(fob_price, currency), fob_price, currency })
+      if (bySupplier) {
+        for (const [supplier, byCurrency] of bySupplier.entries()) {
+          // For each supplier, pick the currency that gives the cheapest DDP
+          let bestDdp = Infinity, bestFob = 0, bestCurrency = ''
+          for (const [currency, fob] of byCurrency.entries()) {
+            const ddp = toDdp(fob, currency)
+            if (ddp < bestDdp) { bestDdp = ddp; bestFob = fob; bestCurrency = currency }
+          }
+          if (bestDdp < Infinity) ddp_prices.push({ supplier, ddp_thb: bestDdp, fob_price: bestFob, currency: bestCurrency })
+        }
         ddp_prices.sort((a, b) => a.ddp_thb - b.ddp_thb)
       }
       const L = r.po_thai / 2
@@ -231,6 +253,11 @@ export default function OrderPlanPage() {
       return { ...r, ddp_prices, L, S, T, U }
     })
     setRows(planRows)
+  }
+
+  function supplierColor(supplier: string) {
+    const idx = ddpSuppliers.indexOf(supplier)
+    return SUPPLIER_COLORS[Math.max(0, idx) % SUPPLIER_COLORS.length]
   }
 
   async function handleProjectChange(project: string) {
@@ -475,7 +502,7 @@ export default function OrderPlanPage() {
 
   // ── Export Excel ───────────────────────────────────────────────────────
   function exportExcel() {
-    const ddpCols = Math.min(ddpSuppliers.length, 5)
+    const ddpCols = Math.min(ddpSuppliers.length, 8)
     const headers: string[] = [
       'Item Code', 'Description',
       ...Array.from({ length: ddpCols }, (_, i) => `DDP ${ddpSuppliers[i] ?? i + 1} (THB)`),
@@ -521,7 +548,7 @@ export default function OrderPlanPage() {
     return v.toLocaleString(undefined, { minimumFractionDigits: dec, maximumFractionDigits: dec })
   }
 
-  const ddpCols = Math.min(ddpSuppliers.length, 5)
+  const ddpCols = Math.min(ddpSuppliers.length, 8)
   const hasStock = supplierStocks.length > 0
 
   // Clickable cell wrapper
@@ -638,10 +665,25 @@ export default function OrderPlanPage() {
             </div>
           </div>
           {rows.length > 0 && (
-            <p className="mt-4 text-xs text-gray-400 border-t border-gray-100 pt-3">
-              {rows.length} items{selectedProject ? ` · DDP จาก ${selectedProject}` : ''}
-              {hasStock ? ` · Stock: ${supplierStocks.map(s => s.supplierName).join(', ')}` : ''}
-            </p>
+            <div className="mt-4 border-t border-gray-100 pt-3 flex items-center gap-3 flex-wrap">
+              <span className="text-xs text-gray-400">
+                {rows.length} items{selectedProject ? ` · DDP จาก ${selectedProject}` : ''}
+                {hasStock ? ` · Stock: ${supplierStocks.map(s => s.supplierName).join(', ')}` : ''}
+              </span>
+              {ddpSuppliers.length > 0 && (
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {ddpSuppliers.slice(0, 8).map(s => {
+                    const col = supplierColor(s)
+                    return (
+                      <span key={s} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs ${col.bg} ${col.text}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${col.dot}`} />
+                        {s}
+                      </span>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
           )}
         </div>
 
@@ -656,7 +698,7 @@ export default function OrderPlanPage() {
                   <tr className="bg-gray-50 text-gray-500 border-b border-gray-200">
                     <th className="px-3 py-2.5 text-left whitespace-nowrap font-semibold sticky left-0 bg-gray-50 z-10 border-r border-gray-200">Item Code</th>
                     <th className="px-3 py-2.5 text-left whitespace-nowrap font-semibold">Description</th>
-                    {Array.from({ length: ddpCols }, (_, i) => <th key={i} className="px-3 py-2.5 text-right whitespace-nowrap font-semibold text-blue-600">DDP {i + 1}</th>)}
+                    {Array.from({ length: ddpCols }, (_, i) => <th key={i} className="px-3 py-2.5 text-right whitespace-nowrap font-semibold text-gray-500">DDP {i + 1}</th>)}
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-amber-50 text-amber-700">PO ไทย</th>
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-amber-50 text-amber-700">Stock ไทย</th>
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-amber-50 text-amber-700">PO ไทย/2</th>
@@ -698,10 +740,16 @@ export default function OrderPlanPage() {
 
                         {Array.from({ length: ddpCols }, (_, j) => {
                           const p = row.ddp_prices[j]
+                          const col = p ? supplierColor(p.supplier) : null
                           return (
-                            <td key={j} className="px-3 py-2 text-right whitespace-nowrap cursor-pointer hover:bg-blue-50" onClick={() => p && showDdpFormula(row, p)}>
-                              {p ? <span><span className="text-gray-400 mr-1">{p.supplier}</span><span className="text-gray-700 font-medium">{fmtDdp(p.ddp_thb)}</span></span>
-                                : <span className="text-gray-400">—</span>}
+                            <td key={j} className={`px-2 py-1.5 text-right whitespace-nowrap cursor-pointer ${col ? col.hover : ''}`} onClick={() => p && showDdpFormula(row, p)}>
+                              {p ? (
+                                <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md ${col!.bg} ${col!.text}`}>
+                                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${col!.dot}`} />
+                                  <span className="font-medium text-xs">{p.supplier}</span>
+                                  <span className="font-mono font-semibold text-xs ml-0.5">{fmtDdp(p.ddp_thb)}</span>
+                                </span>
+                              ) : <span className="text-gray-400">—</span>}
                             </td>
                           )
                         })}
