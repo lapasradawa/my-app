@@ -693,15 +693,15 @@ export default function OrderPlanPage() {
 
                     return (
                       <tr key={i} className="border-b border-gray-100 hover:bg-blue-50/10 group">
-                        <td className="px-3 py-2 font-mono text-gray-800 whitespace-nowrap sticky left-0 bg-white group-hover:bg-blue-50/10 border-r border-gray-100 z-10">{row.item_code}</td>
-                        <td className="px-3 py-2 text-gray-600 whitespace-nowrap max-w-[220px] overflow-hidden text-ellipsis">{row.description || <span className="text-gray-300">—</span>}</td>
+                        <td className="px-3 py-2 font-mono text-gray-800 whitespace-nowrap sticky left-0 bg-white border-r border-gray-200 z-10">{row.item_code}</td>
+                        <td className="px-3 py-2 text-gray-600 whitespace-nowrap max-w-[220px] overflow-hidden text-ellipsis">{row.description || <span className="text-gray-400">—</span>}</td>
 
                         {Array.from({ length: ddpCols }, (_, j) => {
                           const p = row.ddp_prices[j]
                           return (
                             <td key={j} className="px-3 py-2 text-right whitespace-nowrap cursor-pointer hover:bg-blue-50" onClick={() => p && showDdpFormula(row, p)}>
                               {p ? <span><span className="text-gray-400 mr-1">{p.supplier}</span><span className="text-gray-700 font-medium">{fmtDdp(p.ddp_thb)}</span></span>
-                                : <span className="text-gray-300">—</span>}
+                                : <span className="text-gray-400">—</span>}
                             </td>
                           )
                         })}
@@ -741,14 +741,14 @@ export default function OrderPlanPage() {
                             </td>
                             <C key={`${ss.supplierName}-rem`} className={`px-3 py-2 text-right whitespace-nowrap bg-indigo-50/20 font-medium hover:bg-indigo-100/40 ${stockQty > 0 && remaining < 0 ? 'text-red-500' : 'text-gray-700'}`}
                               onClick={fp('remaining', ss.supplierName)}>
-                              {stockQty > 0 ? fmtF(remaining) : <span className="text-gray-300">—</span>}
+                              {stockQty > 0 ? fmtF(remaining) : <span className="text-gray-400">—</span>}
                             </C>
                           </>)
                         })}
 
                         {hasStock && <>
                           <C className="px-3 py-2 text-right whitespace-nowrap bg-violet-50/20 font-medium text-gray-700 border-l border-violet-50 hover:bg-violet-100/40" onClick={fp('V')}>
-                            {V > 0 ? V.toLocaleString() : <span className="text-gray-300">—</span>}
+                            {V > 0 ? V.toLocaleString() : <span className="text-gray-400">—</span>}
                           </C>
                           <C className={`px-3 py-2 text-right whitespace-nowrap bg-violet-50/20 font-semibold hover:bg-violet-100/40 ${wNeg ? 'text-red-600' : 'text-gray-700'}`} onClick={fp('W')}>
                             {wNeg && <span className="mr-1">⚠</span>}{fmtF(W)}
@@ -762,7 +762,7 @@ export default function OrderPlanPage() {
                             </select>
                           </td>
                           <C className="px-3 py-2 text-right whitespace-nowrap bg-orange-50/20 font-semibold hover:bg-orange-100/40" onClick={fp('Z')}>
-                            {Z === null ? <span className="text-gray-300 font-normal text-xs">เลือก Sup</span>
+                            {Z === null ? <span className="text-gray-400 font-normal text-xs">เลือก Sup</span>
                               : zNeg ? <span className="text-orange-600">ควรสั่ง {Math.ceil(Math.abs(Z)).toLocaleString()}</span>
                                 : <span className="text-green-600 font-normal">พอ +{fmtF(Z)}</span>}
                           </C>
@@ -793,7 +793,7 @@ export default function OrderPlanPage() {
               <p className="text-xs text-blue-500 mb-3 bg-blue-50 rounded-lg px-3 py-1.5">{formulaPopup.source}</p>
             )}
             {formulaPopup.formulaStr && (
-              <p className="text-xs text-gray-400 mb-3 font-mono bg-gray-50 rounded-lg px-3 py-1.5">{formulaPopup.formulaStr}</p>
+              <p className="text-xs text-gray-600 mb-3 font-mono bg-gray-50 rounded-lg px-3 py-1.5">{formulaPopup.formulaStr}</p>
             )}
 
             <div className="space-y-1 mt-2">
