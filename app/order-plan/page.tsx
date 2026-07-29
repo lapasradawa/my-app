@@ -360,15 +360,16 @@ export default function OrderPlanPage() {
       if (!itemCode) continue
       const poNo = String(row[0] ?? '').trim()
       const total = Number(row[3]) || 0
-      const notProduced = Number(row[5]) || 0
-      const inProduction = Number(row[6]) || 0
-      const finished = Number(row[7]) || 0
-      const onBoard = Number(row[8]) || 0
+      const notProduced = Number(row[4]) || 0
+      const inProduction = Number(row[5]) || 0
+      const finished = Number(row[6]) || 0
+      const onBoard = Number(row[7]) || 0
       if (!itemMap.has(itemCode)) itemMap.set(itemCode, { total: 0, notProduced: 0, inProduction: 0, finished: 0, onBoard: 0, pos: [] })
       const item = itemMap.get(itemCode)!
       item.total += total; item.notProduced += notProduced; item.inProduction += inProduction
       item.finished += finished; item.onBoard += onBoard
-      if (poNo && total > 0) item.pos.push({ poNo, total, notProduced, inProduction, finished, onBoard })
+      if (poNo && (total + notProduced + inProduction + finished + onBoard > 0))
+        item.pos.push({ poNo, total, notProduced, inProduction, finished, onBoard })
     }
 
     const items: Record<string, StockItem> = {}
@@ -995,11 +996,19 @@ export default function OrderPlanPage() {
             {statusPopup.stockItem.pos.length > 0 && (
               <div>
                 <p className="text-xs font-semibold text-gray-400 mb-2">PO Detail</p>
-                <div className="space-y-1 max-h-40 overflow-y-auto">
+                <div className="space-y-2 max-h-52 overflow-y-auto">
                   {statusPopup.stockItem.pos.map((po, i) => (
-                    <div key={i} className="flex justify-between items-center text-xs py-1 border-b border-gray-50">
-                      <span className="font-mono text-gray-700">{po.poNo}</span>
-                      <span className="text-gray-500">{po.total.toLocaleString()}</span>
+                    <div key={i} className="py-1.5 border-b border-gray-50 last:border-0">
+                      <div className="flex justify-between items-baseline mb-1">
+                        <span className="font-mono text-xs font-semibold text-gray-700">{po.poNo}</span>
+                        <span className="text-xs text-gray-500">{(po.total || po.notProduced + po.inProduction + po.finished + po.onBoard).toLocaleString()} pcs</span>
+                      </div>
+                      <div className="flex gap-1.5 flex-wrap">
+                        {po.notProduced > 0 && <span className="text-xs px-2 py-0.5 bg-gray-100 text-gray-600 rounded-md">ยังไม่ผลิต {po.notProduced.toLocaleString()}</span>}
+                        {po.inProduction > 0 && <span className="text-xs px-2 py-0.5 bg-yellow-50 text-yellow-700 rounded-md">กำลังผลิต {po.inProduction.toLocaleString()}</span>}
+                        {po.finished > 0 && <span className="text-xs px-2 py-0.5 bg-green-50 text-green-700 rounded-md">ผลิตเสร็จ {po.finished.toLocaleString()}</span>}
+                        {po.onBoard > 0 && <span className="text-xs px-2 py-0.5 bg-blue-50 text-blue-700 rounded-md">On Board {po.onBoard.toLocaleString()}</span>}
+                      </div>
                     </div>
                   ))}
                 </div>
