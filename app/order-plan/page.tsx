@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import * as XLSX from 'xlsx'
 import { supabase } from '@/lib/supabase'
+import { tryUnlock } from '@/lib/auth'
 
 interface ParsedRow {
   item_code: string
@@ -147,6 +148,10 @@ export default function OrderPlanPage() {
 
   const [history, setHistory] = useState<HistorySession[]>([])
   const [showHistory, setShowHistory] = useState(false)
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
+  const [pwDialog, setPwDialog] = useState<{ action: 'save' } | { action: 'delete'; id: string } | null>(null)
+  const [pwInput, setPwInput] = useState('')
+  const [pwError, setPwError] = useState(false)
 
   const [allParsedCache, setAllParsedCache] = useState<ParsedRow[]>([])
   const [templateCodes, setTemplateCodes] = useState<Set<string> | null>(null)
@@ -185,7 +190,11 @@ export default function OrderPlanPage() {
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
+    const newId = Date.now().toString()
+    setCurrentSessionId(newId)
     setFileName(file.name)
+    setLoadingPlan({})
+    setSupplierY({})
     setLoading(true)
     const buffer = await file.arrayBuffer()
     const wb = XLSX.read(buffer, { type: 'array' })
@@ -222,6 +231,18 @@ export default function OrderPlanPage() {
     const filtered = templateCodes ? allParsed.filter(r => templateCodes.has(r.item_code)) : allParsed
     setParsedCache(filtered)
     await buildPlanRows(filtered, selectedProject)
+
+    // Auto-create new history entry for this upload
+    const initSession: HistorySession = {
+      id: newId, savedAt: new Date().toISOString(),
+      fileName: file.name, itemCount: filtered.length,
+      parsedCache: filtered, loadingPlan: {}, supplierStocks: [], selectedProject, supplierY: {},
+    }
+    setHistory(prev => {
+      const updated = [initSession, ...prev].slice(0, MAX_HISTORY)
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(updated))
+      return updated
+    })
     setLoading(false)
   }
 
@@ -546,34 +567,48 @@ export default function OrderPlanPage() {
   }
 
   // ── History ────────────────────────────────────────────────────────────
-  function saveSession() {
+  function doSaveSession() {
     if (parsedCache.length === 0) return
+    const id = currentSessionId ?? Date.now().toString()
+    if (!currentSessionId) setCurrentSessionId(id)
     const session: HistorySession = {
-      id: Date.now().toString(), savedAt: new Date().toISOString(),
+      id, savedAt: new Date().toISOString(),
       fileName, itemCount: parsedCache.length, parsedCache,
       loadingPlan, supplierStocks, selectedProject, supplierY,
     }
-    try {
-      const existing = readHistory()
-      const updated = [session, ...existing].slice(0, MAX_HISTORY)
+    setHistory(prev => {
+      const idx = prev.findIndex(s => s.id === id)
+      const updated = idx >= 0
+        ? prev.map((s, i) => i === idx ? session : s)
+        : [session, ...prev].slice(0, MAX_HISTORY)
       localStorage.setItem(HISTORY_KEY, JSON.stringify(updated))
-      setHistory(updated)
-    } catch { /* storage full */ }
+      return updated
+    })
+  }
+
+  function doDeleteSession(id: string) {
+    setHistory(prev => {
+      const updated = prev.filter(s => s.id !== id)
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(updated))
+      return updated
+    })
+  }
+
+  function confirmPasswordAction() {
+    if (!tryUnlock(pwInput)) { setPwError(true); return }
+    if (pwDialog?.action === 'save') doSaveSession()
+    else if (pwDialog?.action === 'delete') doDeleteSession(pwDialog.id)
+    setPwDialog(null); setPwInput(''); setPwError(false)
   }
 
   async function restoreSession(session: HistorySession) {
+    setCurrentSessionId(session.id)
     setParsedCache(session.parsedCache); setFileName(session.fileName)
     setLoadingPlan(session.loadingPlan); setSupplierStocks(session.supplierStocks)
     setSelectedProject(session.selectedProject); setSupplierY(session.supplierY)
     setShowHistory(false); setLoading(true)
     await buildPlanRows(session.parsedCache, session.selectedProject)
     setLoading(false)
-  }
-
-  function deleteSession(id: string) {
-    const updated = history.filter(s => s.id !== id)
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(updated))
-    setHistory(updated)
   }
 
   // ── Export Excel ───────────────────────────────────────────────────────
@@ -665,7 +700,7 @@ export default function OrderPlanPage() {
           <div className="flex items-center gap-2">
             {rows.length > 0 && (
               <>
-                <button onClick={saveSession} className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors">บันทึก</button>
+                <button onClick={() => setPwDialog({ action: 'save' })} className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors">บันทึก</button>
                 <button onClick={exportExcel} className="px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors">↓ Export Excel</button>
               </>
             )}
@@ -1018,6 +1053,36 @@ export default function OrderPlanPage() {
         </div>
       )}
 
+      {/* ── Password dialog ────────────────────────────────────────────────── */}
+      {pwDialog && (
+        <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4" onClick={() => { setPwDialog(null); setPwInput(''); setPwError(false) }}>
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-xs w-full" onClick={e => e.stopPropagation()}>
+            <h3 className="font-bold text-gray-900 mb-1">
+              {pwDialog.action === 'save' ? 'บันทึกแผน' : 'ลบประวัติ'}
+            </h3>
+            <p className="text-xs text-gray-400 mb-4">ใส่รหัสผ่านเพื่อยืนยัน</p>
+            <input
+              type="password"
+              value={pwInput}
+              onChange={e => { setPwInput(e.target.value); setPwError(false) }}
+              onKeyDown={e => e.key === 'Enter' && confirmPasswordAction()}
+              placeholder="รหัสผ่าน"
+              autoFocus
+              className="border border-gray-300 rounded-lg px-3 py-2 w-full text-sm outline-none focus:border-blue-400 mb-1" />
+            {pwError && <p className="text-xs text-red-500 mb-3">รหัสผ่านไม่ถูกต้อง</p>}
+            {!pwError && <div className="mb-3" />}
+            <div className="flex gap-2">
+              <button onClick={() => { setPwDialog(null); setPwInput(''); setPwError(false) }}
+                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50">ยกเลิก</button>
+              <button onClick={confirmPasswordAction}
+                className={`flex-1 px-4 py-2 text-white text-sm rounded-lg transition-colors ${pwDialog.action === 'delete' ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-600 hover:bg-blue-700'}`}>
+                {pwDialog.action === 'save' ? 'บันทึก' : 'ลบ'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── History modal ──────────────────────────────────────────────────── */}
       {showHistory && (
         <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4" onClick={() => setShowHistory(false)}>
@@ -1041,7 +1106,7 @@ export default function OrderPlanPage() {
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <button onClick={() => restoreSession(s)} className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">โหลด</button>
-                      <button onClick={() => deleteSession(s.id)} className="text-xs text-gray-300 hover:text-red-400 transition-colors">✕</button>
+                      <button onClick={() => setPwDialog({ action: 'delete', id: s.id })} className="text-xs text-gray-300 hover:text-red-400 transition-colors">✕</button>
                     </div>
                   </div>
                 ))}
