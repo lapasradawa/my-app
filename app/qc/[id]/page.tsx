@@ -38,6 +38,7 @@ const NAV = [
   { href: '/calendar', label: 'Calendar' }, { href: '/report', label: 'Report' },
   { href: '/compare', label: 'Cost Compare' },
   { href: '/po-builder', label: 'PO Builder' },
+  { href: '/order-plan', label: 'Order Plan' },
 ]
 
 const CA_OPTIONS = ['REPLACEMENT IN NEXT SHIPMENT', 'CREDIT NOTE / REFUND', 'REWORK / REPAIR', 'OTHER']

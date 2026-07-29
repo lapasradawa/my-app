@@ -248,6 +248,7 @@ export default function ReportPage() {
         <Link href="/report" className="text-blue-600">Report</Link>
         <Link href="/compare" className="text-gray-500 hover:text-gray-800 transition-colors">Cost Compare</Link>
         <Link href="/po-builder" className="text-gray-500 hover:text-gray-800 transition-colors">PO Builder</Link>
+        <Link href="/order-plan" className="text-gray-500 hover:text-gray-800 transition-colors">Order Plan</Link>
         <div className="relative group">
           <span className="text-gray-500 cursor-default hover:text-gray-800">Summary ▾</span>
           <div className="absolute left-0 top-full pt-1 hidden group-hover:block z-50">

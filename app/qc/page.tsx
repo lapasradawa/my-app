@@ -50,6 +50,7 @@ const NAV = [
   { href: '/report', label: 'Report' },
   { href: '/compare', label: 'Cost Compare' },
   { href: '/po-builder', label: 'PO Builder' },
+  { href: '/order-plan', label: 'Order Plan' },
 ]
 
 export default function QCPage() {
