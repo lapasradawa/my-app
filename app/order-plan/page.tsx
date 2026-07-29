@@ -828,8 +828,8 @@ export default function OrderPlanPage() {
               <table className="text-xs border-collapse">
                 <thead>
                   <tr className="bg-gray-50 text-gray-500 border-b border-gray-200">
-                    <th className="px-3 py-2.5 text-left whitespace-nowrap font-semibold sticky left-0 bg-gray-50 z-10 border-r border-gray-200">Item Code</th>
-                    <th className="px-3 py-2.5 text-left whitespace-nowrap font-semibold">Description</th>
+                    <th className="px-3 py-2.5 text-left whitespace-nowrap font-semibold sticky left-0 bg-gray-50 z-20 border-r border-gray-200 min-w-[200px]">Item Code</th>
+                    <th className="px-3 py-2.5 text-left whitespace-nowrap font-semibold sticky left-[200px] bg-gray-50 z-20 border-r border-gray-200 min-w-[220px]">Description</th>
                     {Array.from({ length: ddpCols }, (_, i) => <th key={i} className="px-3 py-2.5 text-right whitespace-nowrap font-semibold text-gray-500">DDP {i + 1}</th>)}
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-amber-50 text-amber-700">PO ไทย</th>
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-amber-50 text-amber-700">Stock ไทย</th>
@@ -867,8 +867,8 @@ export default function OrderPlanPage() {
 
                     return (
                       <tr key={i} className="border-b border-gray-100 hover:bg-blue-50/10 group">
-                        <td className="px-3 py-2 font-mono text-gray-800 whitespace-nowrap sticky left-0 bg-white border-r border-gray-200 z-10">{row.item_code}</td>
-                        <td className="px-3 py-2 text-gray-600 whitespace-nowrap max-w-[220px] overflow-hidden text-ellipsis">{row.description || <span className="text-gray-400">—</span>}</td>
+                        <td className="px-3 py-2 font-mono text-gray-800 whitespace-nowrap sticky left-0 bg-white border-r border-gray-200 z-10 min-w-[200px]">{row.item_code}</td>
+                        <td className="px-3 py-2 text-gray-600 whitespace-nowrap sticky left-[200px] bg-white border-r border-gray-200 z-10 min-w-[220px] max-w-[220px] overflow-hidden text-ellipsis">{row.description || <span className="text-gray-400">—</span>}</td>
 
                         {Array.from({ length: ddpCols }, (_, j) => {
                           const p = row.ddp_prices[j]
