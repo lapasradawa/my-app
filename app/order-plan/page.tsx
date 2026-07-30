@@ -322,11 +322,25 @@ export default function OrderPlanPage() {
     const wb = XLSX.read(buffer, { type: 'array' })
     const yearFromFile = (file.name.match(/20\d\d/) ?? [])[0] ?? String(new Date().getFullYear())
 
-    // Use first sheet that has data, not necessarily sheet 0
+    // Pick the sheet with the most actual cell data (handles missing !ref)
     let ws = wb.Sheets[wb.SheetNames[0]]
+    let maxCells = 0
     for (const name of wb.SheetNames) {
       const s = wb.Sheets[name]
-      if (s['!ref'] && XLSX.utils.decode_range(s['!ref']).e.r > 2) { ws = s; break }
+      const n = Object.keys(s).filter(k => !k.startsWith('!')).length
+      if (n > maxCells) { maxCells = n; ws = s }
+    }
+
+    // If !ref is missing or wrong, compute it from actual cell keys
+    if (!ws['!ref'] || XLSX.utils.decode_range(ws['!ref']).e.r < 3) {
+      const cellKeys = Object.keys(ws).filter(k => !k.startsWith('!') && /^[A-Z]+\d+$/.test(k))
+      if (cellKeys.length > 0) {
+        const decoded = cellKeys.map(k => XLSX.utils.decode_cell(k))
+        ws['!ref'] = XLSX.utils.encode_range({
+          s: { r: Math.min(...decoded.map(c => c.r)), c: Math.min(...decoded.map(c => c.c)) },
+          e: { r: Math.max(...decoded.map(c => c.r)), c: Math.max(...decoded.map(c => c.c)) },
+        })
+      }
     }
 
     const wsRange = XLSX.utils.decode_range(ws['!ref'] ?? 'A1')
