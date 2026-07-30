@@ -319,53 +319,51 @@ export default function OrderPlanPage() {
     const buffer = await file.arrayBuffer()
     const wb = XLSX.read(buffer, { type: 'array' })
     const ws = wb.Sheets[wb.SheetNames[0]]
-    // raw:false → XLSX formats date cells using the cell's own number format
-    // so "Apr." date cells come out as the string "Apr." rather than a serial number
-    const rawFormatted = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '', raw: false })
-    // raw:true for the data rows so numbers aren't stringified with commas
-    const rawNumbers = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: 0, raw: true })
-
-    const MONTHS = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec']
-    function isMonth(v: unknown): boolean {
-      const s = String(v ?? '').trim().toLowerCase().replace(/\.+$/, '')
-      return MONTHS.some(m => s === m || s === m + '.')
-    }
-
-    // Find header row: first row with ≥2 month-like values in col C+
-    let headerRowIdx = -1
-    let monthColIndices: number[] = []
-    for (let i = 0; i < Math.min(rawFormatted.length, 10); i++) {
-      const row = rawFormatted[i] as unknown[]
-      const mCols = Array.from({ length: row.length }, (_, c) => c).filter(c => c >= 2 && isMonth(row[c]))
-      if (mCols.length >= 2) { headerRowIdx = i; monthColIndices = mCols; break }
-    }
-    if (headerRowIdx < 0) { headerRowIdx = 0; monthColIndices = [2, 3, 4] }
-
-    // Take the LAST 3 month columns
-    const last3 = monthColIndices.slice(-3)
-    const headerRow = rawFormatted[headerRowIdx] as unknown[]
     const yearFromFile = (file.name.match(/20\d\d/) ?? [])[0] ?? String(new Date().getFullYear())
-    const labels: string[] = last3.map(c => {
-      const s = String(headerRow[c] ?? '').replace(/\.+$/, '').trim()
-      const cap = s.charAt(0).toUpperCase() + s.slice(1).toLowerCase()
-      return `${cap} ${yearFromFile}`
-    })
 
-    // Parse data rows from raw numbers — SUM per item_code (one row per customer in Usage-by-Job files)
-    const SKIP = new Set(['item_no','item no','item code','itemcode','description','desc'])
-    const items: Record<string, number[]> = {}
-    for (let i = headerRowIdx + 1; i < rawNumbers.length; i++) {
-      const row = rawNumbers[i] as unknown[]
-      const code = String(row[0] ?? '').trim()
-      if (!code) continue
-      const lower = code.toLowerCase()
-      if (SKIP.has(lower) || lower.includes('total') || lower.includes('รวม')) continue
-      const values = last3.map(c => Number(row[c] ?? 0) || 0)
-      if (code in items) {
-        items[code] = items[code].map((v, idx) => v + values[idx])
-      } else {
-        items[code] = values
+    // File structure: col A = item_code, col B = description, col C/D/E = month usage values
+    // raw:false to read date-formatted header cells as their display text (e.g. "Apr.")
+    const fmtRows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '', raw: false })
+    // raw:true for numeric data
+    const numRows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: 0, raw: true })
+
+    const MONTH_ABBR = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec']
+    function monthLabel(v: unknown): string | null {
+      // strip trailing non-alpha chars so "Apr." → "apr", "May-" → "may"
+      const s = String(v ?? '').trim().replace(/[^a-zA-Z]+$/, '').toLowerCase()
+      const m = MONTH_ABBR.find(x => x === s)
+      return m ? `${m.charAt(0).toUpperCase()}${m.slice(1)} ${yearFromFile}` : null
+    }
+
+    // Find header row: col A contains "item"/"no." keywords OR col C/D/E has a month label
+    let headerIdx = 0
+    for (let i = 0; i < Math.min(fmtRows.length, 15); i++) {
+      const row = fmtRows[i] as unknown[]
+      const a = String(row[0] ?? '').toLowerCase()
+      if (/item|no\.|ลำดับ/.test(a) || monthLabel(row[2]) || monthLabel(row[3]) || monthLabel(row[4])) {
+        headerIdx = i; break
       }
+    }
+
+    // Labels for cols C, D, E (indices 2, 3, 4) — fallback to Apr/May/Jun if not detected
+    const hRow = fmtRows[headerIdx] as unknown[]
+    const labels = [
+      monthLabel(hRow[2]) ?? `Apr ${yearFromFile}`,
+      monthLabel(hRow[3]) ?? `May ${yearFromFile}`,
+      monthLabel(hRow[4]) ?? `Jun ${yearFromFile}`,
+    ]
+
+    // Parse data rows — col A = item_code, cols C/D/E = usage
+    const SKIP_RE = /^(item|description|desc|total|รวม|usage|ลำดับ|no\.?)$/i
+    const items: Record<string, number[]> = {}
+    for (let i = headerIdx + 1; i < numRows.length; i++) {
+      const row = numRows[i] as unknown[]
+      const code = String(row[0] ?? '').trim()
+      if (!code || code.length > 50) continue
+      if (SKIP_RE.test(code.split(/[\s_]/)[0])) continue
+      const vals = [Number(row[2]) || 0, Number(row[3]) || 0, Number(row[4]) || 0]
+      if (code in items) items[code] = items[code].map((v, j) => v + vals[j])
+      else items[code] = vals
     }
 
     setUsageData({ fileName: file.name, items, labels })
