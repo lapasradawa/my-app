@@ -321,43 +321,37 @@ export default function OrderPlanPage() {
     const wb = XLSX.read(buffer, { type: 'array' })
     const ws = wb.Sheets[wb.SheetNames[0]]
     const yearFromFile = (file.name.match(/20\d\d/) ?? [])[0] ?? String(new Date().getFullYear())
+    const wsRange = XLSX.utils.decode_range(ws['!ref'] ?? 'A1')
 
-    // File structure: col A = item_code, col B = description, col C/D/E = month usage values
-    // raw:false to read date-formatted header cells as their display text (e.g. "Apr.")
-    const fmtRows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '', raw: false })
-    // raw:true for numeric data
-    const numRows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: 0, raw: true })
+    // Find header row: col A must contain "item" keyword (Item_No row)
+    let headerRowR = 0
+    for (let r = 0; r <= Math.min(10, wsRange.e.r); r++) {
+      const cellA = ws[XLSX.utils.encode_cell({ r, c: 0 })]
+      if (cellA && /item/i.test(String(cellA.v ?? ''))) { headerRowR = r; break }
+    }
 
-    const MONTH_ABBR = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec']
-    function monthLabel(v: unknown): string | null {
-      // strip trailing non-alpha chars so "Apr." → "apr", "May-" → "may"
-      const s = String(v ?? '').trim().replace(/[^a-zA-Z]+$/, '').toLowerCase()
-      const m = MONTH_ABBR.find(x => x === s)
+    // Use XLSX.utils.format_cell — reads the formatted display value exactly as Excel shows
+    const MONTHS = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec']
+    function cellMonthLabel(r: number, c: number): string | null {
+      const cell = ws[XLSX.utils.encode_cell({ r, c })]
+      if (!cell) return null
+      const formatted = XLSX.utils.format_cell(cell).trim().replace(/[^a-zA-Z]+$/, '').toLowerCase()
+      const m = MONTHS.find(x => x === formatted)
       return m ? `${m.charAt(0).toUpperCase()}${m.slice(1)} ${yearFromFile}` : null
     }
 
-    // Find header row: col A contains "item"/"no." keywords OR col C/D/E has a month label
-    let headerIdx = 0
-    for (let i = 0; i < Math.min(fmtRows.length, 15); i++) {
-      const row = fmtRows[i] as unknown[]
-      const a = String(row[0] ?? '').toLowerCase()
-      if (/item|no\.|ลำดับ/.test(a) || monthLabel(row[2]) || monthLabel(row[3]) || monthLabel(row[4])) {
-        headerIdx = i; break
-      }
-    }
-
-    // Labels for cols C, D, E (indices 2, 3, 4) — fallback to Apr/May/Jun if not detected
-    const hRow = fmtRows[headerIdx] as unknown[]
+    // Labels from header row cols C/D/E — fallback to position-based if month not detected
     const labels = [
-      monthLabel(hRow[2]) ?? `Apr ${yearFromFile}`,
-      monthLabel(hRow[3]) ?? `May ${yearFromFile}`,
-      monthLabel(hRow[4]) ?? `Jun ${yearFromFile}`,
+      cellMonthLabel(headerRowR, 2) ?? `เดือน 1`,
+      cellMonthLabel(headerRowR, 3) ?? `เดือน 2`,
+      cellMonthLabel(headerRowR, 4) ?? `เดือน 3`,
     ]
 
-    // Parse data rows — col A = item_code, cols C/D/E = usage
+    // Parse data rows (raw:true) — col A = item_code, cols C/D/E = usage values
+    const numRows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: 0, raw: true })
     const SKIP_RE = /^(item|description|desc|total|รวม|usage|ลำดับ|no\.?)$/i
     const items: Record<string, number[]> = {}
-    for (let i = headerIdx + 1; i < numRows.length; i++) {
+    for (let i = headerRowR + 1; i < numRows.length; i++) {
       const row = numRows[i] as unknown[]
       const code = String(row[0] ?? '').trim()
       if (!code || code.length > 50) continue
@@ -368,6 +362,7 @@ export default function OrderPlanPage() {
     }
 
     setUsageData({ fileName: file.name, items, labels })
+    setUsageMonthIdx(2) // default to last month (col E)
     e.target.value = ''
   }
 
@@ -833,8 +828,7 @@ export default function OrderPlanPage() {
                 <div className="flex items-center gap-2 flex-wrap">
                   {usageData ? (
                     <>
-                      <span className="text-xs font-semibold text-purple-700 bg-purple-50 border border-purple-200 px-2.5 py-1 rounded-lg">✓ {usageData.labels.join(' / ')}</span>
-                      <span className="text-xs text-gray-400 truncate max-w-[140px]">{usageData.fileName}</span>
+                      <span className="text-xs font-semibold text-purple-700 bg-purple-50 border border-purple-200 px-2.5 py-1 rounded-lg">✓ {usageData.fileName}</span>
                       <button onClick={() => usageFileRef.current?.click()} className="text-xs text-blue-500 hover:text-blue-700 whitespace-nowrap">อัพเดต</button>
                       <button onClick={() => setUsageData(null)} className="text-gray-300 hover:text-red-400 text-xs">✕</button>
                     </>
