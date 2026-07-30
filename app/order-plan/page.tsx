@@ -321,28 +321,36 @@ export default function OrderPlanPage() {
     const ws = wb.Sheets[wb.SheetNames[0]]
     const raw = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '' })
 
-    // Find header row: look for row where col C+ has month-like text
-    let headerRowIdx = 0
-    for (let i = 0; i < Math.min(raw.length, 5); i++) {
+    // Find header row: col C must be a SHORT label (month name ≤10 chars, not numeric)
+    // Rejects title rows where merged cells propagate long text into col C
+    let headerRowIdx = -1
+    for (let i = 0; i < Math.min(raw.length, 10); i++) {
       const row = raw[i] as unknown[]
       const cellC = String(row[2] ?? '').trim()
-      if (cellC && !/^\d+$/.test(cellC)) { headerRowIdx = i; break }
+      if (cellC && !/^\d+(\.\d+)?$/.test(cellC) && cellC.length <= 10) {
+        headerRowIdx = i; break
+      }
     }
+    if (headerRowIdx < 0) headerRowIdx = 0
 
-    // Collect up to 3 month labels from col C onwards
+    // Collect up to 3 short month labels from col C onwards
     const headerRow = raw[headerRowIdx] as unknown[]
     const labels: string[] = []
     for (let c = 2; c < headerRow.length && labels.length < 3; c++) {
       const label = String(headerRow[c] ?? '').trim()
-      if (label) labels.push(label)
+      if (label && label.length <= 10) labels.push(label.replace(/[.\-–—\s]+$/, '').trim())
     }
 
+    const HEADER_WORDS = new Set(['item_no', 'item no', 'item code', 'itemcode', 'description', 'desc'])
     const items: Record<string, number[]> = {}
     for (let i = headerRowIdx + 1; i < raw.length; i++) {
       const row = raw[i] as unknown[]
       const code = String(row[0] ?? '').trim()
-      if (!code || code.toLowerCase().includes('total') || code.toLowerCase().includes('รวม')) continue
-      items[code] = labels.map((_, idx) => Number(row[2 + idx] ?? 0) || 0)
+      if (!code) continue
+      const lower = code.toLowerCase()
+      if (HEADER_WORDS.has(lower) || lower.includes('total') || lower.includes('รวม')) continue
+      const values = labels.map((_, idx) => Number(row[2 + idx] ?? 0) || 0)
+      items[code] = values
     }
 
     setUsageData({ fileName: file.name, items, labels })
@@ -923,8 +931,8 @@ export default function OrderPlanPage() {
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold">Fc. W2</th>
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold">Fc. W3+4</th>
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold">Fc. Next Month</th>
-                    {usageData && <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-purple-50 text-purple-700">Usage {usageData.labels[usageData.labels.length - 1]}</th>}
-                    {usageData && <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-purple-50 text-purple-700">Avg. Usage</th>}
+                    {usageData && <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-purple-50 text-purple-700">Usage {usageData.labels[usageData.labels.length - 1]} 2026</th>}
+                    {usageData && <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-purple-50 text-purple-700">Avg. Usage (3M)</th>}
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-green-50 text-green-700">เหลือให้ W3W4</th>
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-green-50 text-green-700">เหลือให้ Next</th>
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-red-50 text-red-700">ต้องสั่ง</th>
