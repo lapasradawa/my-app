@@ -166,6 +166,7 @@ export default function OrderPlanPage() {
   const templateFileRef = useRef<HTMLInputElement>(null)
 
   const [usageData, setUsageData] = useState<UsageData | null>(null)
+  const [usageMonthIdx, setUsageMonthIdx] = useState(2) // 0=first month, 2=last (Jun by default)
   const usageFileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -373,7 +374,7 @@ export default function OrderPlanPage() {
   function getUsageLast(itemCode: string): number | null {
     if (!usageData) return null
     const vals = usageData.items[itemCode]
-    return vals ? (vals[vals.length - 1] ?? null) : null
+    return vals ? (vals[usageMonthIdx] ?? null) : null
   }
 
   function getUsageAvg(itemCode: string): number | null {
@@ -699,7 +700,7 @@ export default function OrderPlanPage() {
       'Item Code', 'Description',
       ...Array.from({ length: ddpCols }, (_, i) => `DDP ${ddpSuppliers[i] ?? i + 1} (THB)`),
       'PO ไทย', 'Stock ไทย', 'PO ไทย/2', 'ลงเรือ', 'Fc. W1', 'Fc. W2', 'Fc. W3+4', 'Fc. Next Month',
-      ...(usageData ? [`Usage ${usageData.labels[usageData.labels.length - 1]}`, `Avg. Usage 3M`] : []),
+      ...(usageData ? [`Usage ${usageData.labels[usageMonthIdx] ?? usageData.labels[usageData.labels.length - 1]}`, `Avg. Usage 3M`] : []),
       'เหลือให้ W3W4', 'เหลือให้ Next Month', 'ต้องสั่ง',
       ...supplierStocks.flatMap(ss => [`Stock ${ss.supplierName}`, 'โหลด 1', 'โหลด 2', `คงเหลือ ${ss.supplierName}`]),
       ...(supplierStocks.length > 0 ? ['รวมโหลด', 'Stock หลังโหลด', 'เลือก Sup', 'แนะนำเปิด PO'] : []),
@@ -944,7 +945,19 @@ export default function OrderPlanPage() {
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold">Fc. W2</th>
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold">Fc. W3+4</th>
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold">Fc. Next Month</th>
-                    {usageData && <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-purple-50 text-purple-700">Usage {usageData.labels[usageData.labels.length - 1]}</th>}
+                    {usageData && (
+                      <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-purple-50 text-purple-700">
+                        <select
+                          value={usageMonthIdx}
+                          onChange={e => setUsageMonthIdx(Number(e.target.value))}
+                          className="bg-transparent text-purple-700 font-semibold text-xs cursor-pointer outline-none"
+                        >
+                          {usageData.labels.map((label, i) => (
+                            <option key={i} value={i}>Usage {label}</option>
+                          ))}
+                        </select>
+                      </th>
+                    )}
                     {usageData && <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-purple-50 text-purple-700">Avg. Usage 3M</th>}
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-green-50 text-green-700">เหลือให้ W3W4</th>
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-green-50 text-green-700">เหลือให้ Next</th>
