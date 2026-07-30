@@ -167,6 +167,7 @@ export default function OrderPlanPage() {
 
   const [usageData, setUsageData] = useState<UsageData | null>(null)
   const [usageLabel, setUsageLabel] = useState<string>('Jun 2026') // column header label only; data always from col E
+  const [usageDebug, setUsageDebug] = useState<string>('')
   const usageFileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -319,61 +320,80 @@ export default function OrderPlanPage() {
     if (!file) return
     const buffer = await file.arrayBuffer()
     const wb = XLSX.read(buffer, { type: 'array' })
-    const ws = wb.Sheets[wb.SheetNames[0]]
     const yearFromFile = (file.name.match(/20\d\d/) ?? [])[0] ?? String(new Date().getFullYear())
+
+    // Use first sheet that has data, not necessarily sheet 0
+    let ws = wb.Sheets[wb.SheetNames[0]]
+    for (const name of wb.SheetNames) {
+      const s = wb.Sheets[name]
+      if (s['!ref'] && XLSX.utils.decode_range(s['!ref']).e.r > 2) { ws = s; break }
+    }
+
     const wsRange = XLSX.utils.decode_range(ws['!ref'] ?? 'A1')
 
-    // Find header row: col A must contain "item" keyword (Item_No row)
-    let headerRowR = 0
-    for (let r = 0; r <= Math.min(10, wsRange.e.r); r++) {
-      const cellA = ws[XLSX.utils.encode_cell({ r, c: 0 })]
-      if (cellA && /item/i.test(String(cellA.v ?? ''))) { headerRowR = r; break }
-    }
-
-    // Use XLSX.utils.format_cell — reads the formatted display value exactly as Excel shows
-    const MONTHS = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec']
-    function cellMonthLabel(r: number, c: number): string | null {
-      const cell = ws[XLSX.utils.encode_cell({ r, c })]
-      if (!cell) return null
-      const formatted = XLSX.utils.format_cell(cell).trim().replace(/[^a-zA-Z]+$/, '').toLowerCase()
-      const m = MONTHS.find(x => x === formatted)
-      return m ? `${m.charAt(0).toUpperCase()}${m.slice(1)} ${yearFromFile}` : null
-    }
-
-    // Labels from header row cols C/D/E — fallback to position-based if month not detected
-    const labels = [
-      cellMonthLabel(headerRowR, 2) ?? `เดือน 1`,
-      cellMonthLabel(headerRowR, 3) ?? `เดือน 2`,
-      cellMonthLabel(headerRowR, 4) ?? `เดือน 3`,
-    ]
-
-    // Read cells directly — avoids sheet_to_json defval/raw issues
-    // Col A (c=0) = item_code, Col C (c=2) = Apr, Col D (c=3) = May, Col E (c=4) = Jun
-    const cellStr = (r: number, c: number): string => {
+    // Robust cell reader: handles string, number, formula (cached .v), and formatted .w
+    const readCell = (r: number, c: number): string => {
       const cell = ws[XLSX.utils.encode_cell({ r, c })]
       if (!cell) return ''
-      return String(cell.v ?? cell.w ?? '').trim()
+      if (typeof cell.v === 'string' && cell.v.trim()) return cell.v.trim()
+      if (typeof cell.v === 'number') return String(cell.v)
+      // formula with no cached value → try formatted display
+      const fmt = XLSX.utils.format_cell(cell).trim()
+      return fmt || String(cell.w ?? '').trim()
     }
-    const cellNum = (r: number, c: number): number => {
+    const readNum = (r: number, c: number): number => {
       const cell = ws[XLSX.utils.encode_cell({ r, c })]
       if (!cell) return 0
-      return typeof cell.v === 'number' ? cell.v : Number(String(cell.v ?? '').replace(/,/g, '')) || 0
+      if (typeof cell.v === 'number') return cell.v
+      return Number(String(cell.v ?? cell.w ?? '').replace(/,/g, '')) || 0
     }
 
-    const SKIP_START = /^(item|description|desc|total|รวม|usage|ลำดับ)$/i
+    // Find header row AND item-code column — search rows 0-15, cols 0-3
+    let headerRowR = 0
+    let itemCol = 0
+    outer: for (let r = 0; r <= Math.min(15, wsRange.e.r); r++) {
+      for (let c = 0; c <= Math.min(3, wsRange.e.c); c++) {
+        if (/item/i.test(readCell(r, c))) { headerRowR = r; itemCol = c; break outer }
+      }
+    }
+
+    // Find month columns from header row — search right of itemCol
+    const MONTHS = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec']
+    const monthCols: number[] = []
+    const monthLabels: string[] = []
+    for (let c = itemCol + 1; c <= wsRange.e.c && monthCols.length < 3; c++) {
+      const txt = readCell(headerRowR, c).toLowerCase().replace(/[^a-z]/g, '')
+      const m = MONTHS.find(x => txt.startsWith(x))
+      if (m) {
+        monthCols.push(c)
+        monthLabels.push(`${m.charAt(0).toUpperCase()}${m.slice(1)} ${yearFromFile}`)
+      }
+    }
+    // Fallback: if < 3 months found, use offset from itemCol (C/D/E pattern)
+    while (monthCols.length < 3) {
+      const fallbackC = itemCol + 2 + monthCols.length
+      monthCols.push(fallbackC)
+      monthLabels.push(`เดือน ${monthCols.length}`)
+    }
+
+    const SKIP_CELL = /^(item|description|desc|total|รวม|usage|ลำดับ|no\.|#)$/i
     const items: Record<string, number[]> = {}
     for (let r = headerRowR + 1; r <= wsRange.e.r; r++) {
-      const code = cellStr(r, 0)
+      const code = readCell(r, itemCol)
       if (!code || code.length > 60) continue
-      if (SKIP_START.test(code.split(/\s/)[0])) continue
-      const vals = [cellNum(r, 2), cellNum(r, 3), cellNum(r, 4)]
+      if (SKIP_CELL.test(code.trim())) continue
+      const vals = [readNum(r, monthCols[0]), readNum(r, monthCols[1]), readNum(r, monthCols[2])]
+      if (vals.every(v => v === 0) && !code.match(/^[A-Z0-9]+-?[A-Z0-9]+/i)) continue
       if (code in items) items[code] = items[code].map((v, j) => v + vals[j])
       else items[code] = vals
     }
 
-    // Auto-set label to last detected month or fallback
-    setUsageLabel(labels[2] && !labels[2].startsWith('เดือน') ? `Usage ${labels[2]}` : `Usage Jun ${yearFromFile}`)
-    setUsageData({ fileName: file.name, items, labels })
+    const debugInfo = `sheets:${wb.SheetNames.join(',')} ref:${ws['!ref']} hdr:${headerRowR} itemCol:${itemCol} mCols:${monthCols} lbls:${monthLabels} count:${Object.keys(items).length} sample:${Object.keys(items).slice(0,3).join('|')}`
+    setUsageDebug(debugInfo)
+
+    const lastLabel = monthLabels[2] && !monthLabels[2].startsWith('เดือน') ? `Usage ${monthLabels[2]}` : `Usage Jun ${yearFromFile}`
+    setUsageLabel(lastLabel)
+    setUsageData({ fileName: file.name, items, labels: monthLabels })
     e.target.value = ''
   }
 
@@ -843,6 +863,7 @@ export default function OrderPlanPage() {
                       <span className="text-xs font-semibold text-purple-700 bg-purple-50 border border-purple-200 px-2.5 py-1 rounded-lg">✓ {usageData.fileName} ({Object.keys(usageData.items).length} items)</span>
                       <button onClick={() => usageFileRef.current?.click()} className="text-xs text-blue-500 hover:text-blue-700 whitespace-nowrap">อัพเดต</button>
                       <button onClick={() => setUsageData(null)} className="text-gray-300 hover:text-red-400 text-xs">✕</button>
+                      {usageDebug && <div className="w-full mt-1 text-xs text-orange-600 bg-orange-50 border border-orange-200 rounded px-2 py-1 break-all">{usageDebug}</div>}
                     </>
                   ) : (
                     <button onClick={() => usageFileRef.current?.click()}
