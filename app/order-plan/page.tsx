@@ -554,7 +554,8 @@ export default function OrderPlanPage() {
   function computeZ(row: PlanRow): number | null {
     const sel = supplierY[row.item_code]
     if (!sel) return null
-    return getRemaining(sel, row.item_code) - Math.abs(computeW(row)) - row.next_month
+    const W = computeW(row)
+    return getRemaining(sel, row.item_code) - Math.abs(W - row.next_month)
   }
 
   // ── Formula builder ────────────────────────────────────────────────────
@@ -654,11 +655,13 @@ export default function OrderPlanPage() {
         if (!sel) return { ...base, colName: 'แนะนำเปิด PO', lines: [{ op: '', label: 'เลือก Supplier ก่อน', val: '' }] }
         const W = computeW(row)
         const rem = getRemaining(sel, row.item_code)
-        const Z = rem - Math.abs(W) - row.next_month
-        return { ...base, colName: 'แนะนำเปิด PO', formulaStr: 'คงเหลือ Supplier − |Stock หลังโหลด| − Fc. Next Month', lines: [
-          { op: '', label: `คงเหลือ ${sel}`, val: rem },
-          { op: '−', label: 'Stock หลังโหลด |W|', val: Math.abs(W) },
-          { op: '−', label: 'Fc. Next Month', val: row.next_month },
+        const need = Math.abs(W - row.next_month)
+        const Z = rem - need
+        const wStr = W.toLocaleString(undefined, { maximumFractionDigits: 1 })
+        const fcStr = row.next_month.toLocaleString(undefined, { maximumFractionDigits: 1 })
+        return { ...base, colName: 'แนะนำเปิด PO', formulaStr: 'คงเหลือ Supplier − |Stock หลังโหลด − Fc. Next Month|', lines: [
+          { op: '',  label: `คงเหลือ ${sel}`, val: rem },
+          { op: '−', label: `|Stock หลังโหลด − Fc.Next Month|  (|${wStr} − ${fcStr}|)`, val: need },
           { op: '=', label: 'แนะนำเปิด PO', val: Z, isResult: true, note: Z < 0 ? `ควรสั่ง ${Math.ceil(Math.abs(Z)).toLocaleString()} ชิ้น` : 'stock เพียงพอ' },
         ]}
       }
