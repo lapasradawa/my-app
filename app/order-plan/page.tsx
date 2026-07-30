@@ -602,10 +602,10 @@ export default function OrderPlanPage() {
         ]}
 
       case 'U':
-        return { ...base, colName: 'ต้องสั่ง', formulaStr: 'เหลือให้ Next Month − Fc. Next Month', lines: [
+        return { ...base, colName: 'ต้องสั่งโหลด', formulaStr: 'เหลือให้ Next Month − Fc. Next Month', lines: [
           { op: '', label: 'เหลือให้ Next Month (T)', val: row.T },
           { op: '−', label: 'Fc. Next Month', val: row.next_month },
-          { op: '=', label: 'ต้องสั่ง', val: row.U, isResult: true },
+          { op: '=', label: 'ต้องสั่งโหลด', val: row.U, isResult: true },
         ]}
 
       case 'V': {
@@ -741,7 +741,7 @@ export default function OrderPlanPage() {
       ...Array.from({ length: ddpCols }, (_, i) => `DDP ${ddpSuppliers[i] ?? i + 1} (THB)`),
       'PO ไทย', 'Stock ไทย', 'PO ไทย/2', 'ลงเรือ', 'Fc. W1', 'Fc. W2', 'Fc. W3+4', 'Fc. Next Month',
       ...(usageData ? [usageLabel, `Avg. Usage 3M`] : []),
-      'เหลือให้ W3W4', 'เหลือให้ Next Month', 'ต้องสั่ง',
+      'เหลือให้ W3W4', 'เหลือให้ Next Month', 'ต้องสั่งโหลด',
       ...supplierStocks.flatMap(ss => [`Stock ${ss.supplierName}`, 'โหลด 1', 'โหลด 2', `คงเหลือ ${ss.supplierName}`]),
       ...(supplierStocks.length > 0 ? ['รวมโหลด', 'Stock หลังโหลด', 'เลือก Sup', 'แนะนำเปิด PO'] : []),
     ]
@@ -1003,7 +1003,7 @@ export default function OrderPlanPage() {
                     {usageData && <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-purple-50 text-purple-700">Avg. Usage 3M</th>}
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-green-50 text-green-700">เหลือให้ W3W4</th>
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-green-50 text-green-700">เหลือให้ Next</th>
-                    <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-red-50 text-red-700">ต้องสั่ง</th>
+                    <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-red-50 text-red-700">ต้องสั่งโหลด</th>
                     {supplierStocks.map(ss => (<>
                       <th key={`h-${ss.supplierName}-stk`} className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-indigo-50 text-indigo-700 border-l border-indigo-100">Stock {ss.supplierName}</th>
                       <th key={`h-${ss.supplierName}-l1`} className="px-3 py-2.5 text-center whitespace-nowrap font-semibold bg-indigo-50 text-indigo-600">โหลด 1</th>
