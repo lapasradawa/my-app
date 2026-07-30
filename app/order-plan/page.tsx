@@ -1054,13 +1054,30 @@ export default function OrderPlanPage() {
                         <C className="px-3 py-2 text-right text-gray-700 whitespace-nowrap hover:bg-gray-100/80" onClick={fp('week3_4')}>{fmtN(row.week3_4)}</C>
                         <C className="px-3 py-2 text-right text-gray-700 whitespace-nowrap hover:bg-gray-100/80" onClick={fp('next_month')}>{fmtN(row.next_month)}</C>
                         {usageData && (() => {
-                          const last = getUsageLast(row.item_code)
-                          const avg = getUsageAvg(row.item_code)
+                          const vals = usageData.items[row.item_code]
+                          const last = vals ? (vals[2] ?? null) : null
+                          const avg = vals ? vals.reduce((a, b) => a + b, 0) / vals.length : null
+                          const openAvgPopup = vals ? () => {
+                            const lbs = usageData.labels
+                            setFormulaPopup({
+                              itemCode: row.item_code,
+                              description: row.description,
+                              colName: 'Avg. Usage 3M',
+                              source: `(${lbs[0]} + ${lbs[1]} + ${lbs[2]}) ÷ 3`,
+                              lines: [
+                                { op: '',  label: lbs[0] || 'เดือน 1', val: vals[0] },
+                                { op: '+', label: lbs[1] || 'เดือน 2', val: vals[1] },
+                                { op: '+', label: lbs[2] || 'เดือน 3', val: vals[2] },
+                                { op: '=', label: 'Avg. Usage 3M', val: avg!, isResult: true },
+                              ],
+                            })
+                          } : undefined
                           return (<>
                             <td className="px-3 py-2 text-right whitespace-nowrap bg-purple-50/20 text-purple-700 font-medium">
                               {last !== null ? last.toLocaleString() : <span className="text-gray-300">—</span>}
                             </td>
-                            <td className="px-3 py-2 text-right whitespace-nowrap bg-purple-50/20 text-purple-700 font-medium">
+                            <td className={`px-3 py-2 text-right whitespace-nowrap bg-purple-50/20 text-purple-700 font-medium ${openAvgPopup ? 'cursor-pointer hover:bg-purple-100/40' : ''}`}
+                                onClick={openAvgPopup}>
                               {avg !== null ? fmtF(avg) : <span className="text-gray-300">—</span>}
                             </td>
                           </>)
