@@ -317,51 +317,45 @@ export default function OrderPlanPage() {
     const file = e.target.files?.[0]
     if (!file) return
     const buffer = await file.arrayBuffer()
-    // cellDates: true → date cells become JS Date objects instead of serial numbers
-    const wb = XLSX.read(buffer, { type: 'array', cellDates: true })
+    const wb = XLSX.read(buffer, { type: 'array' })
     const ws = wb.Sheets[wb.SheetNames[0]]
-    const rawData = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '' })
+    // raw:false → XLSX formats date cells using the cell's own number format
+    // so "Apr." date cells come out as the string "Apr." rather than a serial number
+    const rawFormatted = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '', raw: false })
+    // raw:true for the data rows so numbers aren't stringified with commas
+    const rawNumbers = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: 0, raw: true })
 
-    // Find header row by looking for a row with Date objects in multiple columns (C+)
-    // This handles files where month headers are Excel date cells
-    let headerRowIdx = -1
-    let monthColIndices: number[] = []
-
-    for (let i = 0; i < Math.min(rawData.length, 10); i++) {
-      const row = rawData[i] as unknown[]
-      const dateCols = Array.from({ length: row.length }, (_, c) => c)
-        .filter(c => c >= 2 && row[c] instanceof Date)
-      if (dateCols.length >= 2) { headerRowIdx = i; monthColIndices = dateCols; break }
+    const MONTHS = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec']
+    function isMonth(v: unknown): boolean {
+      const s = String(v ?? '').trim().toLowerCase().replace(/\.+$/, '')
+      return MONTHS.some(m => s === m || s === m + '.')
     }
 
-    // Fallback: header row has short text labels in col C+
-    if (headerRowIdx < 0) {
-      for (let i = 0; i < Math.min(rawData.length, 10); i++) {
-        const row = rawData[i] as unknown[]
-        const textCols = Array.from({ length: row.length }, (_, c) => c)
-          .filter(c => c >= 2 && (() => { const v = String(row[c] ?? '').trim(); return v && v.length <= 8 && !/^\d+$/.test(v) })())
-        if (textCols.length >= 2) { headerRowIdx = i; monthColIndices = textCols; break }
-      }
+    // Find header row: first row with ≥2 month-like values in col C+
+    let headerRowIdx = -1
+    let monthColIndices: number[] = []
+    for (let i = 0; i < Math.min(rawFormatted.length, 10); i++) {
+      const row = rawFormatted[i] as unknown[]
+      const mCols = Array.from({ length: row.length }, (_, c) => c).filter(c => c >= 2 && isMonth(row[c]))
+      if (mCols.length >= 2) { headerRowIdx = i; monthColIndices = mCols; break }
     }
     if (headerRowIdx < 0) { headerRowIdx = 0; monthColIndices = [2, 3, 4] }
 
-    // Take the LAST 3 month columns (most recent)
+    // Take the LAST 3 month columns
     const last3 = monthColIndices.slice(-3)
-    const headerRow = rawData[headerRowIdx] as unknown[]
+    const headerRow = rawFormatted[headerRowIdx] as unknown[]
     const yearFromFile = (file.name.match(/20\d\d/) ?? [])[0] ?? String(new Date().getFullYear())
-    const MONTH_RE = /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)$/i
     const labels: string[] = last3.map(c => {
-      const val = headerRow[c]
-      if (val instanceof Date) return val.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
-      const str = String(val ?? '').replace(/[.\-–—\s]+$/, '').trim()
-      return MONTH_RE.test(str) ? `${str} ${yearFromFile}` : str
+      const s = String(headerRow[c] ?? '').replace(/\.+$/, '').trim()
+      const cap = s.charAt(0).toUpperCase() + s.slice(1).toLowerCase()
+      return `${cap} ${yearFromFile}`
     })
 
-    // Parse data rows — SUM values per item_code (file may have multiple rows/customer per item)
-    const SKIP = new Set(['item_no', 'item no', 'item code', 'itemcode', 'description', 'desc'])
+    // Parse data rows from raw numbers — SUM per item_code (one row per customer in Usage-by-Job files)
+    const SKIP = new Set(['item_no','item no','item code','itemcode','description','desc'])
     const items: Record<string, number[]> = {}
-    for (let i = headerRowIdx + 1; i < rawData.length; i++) {
-      const row = rawData[i] as unknown[]
+    for (let i = headerRowIdx + 1; i < rawNumbers.length; i++) {
+      const row = rawNumbers[i] as unknown[]
       const code = String(row[0] ?? '').trim()
       if (!code) continue
       const lower = code.toLowerCase()
