@@ -347,16 +347,26 @@ export default function OrderPlanPage() {
       cellMonthLabel(headerRowR, 4) ?? `เดือน 3`,
     ]
 
-    // Parse data rows (raw:true) — col A = item_code, cols C/D/E = usage values
-    const numRows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: 0, raw: true })
-    const SKIP_RE = /^(item|description|desc|total|รวม|usage|ลำดับ|no\.?)$/i
+    // Read cells directly — avoids sheet_to_json defval/raw issues
+    // Col A (c=0) = item_code, Col C (c=2) = Apr, Col D (c=3) = May, Col E (c=4) = Jun
+    const cellStr = (r: number, c: number): string => {
+      const cell = ws[XLSX.utils.encode_cell({ r, c })]
+      if (!cell) return ''
+      return String(cell.v ?? cell.w ?? '').trim()
+    }
+    const cellNum = (r: number, c: number): number => {
+      const cell = ws[XLSX.utils.encode_cell({ r, c })]
+      if (!cell) return 0
+      return typeof cell.v === 'number' ? cell.v : Number(String(cell.v ?? '').replace(/,/g, '')) || 0
+    }
+
+    const SKIP_START = /^(item|description|desc|total|รวม|usage|ลำดับ)$/i
     const items: Record<string, number[]> = {}
-    for (let i = headerRowR + 1; i < numRows.length; i++) {
-      const row = numRows[i] as unknown[]
-      const code = String(row[0] ?? '').trim()
-      if (!code || code.length > 50) continue
-      if (SKIP_RE.test(code.split(/[\s_]/)[0])) continue
-      const vals = [Number(row[2]) || 0, Number(row[3]) || 0, Number(row[4]) || 0]
+    for (let r = headerRowR + 1; r <= wsRange.e.r; r++) {
+      const code = cellStr(r, 0)
+      if (!code || code.length > 60) continue
+      if (SKIP_START.test(code.split(/\s/)[0])) continue
+      const vals = [cellNum(r, 2), cellNum(r, 3), cellNum(r, 4)]
       if (code in items) items[code] = items[code].map((v, j) => v + vals[j])
       else items[code] = vals
     }
