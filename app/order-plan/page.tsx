@@ -63,7 +63,7 @@ interface SupplierStock {
   items: Record<string, StockItem>
 }
 
-type LoadingPlan = Record<string, Record<string, [string, string]>>
+type LoadingPlan = Record<string, Record<string, string[]>>
 
 interface StatusPopup {
   itemCode: string
@@ -108,6 +108,7 @@ interface HistorySession {
   selectedProject: string
   supplierY: Record<string, string>
   usageData?: UsageData | null
+  supplierSlotDates?: Record<string, string[]>
 }
 
 const SUPPLIER_COLORS = [
@@ -169,6 +170,18 @@ export default function OrderPlanPage() {
   const [usageLabel, setUsageLabel] = useState<string>('Jun 2026')
   const usageFileRef = useRef<HTMLInputElement>(null)
 
+  // no hard limit on loading slots
+  const [supplierSlotDates, setSupplierSlotDates] = useState<Record<string, string[]>>({})
+  const [slotDateDialog, setSlotDateDialog] = useState<{
+    supplierName: string
+    action: 'add' | 'edit' | 'delete'
+    slotIdx: number
+    step: 'pw' | 'date'
+    pw: string
+    dateInput: string
+    pwError: boolean
+  } | null>(null)
+
   useEffect(() => {
     loadProjects(); loadSettings(); setHistory(readHistory())
     try {
@@ -206,6 +219,7 @@ export default function OrderPlanPage() {
     setFileName(file.name)
     setLoadingPlan({})
     setSupplierY({})
+    setSupplierSlotDates({})
     setLoading(true)
     const buffer = await file.arrayBuffer()
     const wb = XLSX.read(buffer, { type: 'array' })
@@ -522,14 +536,52 @@ export default function OrderPlanPage() {
     })
   }
 
-  function setLoadQty(supplier: string, itemCode: string, batch: 0 | 1, value: string) {
+  function setLoadQty(supplier: string, itemCode: string, slotIdx: number, value: string) {
     setLoadingPlan(prev => {
       const sup = { ...(prev[supplier] ?? {}) }
-      const cur: [string, string] = [...(sup[itemCode] ?? ['', ''])] as [string, string]
-      cur[batch] = value
+      const cur = [...(sup[itemCode] ?? [])]
+      cur[slotIdx] = value
       sup[itemCode] = cur
       return { ...prev, [supplier]: sup }
     })
+  }
+
+  function openSlotDateDialog(supplierName: string, action: 'add' | 'edit' | 'delete', slotIdx: number) {
+    const currentDate = action !== 'add' ? (supplierSlotDates[supplierName]?.[slotIdx] ?? '') : ''
+    setSlotDateDialog({ supplierName, action, slotIdx, step: 'pw', pw: '', dateInput: currentDate, pwError: false })
+  }
+
+  function confirmSlotDatePw() {
+    if (!slotDateDialog) return
+    if (!tryUnlock(slotDateDialog.pw)) { setSlotDateDialog(d => d ? { ...d, pwError: true } : null); return }
+    if (slotDateDialog.action === 'delete') { confirmSlotDateAction(); return }
+    setSlotDateDialog(d => d ? { ...d, step: 'date', pwError: false } : null)
+  }
+
+  function confirmSlotDateAction() {
+    if (!slotDateDialog) return
+    const { supplierName, action, slotIdx, dateInput } = slotDateDialog
+    if (action === 'add' || action === 'edit') {
+      if (!dateInput.trim()) return
+      setSupplierSlotDates(prev => {
+        const cur = [...(prev[supplierName] ?? [])]
+        if (action === 'add') cur.push(dateInput.trim())
+        else cur[slotIdx] = dateInput.trim()
+        return { ...prev, [supplierName]: cur }
+      })
+    } else {
+      setSupplierSlotDates(prev => {
+        const cur = [...(prev[supplierName] ?? [])]
+        cur.splice(slotIdx, 1)
+        return { ...prev, [supplierName]: cur }
+      })
+      setLoadingPlan(prev => {
+        const sup = { ...(prev[supplierName] ?? {}) }
+        Object.keys(sup).forEach(code => { const p = [...(sup[code] ?? [])]; p.splice(slotIdx, 1); sup[code] = p })
+        return { ...prev, [supplierName]: sup }
+      })
+    }
+    setSlotDateDialog(null)
   }
 
   function getStockItem(supplierName: string, itemCode: string): StockItem | null {
@@ -537,8 +589,7 @@ export default function OrderPlanPage() {
   }
 
   function getLoadTotal(supplierName: string, itemCode: string): number {
-    const plan = loadingPlan[supplierName]?.[itemCode] ?? ['', '']
-    return (Number(plan[0]) || 0) + (Number(plan[1]) || 0)
+    return (loadingPlan[supplierName]?.[itemCode] ?? []).reduce((s, v) => s + (Number(v) || 0), 0)
   }
 
   function getRemaining(supplierName: string, itemCode: string): number {
@@ -612,19 +663,20 @@ export default function OrderPlanPage() {
         const lines: FLine[] = []
         let first = true
         supplierStocks.forEach(ss => {
-          const plan = loadingPlan[ss.supplierName]?.[row.item_code] ?? ['', '']
-          const b1 = Number(plan[0]) || 0
-          const b2 = Number(plan[1]) || 0
-          if (b1 > 0 || b2 > 0) {
-            lines.push({ op: first ? '' : '+', label: `${ss.supplierName} โหลด 1`, val: b1 })
-            lines.push({ op: '+', label: `${ss.supplierName} โหลด 2`, val: b2 })
-            first = false
-          }
+          const dates = supplierSlotDates[ss.supplierName] ?? []
+          const plan = loadingPlan[ss.supplierName]?.[row.item_code] ?? []
+          dates.forEach((date, i) => {
+            const qty = Number(plan[i]) || 0
+            if (qty > 0) {
+              lines.push({ op: first ? '' : '+', label: `${ss.supplierName} — ${date}`, val: qty })
+              first = false
+            }
+          })
         })
         const V = computeV(row.item_code)
         if (lines.length === 0) lines.push({ op: '', label: '(ยังไม่ได้กรอกแผนโหลด)', val: 0 })
         lines.push({ op: '=', label: 'รวมโหลด', val: V, isResult: true })
-        return { ...base, colName: 'รวมโหลด', formulaStr: 'Σ (โหลด 1 + โหลด 2) ทุก Supplier', lines }
+        return { ...base, colName: 'รวมโหลด', formulaStr: 'Σ ทุกวันโหลด ทุก Supplier', lines }
       }
 
       case 'W': {
@@ -639,15 +691,13 @@ export default function OrderPlanPage() {
       case 'remaining': {
         const sn = supplierName ?? ''
         const stockQty = getStockItem(sn, row.item_code)?.total ?? 0
-        const plan = loadingPlan[sn]?.[row.item_code] ?? ['', '']
-        const b1 = Number(plan[0]) || 0
-        const b2 = Number(plan[1]) || 0
-        return { ...base, colName: `คงเหลือ (${sn})`, formulaStr: 'Stock Supplier − โหลด 1 − โหลด 2', lines: [
-          { op: '', label: `Stock ${sn}`, val: stockQty },
-          { op: '−', label: 'โหลด 1', val: b1 },
-          { op: '−', label: 'โหลด 2', val: b2 },
-          { op: '=', label: `คงเหลือ ${sn}`, val: stockQty - b1 - b2, isResult: true },
-        ]}
+        const dates = supplierSlotDates[sn] ?? []
+        const plan = loadingPlan[sn]?.[row.item_code] ?? []
+        const lines: FLine[] = [{ op: '', label: `Stock ${sn}`, val: stockQty }]
+        dates.forEach((date, i) => lines.push({ op: '−', label: date, val: Number(plan[i]) || 0 }))
+        const remaining = getRemaining(sn, row.item_code)
+        lines.push({ op: '=', label: `คงเหลือ ${sn}`, val: remaining, isResult: true })
+        return { ...base, colName: `คงเหลือ (${sn})`, formulaStr: `Stock ${sn} − Σ ทุกวันโหลด`, lines }
       }
 
       case 'Z': {
@@ -693,7 +743,7 @@ export default function OrderPlanPage() {
     const session: HistorySession = {
       id, savedAt: new Date().toISOString(),
       fileName, itemCount: parsedCache.length, parsedCache,
-      loadingPlan, supplierStocks, selectedProject, supplierY, usageData,
+      loadingPlan, supplierStocks, selectedProject, supplierY, usageData, supplierSlotDates,
     }
     setHistory(prev => {
       const idx = prev.findIndex(s => s.id === id)
@@ -726,6 +776,7 @@ export default function OrderPlanPage() {
     setLoadingPlan(session.loadingPlan); setSupplierStocks(session.supplierStocks)
     setSelectedProject(session.selectedProject); setSupplierY(session.supplierY)
     if (session.usageData !== undefined) setUsageData(session.usageData ?? null)
+    setSupplierSlotDates(session.supplierSlotDates ?? {})
     setShowHistory(false); setLoading(true)
     await buildPlanRows(session.parsedCache, session.selectedProject)
     setLoading(false)
@@ -740,7 +791,10 @@ export default function OrderPlanPage() {
       'PO ไทย', 'Stock ไทย', 'PO ไทย/2', 'ลงเรือ', 'Fc. W1', 'Fc. W2', 'Fc. W3+4', 'Fc. Next Month',
       ...(usageData ? [usageLabel, `Avg. Usage 3M`] : []),
       'เหลือให้ W3W4', 'เหลือให้ Next Month', 'ต้องสั่งโหลด',
-      ...supplierStocks.flatMap(ss => [`Stock ${ss.supplierName}`, 'โหลด 1', 'โหลด 2', `คงเหลือ ${ss.supplierName}`]),
+      ...supplierStocks.flatMap(ss => {
+        const dates = supplierSlotDates[ss.supplierName] ?? []
+        return [`Stock ${ss.supplierName}`, ...dates, `คงเหลือ ${ss.supplierName}`]
+      }),
       ...(supplierStocks.length > 0 ? ['รวมโหลด', 'Stock หลังโหลด', 'เลือก Sup', 'แนะนำเปิด PO'] : []),
     ]
 
@@ -760,9 +814,10 @@ export default function OrderPlanPage() {
         parseFloat(row.S.toFixed(1)), parseFloat(row.T.toFixed(1)), parseFloat(row.U.toFixed(1)),
         ...supplierStocks.flatMap(ss => {
           const stockQty = getStockItem(ss.supplierName, row.item_code)?.total ?? 0
-          const plan = loadingPlan[ss.supplierName]?.[row.item_code] ?? ['', '']
+          const dates = supplierSlotDates[ss.supplierName] ?? []
+          const plan = loadingPlan[ss.supplierName]?.[row.item_code] ?? []
           const remaining = getRemaining(ss.supplierName, row.item_code)
-          return [stockQty || '', Number(plan[0]) || '', Number(plan[1]) || '', stockQty > 0 ? parseFloat(remaining.toFixed(1)) : '']
+          return [stockQty || '', ...dates.map((_, i) => Number(plan[i]) || ''), stockQty > 0 ? parseFloat(remaining.toFixed(1)) : '']
         }),
         ...(supplierStocks.length > 0 ? [V || '', parseFloat(W.toFixed(1)), supplierY[row.item_code] ?? '', Z !== null ? parseFloat(Z.toFixed(1)) : ''] : []),
       ]
@@ -1002,12 +1057,25 @@ export default function OrderPlanPage() {
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-green-50 text-green-700">เหลือให้ W3W4</th>
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-green-50 text-green-700">เหลือให้ Next</th>
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-red-50 text-red-700">ต้องสั่งโหลด</th>
-                    {supplierStocks.map(ss => (<>
-                      <th key={`h-${ss.supplierName}-stk`} className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-indigo-50 text-indigo-700 border-l border-indigo-100">Stock {ss.supplierName}</th>
-                      <th key={`h-${ss.supplierName}-l1`} className="px-3 py-2.5 text-center whitespace-nowrap font-semibold bg-indigo-50 text-indigo-600">โหลด 1</th>
-                      <th key={`h-${ss.supplierName}-l2`} className="px-3 py-2.5 text-center whitespace-nowrap font-semibold bg-indigo-50 text-indigo-600">โหลด 2</th>
-                      <th key={`h-${ss.supplierName}-rem`} className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-indigo-50 text-indigo-700">คงเหลือ</th>
-                    </>))}
+                    {supplierStocks.map(ss => {
+                      const dates = supplierSlotDates[ss.supplierName] ?? []
+                      return (<>
+                        <th key={`h-${ss.supplierName}-stk`} className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-indigo-50 text-indigo-700 border-l border-indigo-100">Stock {ss.supplierName}</th>
+                        {dates.map((date, i) => (
+                          <th key={`h-${ss.supplierName}-d${i}`} className="px-2 py-2 text-center whitespace-nowrap bg-indigo-50 text-indigo-600">
+                            <div className="flex items-center gap-1 justify-center">
+                              <button className="text-xs text-indigo-700 hover:underline font-semibold" onClick={() => openSlotDateDialog(ss.supplierName, 'edit', i)}>{date}</button>
+                              <button className="text-gray-300 hover:text-red-400 text-xs leading-none" onClick={() => openSlotDateDialog(ss.supplierName, 'delete', i)}>✕</button>
+                            </div>
+                          </th>
+                        ))}
+                        <th key={`h-${ss.supplierName}-add`} className="px-2 py-2 bg-indigo-50">
+                          <button onClick={() => openSlotDateDialog(ss.supplierName, 'add', -1)}
+                            className="text-indigo-400 hover:text-indigo-600 text-base font-bold leading-none px-1">+</button>
+                        </th>
+                        <th key={`h-${ss.supplierName}-rem`} className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-indigo-50 text-indigo-700">คงเหลือ</th>
+                      </>)
+                    })}
                     {hasStock && <>
                       <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-violet-50 text-violet-700 border-l border-violet-100">รวมโหลด</th>
                       <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-violet-50 text-violet-700">Stock หลังโหลด</th>
@@ -1090,7 +1158,8 @@ export default function OrderPlanPage() {
                         {supplierStocks.map(ss => {
                           const stockItem = getStockItem(ss.supplierName, row.item_code)
                           const stockQty = stockItem?.total ?? 0
-                          const plan = loadingPlan[ss.supplierName]?.[row.item_code] ?? ['', '']
+                          const dates = supplierSlotDates[ss.supplierName] ?? []
+                          const plan = loadingPlan[ss.supplierName]?.[row.item_code] ?? []
                           const remaining = getRemaining(ss.supplierName, row.item_code)
 
                           return (<>
@@ -1100,14 +1169,13 @@ export default function OrderPlanPage() {
                                   className="text-indigo-600 hover:underline font-medium">{stockQty.toLocaleString()}</button>
                               ) : <span className="text-gray-300">—</span>}
                             </td>
-                            <td key={`${ss.supplierName}-l1`} className="px-1.5 py-1 bg-indigo-50/10">
-                              <input type="number" min="0" value={plan[0]} onChange={e => setLoadQty(ss.supplierName, row.item_code, 0, e.target.value)} placeholder="0"
-                                className="border border-gray-200 rounded px-1.5 py-1 w-20 text-right text-xs outline-none focus:border-indigo-400" />
-                            </td>
-                            <td key={`${ss.supplierName}-l2`} className="px-1.5 py-1 bg-indigo-50/10">
-                              <input type="number" min="0" value={plan[1]} onChange={e => setLoadQty(ss.supplierName, row.item_code, 1, e.target.value)} placeholder="0"
-                                className="border border-gray-200 rounded px-1.5 py-1 w-20 text-right text-xs outline-none focus:border-indigo-400" />
-                            </td>
+                            {dates.map((_, i) => (
+                              <td key={`${ss.supplierName}-d${i}`} className="px-1.5 py-1 bg-indigo-50/10">
+                                <input type="number" min="0" value={plan[i] ?? ''} onChange={e => setLoadQty(ss.supplierName, row.item_code, i, e.target.value)} placeholder="0"
+                                  className="border border-gray-200 rounded px-1.5 py-1 w-20 text-right text-xs outline-none focus:border-indigo-400" />
+                              </td>
+                            ))}
+                            <td key={`${ss.supplierName}-add-placeholder`} className="px-1.5 py-1 bg-indigo-50/5 w-8" />
                             <C key={`${ss.supplierName}-rem`} className={`px-3 py-2 text-right whitespace-nowrap bg-indigo-50/20 font-medium hover:bg-indigo-100/40 ${stockQty > 0 && remaining < 0 ? 'text-red-500' : 'text-gray-700'}`}
                               onClick={fp('remaining', ss.supplierName)}>
                               {stockQty > 0 ? fmtF(remaining) : <span className="text-gray-400">—</span>}
@@ -1268,6 +1336,43 @@ export default function OrderPlanPage() {
                 {pwDialog.action === 'save' ? 'บันทึก' : 'ลบ'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Slot date dialog ───────────────────────────────────────────────── */}
+      {slotDateDialog && (
+        <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4" onClick={() => setSlotDateDialog(null)}>
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-xs w-full" onClick={e => e.stopPropagation()}>
+            {slotDateDialog.step === 'pw' ? (<>
+              <h3 className="font-bold text-gray-900 mb-1">
+                {slotDateDialog.action === 'add' ? 'เพิ่มวันโหลด' : slotDateDialog.action === 'edit' ? 'แก้ไขวันโหลด' : 'ลบวันโหลด'}
+              </h3>
+              <p className="text-xs text-gray-400 mb-4">ใส่รหัสผ่านเพื่อยืนยัน</p>
+              <input type="password" value={slotDateDialog.pw} autoFocus placeholder="รหัสผ่าน"
+                onChange={e => setSlotDateDialog(d => d ? { ...d, pw: e.target.value, pwError: false } : null)}
+                onKeyDown={e => e.key === 'Enter' && confirmSlotDatePw()}
+                className="border border-gray-300 rounded-lg px-3 py-2 w-full text-sm outline-none focus:border-blue-400 mb-1" />
+              {slotDateDialog.pwError && <p className="text-xs text-red-500 mb-3">รหัสผ่านไม่ถูกต้อง</p>}
+              {!slotDateDialog.pwError && <div className="mb-3" />}
+              <div className="flex gap-2">
+                <button onClick={() => setSlotDateDialog(null)} className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50">ยกเลิก</button>
+                <button onClick={confirmSlotDatePw} className={`flex-1 px-4 py-2 text-white text-sm rounded-lg ${slotDateDialog.action === 'delete' ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-600 hover:bg-blue-700'}`}>ยืนยัน</button>
+              </div>
+            </>) : (<>
+              <h3 className="font-bold text-gray-900 mb-1">
+                {slotDateDialog.action === 'add' ? `เพิ่มวันโหลด — ${slotDateDialog.supplierName}` : `แก้ไขวันโหลด — ${slotDateDialog.supplierName}`}
+              </h3>
+              <p className="text-xs text-gray-400 mb-3">เช่น 8 Aug 2026</p>
+              <input type="text" value={slotDateDialog.dateInput} autoFocus placeholder="8 Aug 2026"
+                onChange={e => setSlotDateDialog(d => d ? { ...d, dateInput: e.target.value } : null)}
+                onKeyDown={e => e.key === 'Enter' && confirmSlotDateAction()}
+                className="border border-gray-300 rounded-lg px-3 py-2 w-full text-sm outline-none focus:border-blue-400 mb-4" />
+              <div className="flex gap-2">
+                <button onClick={() => setSlotDateDialog(null)} className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50">ยกเลิก</button>
+                <button onClick={confirmSlotDateAction} className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg">บันทึก</button>
+              </div>
+            </>)}
           </div>
         </div>
       )}
