@@ -166,7 +166,7 @@ export default function OrderPlanPage() {
   const templateFileRef = useRef<HTMLInputElement>(null)
 
   const [usageData, setUsageData] = useState<UsageData | null>(null)
-  const [usageMonthIdx, setUsageMonthIdx] = useState(2) // 0=first month, 2=last (Jun by default)
+  const [usageLabel, setUsageLabel] = useState<string>('Jun 2026') // column header label only; data always from col E
   const usageFileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -361,15 +361,17 @@ export default function OrderPlanPage() {
       else items[code] = vals
     }
 
+    // Auto-set label to last detected month or fallback
+    setUsageLabel(labels[2] && !labels[2].startsWith('เดือน') ? `Usage ${labels[2]}` : `Usage Jun ${yearFromFile}`)
     setUsageData({ fileName: file.name, items, labels })
-    setUsageMonthIdx(2) // default to last month (col E)
     e.target.value = ''
   }
 
   function getUsageLast(itemCode: string): number | null {
     if (!usageData) return null
     const vals = usageData.items[itemCode]
-    return vals ? (vals[usageMonthIdx] ?? null) : null
+    // Always use col E (index 2 = last/Jun) — data is locked to the latest month column
+    return vals ? (vals[2] ?? null) : null
   }
 
   function getUsageAvg(itemCode: string): number | null {
@@ -695,7 +697,7 @@ export default function OrderPlanPage() {
       'Item Code', 'Description',
       ...Array.from({ length: ddpCols }, (_, i) => `DDP ${ddpSuppliers[i] ?? i + 1} (THB)`),
       'PO ไทย', 'Stock ไทย', 'PO ไทย/2', 'ลงเรือ', 'Fc. W1', 'Fc. W2', 'Fc. W3+4', 'Fc. Next Month',
-      ...(usageData ? [`Usage ${usageData.labels[usageMonthIdx] ?? usageData.labels[usageData.labels.length - 1]}`, `Avg. Usage 3M`] : []),
+      ...(usageData ? [usageLabel, `Avg. Usage 3M`] : []),
       'เหลือให้ W3W4', 'เหลือให้ Next Month', 'ต้องสั่ง',
       ...supplierStocks.flatMap(ss => [`Stock ${ss.supplierName}`, 'โหลด 1', 'โหลด 2', `คงเหลือ ${ss.supplierName}`]),
       ...(supplierStocks.length > 0 ? ['รวมโหลด', 'Stock หลังโหลด', 'เลือก Sup', 'แนะนำเปิด PO'] : []),
@@ -828,7 +830,7 @@ export default function OrderPlanPage() {
                 <div className="flex items-center gap-2 flex-wrap">
                   {usageData ? (
                     <>
-                      <span className="text-xs font-semibold text-purple-700 bg-purple-50 border border-purple-200 px-2.5 py-1 rounded-lg">✓ {usageData.fileName}</span>
+                      <span className="text-xs font-semibold text-purple-700 bg-purple-50 border border-purple-200 px-2.5 py-1 rounded-lg">✓ {usageData.fileName} ({Object.keys(usageData.items).length} items)</span>
                       <button onClick={() => usageFileRef.current?.click()} className="text-xs text-blue-500 hover:text-blue-700 whitespace-nowrap">อัพเดต</button>
                       <button onClick={() => setUsageData(null)} className="text-gray-300 hover:text-red-400 text-xs">✕</button>
                     </>
@@ -939,19 +941,23 @@ export default function OrderPlanPage() {
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold">Fc. W2</th>
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold">Fc. W3+4</th>
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold">Fc. Next Month</th>
-                    {usageData && (
-                      <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-purple-50 text-purple-700">
-                        <select
-                          value={usageMonthIdx}
-                          onChange={e => setUsageMonthIdx(Number(e.target.value))}
-                          className="bg-transparent text-purple-700 font-semibold text-xs cursor-pointer outline-none"
-                        >
-                          {usageData.labels.map((label, i) => (
-                            <option key={i} value={i}>Usage {label}</option>
-                          ))}
-                        </select>
-                      </th>
-                    )}
+                    {usageData && (() => {
+                      const yr = (usageData.fileName.match(/20\d\d/) ?? [])[0] ?? '2026'
+                      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+                      return (
+                        <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-purple-50 text-purple-700">
+                          <select
+                            value={usageLabel}
+                            onChange={e => setUsageLabel(e.target.value)}
+                            className="bg-transparent text-purple-700 font-semibold text-xs cursor-pointer outline-none"
+                          >
+                            {months.map(m => (
+                              <option key={m} value={`Usage ${m} ${yr}`}>Usage {m} {yr}</option>
+                            ))}
+                          </select>
+                        </th>
+                      )
+                    })()}
                     {usageData && <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-purple-50 text-purple-700">Avg. Usage 3M</th>}
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-green-50 text-green-700">เหลือให้ W3W4</th>
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-green-50 text-green-700">เหลือให้ Next</th>
@@ -1013,10 +1019,10 @@ export default function OrderPlanPage() {
                           const avg = getUsageAvg(row.item_code)
                           return (<>
                             <td className="px-3 py-2 text-right whitespace-nowrap bg-purple-50/20 text-purple-700 font-medium">
-                              {last !== null && last > 0 ? last.toLocaleString() : <span className="text-gray-300">—</span>}
+                              {last !== null ? last.toLocaleString() : <span className="text-gray-300">—</span>}
                             </td>
                             <td className="px-3 py-2 text-right whitespace-nowrap bg-purple-50/20 text-purple-700 font-medium">
-                              {avg !== null && avg > 0 ? fmtF(avg) : <span className="text-gray-300">—</span>}
+                              {avg !== null ? fmtF(avg) : <span className="text-gray-300">—</span>}
                             </td>
                           </>)
                         })()}
