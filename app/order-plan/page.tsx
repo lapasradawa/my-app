@@ -90,6 +90,12 @@ interface FormulaPopup {
   lines: FLine[]
 }
 
+interface UsageData {
+  fileName: string
+  items: Record<string, number[]>   // item_code → [m1, m2, m3] values
+  labels: string[]                  // e.g. ['Apr', 'May', 'Jun']
+}
+
 // ── History ────────────────────────────────────────────────────────────────
 interface HistorySession {
   id: string
@@ -101,6 +107,7 @@ interface HistorySession {
   supplierStocks: SupplierStock[]
   selectedProject: string
   supplierY: Record<string, string>
+  usageData?: UsageData | null
 }
 
 const SUPPLIER_COLORS = [
@@ -157,6 +164,9 @@ export default function OrderPlanPage() {
   const [templateCodes, setTemplateCodes] = useState<Set<string> | null>(null)
   const [templateInfo, setTemplateInfo] = useState<{ fileName: string; count: number } | null>(null)
   const templateFileRef = useRef<HTMLInputElement>(null)
+
+  const [usageData, setUsageData] = useState<UsageData | null>(null)
+  const usageFileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     loadProjects(); loadSettings(); setHistory(readHistory())
@@ -301,6 +311,55 @@ export default function OrderPlanPage() {
       setParsedCache(allParsedCache)
       buildPlanRows(allParsedCache, selectedProject)
     }
+  }
+
+  async function handleUsageFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const buffer = await file.arrayBuffer()
+    const wb = XLSX.read(buffer, { type: 'array' })
+    const ws = wb.Sheets[wb.SheetNames[0]]
+    const raw = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '' })
+
+    // Find header row: look for row where col C+ has month-like text
+    let headerRowIdx = 0
+    for (let i = 0; i < Math.min(raw.length, 5); i++) {
+      const row = raw[i] as unknown[]
+      const cellC = String(row[2] ?? '').trim()
+      if (cellC && !/^\d+$/.test(cellC)) { headerRowIdx = i; break }
+    }
+
+    // Collect up to 3 month labels from col C onwards
+    const headerRow = raw[headerRowIdx] as unknown[]
+    const labels: string[] = []
+    for (let c = 2; c < headerRow.length && labels.length < 3; c++) {
+      const label = String(headerRow[c] ?? '').trim()
+      if (label) labels.push(label)
+    }
+
+    const items: Record<string, number[]> = {}
+    for (let i = headerRowIdx + 1; i < raw.length; i++) {
+      const row = raw[i] as unknown[]
+      const code = String(row[0] ?? '').trim()
+      if (!code || code.toLowerCase().includes('total') || code.toLowerCase().includes('รวม')) continue
+      items[code] = labels.map((_, idx) => Number(row[2 + idx] ?? 0) || 0)
+    }
+
+    setUsageData({ fileName: file.name, items, labels })
+    e.target.value = ''
+  }
+
+  function getUsageLast(itemCode: string): number | null {
+    if (!usageData) return null
+    const vals = usageData.items[itemCode]
+    return vals ? (vals[vals.length - 1] ?? null) : null
+  }
+
+  function getUsageAvg(itemCode: string): number | null {
+    if (!usageData) return null
+    const vals = usageData.items[itemCode]
+    if (!vals || vals.length === 0) return null
+    return vals.reduce((a, b) => a + b, 0) / vals.length
   }
 
   async function buildPlanRows(parsed: ParsedRow[], project: string) {
@@ -453,10 +512,10 @@ export default function OrderPlanPage() {
       case 'po_thai':  return src('PO ไทย', 'G', row.po_thai)
       case 'stock_thai': return src('Stock ไทย', 'D', row.stock_thai)
       case 'lonsua':   return src('ลงเรือ', 'M', row.lonsua)
-      case 'week1':    return src('W1', 'N', row.week1)
-      case 'week2':    return src('W2', 'O', row.week2)
-      case 'week3_4':  return src('W3+4', 'P', row.week3_4)
-      case 'next_month': return src('Next Month', 'Q', row.next_month)
+      case 'week1':    return src('Fc. W1', 'N', row.week1)
+      case 'week2':    return src('Fc. W2', 'O', row.week2)
+      case 'week3_4':  return src('Fc. W3+4', 'P', row.week3_4)
+      case 'next_month': return src('Fc. Next Month', 'Q', row.next_month)
 
       case 'L':
         return { ...base, colName: 'PO ไทย/2', formulaStr: 'PO ไทย ÷ 2', lines: [
@@ -466,26 +525,26 @@ export default function OrderPlanPage() {
         ]}
 
       case 'S':
-        return { ...base, colName: 'เหลือให้ W3W4', formulaStr: 'Stock ไทย + PO ไทย/2 − W1 − W2', lines: [
+        return { ...base, colName: 'เหลือให้ W3W4', formulaStr: 'Stock ไทย + PO ไทย/2 − Fc.W1 − Fc.W2', lines: [
           { op: '', label: 'Stock ไทย', val: row.stock_thai },
           { op: '+', label: 'PO ไทย/2', val: row.L },
-          { op: '−', label: 'W1', val: row.week1 },
-          { op: '−', label: 'W2', val: row.week2 },
+          { op: '−', label: 'Fc. W1', val: row.week1 },
+          { op: '−', label: 'Fc. W2', val: row.week2 },
           { op: '=', label: 'เหลือให้ W3W4', val: row.S, isResult: true },
         ]}
 
       case 'T':
-        return { ...base, colName: 'เหลือให้ Next Month', formulaStr: 'เหลือให้ W3W4 + ลงเรือ − W3+4', lines: [
+        return { ...base, colName: 'เหลือให้ Next Month', formulaStr: 'เหลือให้ W3W4 + ลงเรือ − Fc.W3+4', lines: [
           { op: '', label: 'เหลือให้ W3W4 (S)', val: row.S },
           { op: '+', label: 'ลงเรือ', val: row.lonsua },
-          { op: '−', label: 'W3+4', val: row.week3_4 },
+          { op: '−', label: 'Fc. W3+4', val: row.week3_4 },
           { op: '=', label: 'เหลือให้ Next Month', val: row.T, isResult: true },
         ]}
 
       case 'U':
-        return { ...base, colName: 'ต้องสั่ง', formulaStr: 'เหลือให้ Next Month − Next Month', lines: [
+        return { ...base, colName: 'ต้องสั่ง', formulaStr: 'เหลือให้ Next Month − Fc. Next Month', lines: [
           { op: '', label: 'เหลือให้ Next Month (T)', val: row.T },
-          { op: '−', label: 'Next Month', val: row.next_month },
+          { op: '−', label: 'Fc. Next Month', val: row.next_month },
           { op: '=', label: 'ต้องสั่ง', val: row.U, isResult: true },
         ]}
 
@@ -539,7 +598,7 @@ export default function OrderPlanPage() {
         const Z = W - row.next_month - rem
         return { ...base, colName: 'แนะนำเปิด PO', formulaStr: 'Stock หลังโหลด − Next Month − คงเหลือ Supplier', lines: [
           { op: '', label: 'Stock หลังโหลด (W)', val: W },
-          { op: '−', label: 'Next Month', val: row.next_month },
+          { op: '−', label: 'Fc. Next Month', val: row.next_month },
           { op: '−', label: `คงเหลือ ${sel}`, val: rem },
           { op: '=', label: 'แนะนำเปิด PO', val: Z, isResult: true, note: Z < 0 ? `ควรสั่ง ${Math.ceil(Math.abs(Z)).toLocaleString()} ชิ้น` : 'stock เพียงพอ' },
         ]}
@@ -574,7 +633,7 @@ export default function OrderPlanPage() {
     const session: HistorySession = {
       id, savedAt: new Date().toISOString(),
       fileName, itemCount: parsedCache.length, parsedCache,
-      loadingPlan, supplierStocks, selectedProject, supplierY,
+      loadingPlan, supplierStocks, selectedProject, supplierY, usageData,
     }
     setHistory(prev => {
       const idx = prev.findIndex(s => s.id === id)
@@ -606,6 +665,7 @@ export default function OrderPlanPage() {
     setParsedCache(session.parsedCache); setFileName(session.fileName)
     setLoadingPlan(session.loadingPlan); setSupplierStocks(session.supplierStocks)
     setSelectedProject(session.selectedProject); setSupplierY(session.supplierY)
+    if (session.usageData !== undefined) setUsageData(session.usageData ?? null)
     setShowHistory(false); setLoading(true)
     await buildPlanRows(session.parsedCache, session.selectedProject)
     setLoading(false)
@@ -617,7 +677,8 @@ export default function OrderPlanPage() {
     const headers: string[] = [
       'Item Code', 'Description',
       ...Array.from({ length: ddpCols }, (_, i) => `DDP ${ddpSuppliers[i] ?? i + 1} (THB)`),
-      'PO ไทย', 'Stock ไทย', 'PO ไทย/2', 'ลงเรือ', 'W1', 'W2', 'W3+4', 'Next Month',
+      'PO ไทย', 'Stock ไทย', 'PO ไทย/2', 'ลงเรือ', 'Fc. W1', 'Fc. W2', 'Fc. W3+4', 'Fc. Next Month',
+      ...(usageData ? [`Usage ${usageData.labels[usageData.labels.length - 1]}`, `Avg. Usage ${usageData.labels.join('-')}`] : []),
       'เหลือให้ W3W4', 'เหลือให้ Next Month', 'ต้องสั่ง',
       ...supplierStocks.flatMap(ss => [`Stock ${ss.supplierName}`, 'โหลด 1', 'โหลด 2', `คงเหลือ ${ss.supplierName}`]),
       ...(supplierStocks.length > 0 ? ['รวมโหลด', 'Stock หลังโหลด', 'เลือก Sup', 'แนะนำเปิด PO'] : []),
@@ -632,6 +693,10 @@ export default function OrderPlanPage() {
         ...Array.from({ length: ddpCols }, (_, i) => row.ddp_prices[i] ? parseFloat(row.ddp_prices[i].ddp_thb.toFixed(2)) : ''),
         row.po_thai, row.stock_thai, parseFloat(row.L.toFixed(1)),
         row.lonsua, row.week1, row.week2, row.week3_4, row.next_month,
+        ...(usageData ? [
+          getUsageLast(row.item_code) ?? '',
+          (() => { const a = getUsageAvg(row.item_code); return a !== null ? parseFloat(a.toFixed(1)) : '' })(),
+        ] : []),
         parseFloat(row.S.toFixed(1)), parseFloat(row.T.toFixed(1)), parseFloat(row.U.toFixed(1)),
         ...supplierStocks.flatMap(ss => {
           const stockQty = getStockItem(ss.supplierName, row.item_code)?.total ?? 0
@@ -742,6 +807,25 @@ export default function OrderPlanPage() {
                 </div>
               </div>
               <div>
+                <label className="text-sm text-gray-600 font-medium block mb-1.5">Usage (ย้อนหลัง 3 เดือน)</label>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {usageData ? (
+                    <>
+                      <span className="text-xs font-semibold text-purple-700 bg-purple-50 border border-purple-200 px-2.5 py-1 rounded-lg">✓ {usageData.labels.join(' / ')}</span>
+                      <span className="text-xs text-gray-400 truncate max-w-[140px]">{usageData.fileName}</span>
+                      <button onClick={() => usageFileRef.current?.click()} className="text-xs text-blue-500 hover:text-blue-700 whitespace-nowrap">อัพเดต</button>
+                      <button onClick={() => setUsageData(null)} className="text-gray-300 hover:text-red-400 text-xs">✕</button>
+                    </>
+                  ) : (
+                    <button onClick={() => usageFileRef.current?.click()}
+                      className="px-4 py-1.5 border border-dashed border-gray-300 rounded-lg text-sm text-gray-500 hover:bg-gray-50 hover:border-gray-400 transition-colors">
+                      เลือกไฟล์ Usage
+                    </button>
+                  )}
+                  <input ref={usageFileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleUsageFile} />
+                </div>
+              </div>
+              <div>
                 <label className="text-sm text-gray-600 font-medium block mb-1.5">stock_dashboard Excel</label>
                 <div className="flex items-center gap-2">
                   <button onClick={() => fileRef.current?.click()} className="px-4 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors">เลือกไฟล์</button>
@@ -835,10 +919,12 @@ export default function OrderPlanPage() {
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-amber-50 text-amber-700">Stock ไทย</th>
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-amber-50 text-amber-700">PO ไทย/2</th>
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold">ลงเรือ</th>
-                    <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold">W1</th>
-                    <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold">W2</th>
-                    <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold">W3+4</th>
-                    <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold">Next Month</th>
+                    <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold">Fc. W1</th>
+                    <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold">Fc. W2</th>
+                    <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold">Fc. W3+4</th>
+                    <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold">Fc. Next Month</th>
+                    {usageData && <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-purple-50 text-purple-700">Usage {usageData.labels[usageData.labels.length - 1]}</th>}
+                    {usageData && <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-purple-50 text-purple-700">Avg. Usage</th>}
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-green-50 text-green-700">เหลือให้ W3W4</th>
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-green-50 text-green-700">เหลือให้ Next</th>
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-red-50 text-red-700">ต้องสั่ง</th>
@@ -894,6 +980,18 @@ export default function OrderPlanPage() {
                         <C className="px-3 py-2 text-right text-gray-700 whitespace-nowrap hover:bg-gray-100/80" onClick={fp('week2')}>{fmtN(row.week2)}</C>
                         <C className="px-3 py-2 text-right text-gray-700 whitespace-nowrap hover:bg-gray-100/80" onClick={fp('week3_4')}>{fmtN(row.week3_4)}</C>
                         <C className="px-3 py-2 text-right text-gray-700 whitespace-nowrap hover:bg-gray-100/80" onClick={fp('next_month')}>{fmtN(row.next_month)}</C>
+                        {usageData && (() => {
+                          const last = getUsageLast(row.item_code)
+                          const avg = getUsageAvg(row.item_code)
+                          return (<>
+                            <td className="px-3 py-2 text-right whitespace-nowrap bg-purple-50/20 text-purple-700 font-medium">
+                              {last !== null && last > 0 ? last.toLocaleString() : <span className="text-gray-300">—</span>}
+                            </td>
+                            <td className="px-3 py-2 text-right whitespace-nowrap bg-purple-50/20 text-purple-700 font-medium">
+                              {avg !== null && avg > 0 ? fmtF(avg) : <span className="text-gray-300">—</span>}
+                            </td>
+                          </>)
+                        })()}
                         <C className="px-3 py-2 text-right font-medium bg-green-50/20 whitespace-nowrap text-gray-700 hover:bg-green-100/40" onClick={fp('S')}>{fmtF(row.S)}</C>
                         <C className="px-3 py-2 text-right font-medium bg-green-50/20 whitespace-nowrap text-gray-700 hover:bg-green-100/40" onClick={fp('T')}>{fmtF(row.T)}</C>
                         <C className={`px-3 py-2 text-right font-semibold bg-red-50/20 whitespace-nowrap hover:bg-red-100/40 ${row.U < 0 ? 'text-red-600' : 'text-gray-700'}`} onClick={fp('U')}>{fmtF(row.U)}</C>
