@@ -602,11 +602,12 @@ export default function OrderPlanPage() {
 
   function computeW(row: PlanRow): number { return row.T + computeV(row.item_code) }
 
-  function computeZ(row: PlanRow): number | null {
-    const sel = supplierY[row.item_code]
-    if (!sel) return null
-    const stockQty = getStockItem(sel, row.item_code)?.total ?? 0
-    return stockQty + computeW(row) - row.next_month
+  function getTotalSupplierStock(itemCode: string): number {
+    return supplierStocks.reduce((s, ss) => s + (getStockItem(ss.supplierName, itemCode)?.total ?? 0), 0)
+  }
+
+  function computeZ(row: PlanRow): number {
+    return getTotalSupplierStock(row.item_code) + computeW(row) - row.next_month
   }
 
   // ── Formula builder ────────────────────────────────────────────────────
@@ -701,13 +702,15 @@ export default function OrderPlanPage() {
       }
 
       case 'Z': {
-        const sel = supplierY[row.item_code]
-        if (!sel) return { ...base, colName: 'แนะนำเปิด PO', lines: [{ op: '', label: 'เลือก Supplier ก่อน', val: '' }] }
         const W = computeW(row)
-        const stockQty = getStockItem(sel, row.item_code)?.total ?? 0
-        const Z = stockQty + W - row.next_month
-        return { ...base, colName: 'แนะนำเปิด PO', formulaStr: `Stock ${sel} + Stock หลังโหลด − Fc. Next Month`, lines: [
-          { op: '',  label: `Stock ${sel}`, val: stockQty },
+        const Z = computeZ(row)
+        const stockLines: FLine[] = supplierStocks
+          .map(ss => ({ name: ss.supplierName, qty: getStockItem(ss.supplierName, row.item_code)?.total ?? 0 }))
+          .filter(x => x.qty > 0)
+          .map((x, idx) => ({ op: (idx === 0 ? '' : '+') as FLine['op'], label: `Stock ${x.name}`, val: x.qty }))
+        if (stockLines.length === 0) stockLines.push({ op: '', label: 'Stock Supplier (ไม่มีข้อมูล)', val: 0 })
+        return { ...base, colName: 'แนะนำเปิด PO', formulaStr: 'รวม Stock ทุก Supplier + Stock หลังโหลด − Fc. Next Month', lines: [
+          ...stockLines,
           { op: '+', label: 'Stock หลังโหลด (W)', val: W },
           { op: '−', label: 'Fc. Next Month', val: row.next_month },
           { op: '=', label: 'แนะนำเปิด PO', val: Z, isResult: true, note: Z < 0 ? `ควรสั่ง ${Math.ceil(Math.abs(Z)).toLocaleString()} ชิ้น` : 'stock เพียงพอ' },
@@ -795,7 +798,7 @@ export default function OrderPlanPage() {
         const dates = supplierSlotDates[ss.supplierName] ?? []
         return [`Stock ${ss.supplierName}`, ...dates, `คงเหลือ ${ss.supplierName}`]
       }),
-      ...(supplierStocks.length > 0 ? ['รวมโหลด', 'Stock หลังโหลด', 'เลือก Sup', 'แนะนำเปิด PO'] : []),
+      ...(supplierStocks.length > 0 ? ['รวมโหลด', 'Stock หลังโหลด', 'แนะนำเปิด PO'] : []),
     ]
 
     const dataRows = rows.map(row => {
@@ -819,7 +822,7 @@ export default function OrderPlanPage() {
           const remaining = getRemaining(ss.supplierName, row.item_code)
           return [stockQty || '', ...dates.map((_, i) => Number(plan[i]) || ''), stockQty > 0 ? parseFloat(remaining.toFixed(1)) : '']
         }),
-        ...(supplierStocks.length > 0 ? [V || '', parseFloat(W.toFixed(1)), supplierY[row.item_code] ?? '', Z !== null ? parseFloat(Z.toFixed(1)) : ''] : []),
+        ...(supplierStocks.length > 0 ? [V || '', parseFloat(W.toFixed(1)), parseFloat(Z.toFixed(1))] : []),
       ]
     })
 
@@ -1079,7 +1082,6 @@ export default function OrderPlanPage() {
                     {hasStock && <>
                       <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-violet-50 text-violet-700 border-l border-violet-100">รวมโหลด</th>
                       <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-violet-50 text-violet-700">Stock หลังโหลด</th>
-                      <th className="px-3 py-2.5 text-center whitespace-nowrap font-semibold">เลือก Sup</th>
                       <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-orange-50 text-orange-700">แนะนำเปิด PO</th>
                     </>}
                   </tr>
@@ -1090,7 +1092,7 @@ export default function OrderPlanPage() {
                     const W = computeW(row)
                     const Z = computeZ(row)
                     const wNeg = W < 0
-                    const zNeg = Z !== null && Z < 0
+                    const zNeg = Z < 0
                     const fp = (colType: string, sup?: string) => () => setFormulaPopup(buildFormula(row, colType, sup))
 
                     return (
@@ -1190,18 +1192,9 @@ export default function OrderPlanPage() {
                           <C className={`px-3 py-2 text-right whitespace-nowrap bg-violet-50/20 font-semibold hover:bg-violet-100/40 ${wNeg ? 'text-red-600' : 'text-gray-700'}`} onClick={fp('W')}>
                             {wNeg && <span className="mr-1">⚠</span>}{fmtF(W)}
                           </C>
-                          <td className="px-1.5 py-1">
-                            <select value={supplierY[row.item_code] ?? ''}
-                              onChange={e => setSupplierY(prev => ({ ...prev, [row.item_code]: e.target.value }))}
-                              className="border border-gray-200 rounded px-1.5 py-1 text-xs outline-none focus:border-blue-400 bg-white min-w-[90px]">
-                              <option value="">—</option>
-                              {supplierStocks.map(ss => <option key={ss.supplierName} value={ss.supplierName}>{ss.supplierName}</option>)}
-                            </select>
-                          </td>
                           <C className="px-3 py-2 text-right whitespace-nowrap bg-orange-50/20 font-semibold hover:bg-orange-100/40" onClick={fp('Z')}>
-                            {Z === null ? <span className="text-gray-400 font-normal text-xs">เลือก Sup</span>
-                              : zNeg ? <span className="text-orange-600">ควรสั่ง {Math.ceil(Math.abs(Z)).toLocaleString()}</span>
-                                : <span className="text-green-600 font-normal">พอ +{fmtF(Z)}</span>}
+                            {zNeg ? <span className="text-orange-600">ควรสั่ง {Math.ceil(Math.abs(Z)).toLocaleString()}</span>
+                              : <span className="text-green-600 font-normal">พอ +{fmtF(Z)}</span>}
                           </C>
                         </>}
                       </tr>
