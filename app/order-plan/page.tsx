@@ -830,7 +830,7 @@ export default function OrderPlanPage() {
                   <tr className="bg-gray-50 text-gray-500 border-b border-gray-200">
                     <th className="px-3 py-2.5 text-left whitespace-nowrap font-semibold sticky left-0 bg-gray-50 z-20 border-r border-gray-200 min-w-[200px]">Item Code</th>
                     <th className="px-3 py-2.5 text-left whitespace-nowrap font-semibold sticky left-[200px] bg-gray-50 z-20 border-r border-gray-200 min-w-[220px]">Description</th>
-                    {Array.from({ length: ddpCols }, (_, i) => <th key={i} className="px-3 py-2.5 text-right whitespace-nowrap font-semibold text-gray-500">DDP {i + 1}</th>)}
+                    {Array.from({ length: ddpCols }, (_, i) => <th key={i} className="px-2 py-2.5 text-left whitespace-nowrap font-semibold text-gray-500 w-44">DDP {i + 1}</th>)}
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-amber-50 text-amber-700">PO ไทย</th>
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-amber-50 text-amber-700">Stock ไทย</th>
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-amber-50 text-amber-700">PO ไทย/2</th>
@@ -874,14 +874,14 @@ export default function OrderPlanPage() {
                           const p = row.ddp_prices[j]
                           const col = p ? supplierColor(p.supplier) : null
                           return (
-                            <td key={j} className={`px-2 py-1.5 text-right whitespace-nowrap cursor-pointer ${col ? col.hover : ''}`} onClick={() => p && showDdpFormula(row, p)}>
+                            <td key={j} className={`px-2 py-1.5 w-44 cursor-pointer ${col ? col.hover : ''}`} onClick={() => p && showDdpFormula(row, p)}>
                               {p ? (
-                                <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md ${col!.bg} ${col!.text}`}>
+                                <span className={`flex items-center gap-1.5 px-2 py-0.5 rounded-md ${col!.bg} ${col!.text}`}>
                                   <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${col!.dot}`} />
-                                  <span className="font-medium text-xs">{p.supplier}</span>
-                                  <span className="font-mono font-semibold text-xs ml-0.5">{fmtDdp(p.ddp_thb)}</span>
+                                  <span className="font-medium text-xs flex-1">{p.supplier}</span>
+                                  <span className="font-mono font-semibold text-xs">{fmtDdp(p.ddp_thb)}</span>
                                 </span>
-                              ) : <span className="text-gray-400">—</span>}
+                              ) : <span className="text-gray-300 text-xs px-2">—</span>}
                             </td>
                           )
                         })}
