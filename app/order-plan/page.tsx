@@ -166,8 +166,7 @@ export default function OrderPlanPage() {
   const templateFileRef = useRef<HTMLInputElement>(null)
 
   const [usageData, setUsageData] = useState<UsageData | null>(null)
-  const [usageLabel, setUsageLabel] = useState<string>('Jun 2026') // column header label only; data always from col E
-  const [usageDebug, setUsageDebug] = useState<string>('')
+  const [usageLabel, setUsageLabel] = useState<string>('Jun 2026')
   const usageFileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -401,9 +400,6 @@ export default function OrderPlanPage() {
       if (code in items) items[code] = items[code].map((v, j) => v + vals[j])
       else items[code] = vals
     }
-
-    const debugInfo = `sheets:${wb.SheetNames.join(',')} ref:${ws['!ref']} hdr:${headerRowR} itemCol:${itemCol} mCols:${monthCols} lbls:${monthLabels} count:${Object.keys(items).length} sample:${Object.keys(items).slice(0,3).join('|')}`
-    setUsageDebug(debugInfo)
 
     const lastLabel = monthLabels[2] && !monthLabels[2].startsWith('เดือน') ? `Usage ${monthLabels[2]}` : `Usage Jun ${yearFromFile}`
     setUsageLabel(lastLabel)
@@ -874,10 +870,24 @@ export default function OrderPlanPage() {
                 <div className="flex items-center gap-2 flex-wrap">
                   {usageData ? (
                     <>
-                      <span className="text-xs font-semibold text-purple-700 bg-purple-50 border border-purple-200 px-2.5 py-1 rounded-lg">✓ {usageData.fileName} ({Object.keys(usageData.items).length} items)</span>
+                      <span className="text-xs font-semibold text-purple-700 bg-purple-50 border border-purple-200 px-2.5 py-1 rounded-lg">✓ {usageData.fileName}</span>
+                      {(() => {
+                        const yr = (usageData.fileName.match(/20\d\d/) ?? [])[0] ?? '2026'
+                        const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+                        return (
+                          <select
+                            value={usageLabel}
+                            onChange={e => setUsageLabel(e.target.value)}
+                            className="text-xs text-purple-700 bg-purple-50 border border-purple-200 rounded-lg px-2 py-1 cursor-pointer outline-none font-semibold"
+                          >
+                            {months.map(m => (
+                              <option key={m} value={`Usage ${m} ${yr}`}>{m} {yr}</option>
+                            ))}
+                          </select>
+                        )
+                      })()}
                       <button onClick={() => usageFileRef.current?.click()} className="text-xs text-blue-500 hover:text-blue-700 whitespace-nowrap">อัพเดต</button>
                       <button onClick={() => setUsageData(null)} className="text-gray-300 hover:text-red-400 text-xs">✕</button>
-                      {usageDebug && <div className="w-full mt-1 text-xs text-orange-600 bg-orange-50 border border-orange-200 rounded px-2 py-1 break-all">{usageDebug}</div>}
                     </>
                   ) : (
                     <button onClick={() => usageFileRef.current?.click()}
@@ -986,23 +996,7 @@ export default function OrderPlanPage() {
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold">Fc. W2</th>
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold">Fc. W3+4</th>
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold">Fc. Next Month</th>
-                    {usageData && (() => {
-                      const yr = (usageData.fileName.match(/20\d\d/) ?? [])[0] ?? '2026'
-                      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-                      return (
-                        <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-purple-50 text-purple-700">
-                          <select
-                            value={usageLabel}
-                            onChange={e => setUsageLabel(e.target.value)}
-                            className="bg-transparent text-purple-700 font-semibold text-xs cursor-pointer outline-none"
-                          >
-                            {months.map(m => (
-                              <option key={m} value={`Usage ${m} ${yr}`}>Usage {m} {yr}</option>
-                            ))}
-                          </select>
-                        </th>
-                      )
-                    })()}
+                    {usageData && <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-purple-50 text-purple-700">{usageLabel}</th>}
                     {usageData && <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-purple-50 text-purple-700">Avg. Usage 3M</th>}
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-green-50 text-green-700">เหลือให้ W3W4</th>
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-green-50 text-green-700">เหลือให้ Next</th>
