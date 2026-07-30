@@ -1153,7 +1153,9 @@ export default function OrderPlanPage() {
                             </td>
                           </>)
                         })()}
-                        <C className="px-3 py-2 text-right font-medium bg-green-50/20 whitespace-nowrap text-gray-700 hover:bg-green-100/40" onClick={fp('S')}>{fmtF(row.S)}</C>
+                        <C className={`px-3 py-2 text-right font-semibold whitespace-nowrap hover:bg-red-100/40 ${row.S < 0 ? 'bg-red-50 text-red-600' : 'bg-green-50/20 text-gray-700 hover:bg-green-100/40'}`} onClick={fp('S')}>
+                          {row.S < 0 && <span className="mr-1 text-red-400">⚠</span>}{fmtF(row.S)}
+                        </C>
                         <C className="px-3 py-2 text-right font-medium bg-green-50/20 whitespace-nowrap text-gray-700 hover:bg-green-100/40" onClick={fp('T')}>{fmtF(row.T)}</C>
                         <C className={`px-3 py-2 text-right font-semibold bg-red-50/20 whitespace-nowrap hover:bg-red-100/40 ${row.U < 0 ? 'text-red-600' : 'text-gray-700'}`} onClick={fp('U')}>{fmtF(row.U)}</C>
 
