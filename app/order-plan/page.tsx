@@ -206,7 +206,8 @@ export default function OrderPlanPage() {
         if (slots.length === 0) return
         const supPlan = { ...(prev[ss.supplierName] ?? {}) }
         rows.forEach(row => {
-          if (supPlan[row.item_code]?.[0] !== undefined) return
+          const existing = supPlan[row.item_code] ?? []
+          if (existing.some(v => v !== undefined && v !== '')) return
           const stockQty = getStockItem(ss.supplierName, row.item_code)?.total ?? 0
           if (stockQty <= 0) return
           const suggested = Math.min(Math.max(0, Math.ceil(row.T)), stockQty)
