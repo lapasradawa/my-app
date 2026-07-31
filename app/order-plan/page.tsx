@@ -195,6 +195,33 @@ export default function OrderPlanPage() {
     } catch { /* corrupt storage */ }
   }, [])
 
+  // Auto-suggest slot 0: min(เหลือให้ Next Month, supplier stock) — only when slot is untouched
+  useEffect(() => {
+    if (rows.length === 0 || supplierStocks.length === 0) return
+    setLoadingPlan(prev => {
+      let changed = false
+      const next = { ...prev }
+      supplierStocks.forEach(ss => {
+        const slots = supplierSlotDates[ss.supplierName] ?? []
+        if (slots.length === 0) return
+        const supPlan = { ...(prev[ss.supplierName] ?? {}) }
+        rows.forEach(row => {
+          if (supPlan[row.item_code]?.[0] !== undefined) return
+          const stockQty = getStockItem(ss.supplierName, row.item_code)?.total ?? 0
+          if (stockQty <= 0) return
+          const suggested = Math.min(Math.max(0, Math.ceil(row.T)), stockQty)
+          if (suggested <= 0) return
+          const cur = [...(supPlan[row.item_code] ?? [])]
+          cur[0] = String(suggested)
+          supPlan[row.item_code] = cur
+          changed = true
+        })
+        next[ss.supplierName] = supPlan
+      })
+      return changed ? next : prev
+    })
+  }, [rows, supplierStocks, supplierSlotDates])
+
   async function loadSettings() {
     const { data } = await supabase.from('cost_settings').select('key, value')
     if (data) {
@@ -1211,7 +1238,9 @@ export default function OrderPlanPage() {
                         <C className={`px-3 py-2 text-right font-semibold whitespace-nowrap hover:bg-red-100/40 ${row.S < 0 ? 'bg-red-50 text-red-600' : 'bg-green-50/20 text-gray-700 hover:bg-green-100/40'}`} onClick={fp('S')}>
                           {row.S < 0 && <span className="mr-1 text-red-400">⚠</span>}{fmtF(row.S)}
                         </C>
-                        <C className="px-3 py-2 text-right font-medium bg-green-50/20 whitespace-nowrap text-gray-700 hover:bg-green-100/40" onClick={fp('T')}>{fmtF(row.T)}</C>
+                        <C className={`px-3 py-2 text-right font-semibold whitespace-nowrap ${row.T < 0 ? 'bg-red-50 text-red-600 hover:bg-red-100/40' : 'bg-green-50/20 text-gray-700 hover:bg-green-100/40'}`} onClick={fp('T')}>
+                          {row.T < 0 && <span className="mr-1 text-red-400">⚠</span>}{fmtF(row.T)}
+                        </C>
                         <C className={`px-3 py-2 text-right font-semibold bg-red-50/20 whitespace-nowrap hover:bg-red-100/40 ${row.U < 0 ? 'text-red-600' : 'text-gray-700'}`} onClick={fp('U')}>{fmtF(row.U)}</C>
 
                         {supplierStocks.map(ss => {
