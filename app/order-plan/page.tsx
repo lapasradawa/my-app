@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import * as XLSX from 'xlsx'
+import { Workbook as ExcelJSWorkbook } from 'exceljs'
 import { supabase } from '@/lib/supabase'
 import { tryUnlock } from '@/lib/auth'
 
@@ -786,13 +787,27 @@ export default function OrderPlanPage() {
   }
 
   // ── Export Excel ───────────────────────────────────────────────────────
-  function exportExcel() {
+  async function exportExcel() {
+    const workbook = new ExcelJSWorkbook()
+    const ws = workbook.addWorksheet('Order Plan')
+
     const ddpCols = Math.min(ddpSuppliers.length, 8)
-    const headers: string[] = [
+    const DDP_PALETTE = ['70AD47','ED7D31','9966FF','FFC000','A5A5A5','4472C4','FF6B6B','00B0F0']
+    const supColor: Record<string, string> = {}
+    ddpSuppliers.forEach((s, i) => { supColor[s] = DDP_PALETTE[i % DDP_PALETTE.length] })
+
+    const ddpHeaders = Array.from({ length: ddpCols }, (_, i) => {
+      if (ddpCols === 1) return 'DDP Price (THB)'
+      if (i === 0) return 'DDP Price Cheapest (THB)'
+      if (i === ddpCols - 1) return 'DDP Price Most Expensive (THB)'
+      return `DDP Price Rank ${i + 1} (THB)`
+    })
+
+    const headers = [
       'Item Code', 'Description',
-      ...Array.from({ length: ddpCols }, (_, i) => `DDP ${ddpSuppliers[i] ?? i + 1} (THB)`),
+      ...ddpHeaders,
       'PO ไทย', 'Stock ไทย', 'PO ไทย/2', 'ลงเรือ', 'Fc. W1', 'Fc. W2', 'Fc. W3+4', 'Fc. Next Month',
-      ...(usageData ? [usageLabel, `Avg. Usage 3M`] : []),
+      ...(usageData ? [usageLabel, 'Avg. Usage 3M'] : []),
       'เหลือให้ W3W4', 'เหลือให้ Next Month', 'ต้องสั่งโหลด',
       ...supplierStocks.flatMap(ss => {
         const dates = supplierSlotDates[ss.supplierName] ?? []
@@ -801,11 +816,18 @@ export default function OrderPlanPage() {
       ...(supplierStocks.length > 0 ? ['รวมโหลด', 'Stock หลังโหลด', 'แนะนำเปิด PO'] : []),
     ]
 
-    const dataRows = rows.map(row => {
+    const headerRow = ws.addRow(headers)
+    headerRow.font = { bold: true }
+    headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9D9D9' } }
+    ws.getColumn(1).width = 20
+    ws.getColumn(2).width = 42
+    headers.slice(2).forEach((_, i) => { ws.getColumn(i + 3).width = 16 })
+
+    rows.forEach(row => {
       const V = computeV(row.item_code)
       const W = computeW(row)
       const Z = computeZ(row)
-      return [
+      const rowData = [
         row.item_code, row.description,
         ...Array.from({ length: ddpCols }, (_, i) => row.ddp_prices[i] ? parseFloat(row.ddp_prices[i].ddp_thb.toFixed(2)) : ''),
         row.po_thai, row.stock_thai, parseFloat(row.L.toFixed(1)),
@@ -824,13 +846,35 @@ export default function OrderPlanPage() {
         }),
         ...(supplierStocks.length > 0 ? [V || '', parseFloat(W.toFixed(1)), parseFloat(Z.toFixed(1))] : []),
       ]
+      const exRow = ws.addRow(rowData)
+      Array.from({ length: ddpCols }, (_, i) => {
+        const p = row.ddp_prices[i]
+        if (!p) return
+        const color = supColor[p.supplier]
+        if (!color) return
+        const cell = exRow.getCell(3 + i)
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + color } }
+        cell.font = { color: { argb: 'FFFFFFFF' }, bold: true }
+      })
     })
 
-    const ws = XLSX.utils.aoa_to_sheet([headers, ...dataRows])
-    ws['!cols'] = [{ wch: 18 }, { wch: 40 }, ...headers.slice(2).map(() => ({ wch: 14 }))]
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Order Plan')
-    XLSX.writeFile(wb, `Order_Plan_${new Date().toISOString().slice(0, 10)}.xlsx`)
+    // Legend sheet
+    const legend = workbook.addWorksheet('Legend')
+    legend.addRow(['Supplier', 'Color'])
+    ddpSuppliers.forEach((sup, i) => {
+      const r = legend.addRow([sup, ''])
+      const color = DDP_PALETTE[i % DDP_PALETTE.length]
+      r.getCell(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + color } }
+    })
+
+    const buffer = await workbook.xlsx.writeBuffer()
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `Order_Plan_${new Date().toISOString().slice(0, 10)}.xlsx`
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   // ── Formatting ─────────────────────────────────────────────────────────
