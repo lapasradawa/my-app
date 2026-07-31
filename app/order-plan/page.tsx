@@ -602,12 +602,12 @@ export default function OrderPlanPage() {
 
   function computeW(row: PlanRow): number { return row.T + computeV(row.item_code) }
 
-  function getTotalSupplierStock(itemCode: string): number {
-    return supplierStocks.reduce((s, ss) => s + (getStockItem(ss.supplierName, itemCode)?.total ?? 0), 0)
+  function getTotalRemaining(itemCode: string): number {
+    return supplierStocks.reduce((s, ss) => s + getRemaining(ss.supplierName, itemCode), 0)
   }
 
   function computeZ(row: PlanRow): number {
-    return getTotalSupplierStock(row.item_code) + computeW(row) - row.next_month
+    return getTotalRemaining(row.item_code) + computeW(row) - row.next_month
   }
 
   // ── Formula builder ────────────────────────────────────────────────────
@@ -705,11 +705,11 @@ export default function OrderPlanPage() {
         const W = computeW(row)
         const Z = computeZ(row)
         const stockLines: FLine[] = supplierStocks
-          .map(ss => ({ name: ss.supplierName, qty: getStockItem(ss.supplierName, row.item_code)?.total ?? 0 }))
-          .filter(x => x.qty > 0)
-          .map((x, idx) => ({ op: (idx === 0 ? '' : '+') as FLine['op'], label: `Stock ${x.name}`, val: x.qty }))
-        if (stockLines.length === 0) stockLines.push({ op: '', label: 'Stock Supplier (ไม่มีข้อมูล)', val: 0 })
-        return { ...base, colName: 'แนะนำเปิด PO', formulaStr: 'รวม Stock ทุก Supplier + Stock หลังโหลด − Fc. Next Month', lines: [
+          .map(ss => ({ name: ss.supplierName, qty: getRemaining(ss.supplierName, row.item_code) }))
+          .filter(x => getStockItem(x.name, row.item_code) !== null)
+          .map((x, idx) => ({ op: (idx === 0 ? '' : '+') as FLine['op'], label: `คงเหลือ ${x.name}`, val: x.qty }))
+        if (stockLines.length === 0) stockLines.push({ op: '', label: 'คงเหลือ Supplier (ไม่มีข้อมูล)', val: 0 })
+        return { ...base, colName: 'แนะนำเปิด PO', formulaStr: 'รวม คงเหลือ ทุก Supplier + Stock หลังโหลด − Fc. Next Month', lines: [
           ...stockLines,
           { op: '+', label: 'Stock หลังโหลด (W)', val: W },
           { op: '−', label: 'Fc. Next Month', val: row.next_month },
