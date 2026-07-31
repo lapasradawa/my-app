@@ -885,6 +885,12 @@ export default function OrderPlanPage() {
               <>
                 <button onClick={() => setPwDialog({ action: 'save' })} className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors">บันทึก</button>
                 <button onClick={exportExcel} className="px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors">↓ Export Excel</button>
+                <button
+                  onClick={async () => { setLoading(true); await buildPlanRows(parsedCache, selectedProject); setLoading(false) }}
+                  className="px-4 py-2 border border-blue-300 text-blue-600 rounded-lg text-sm hover:bg-blue-50 transition-colors"
+                  title="โหลดราคา DDP ใหม่จาก Cost Compare">
+                  ↻ Refresh Prices
+                </button>
               </>
             )}
             <button onClick={() => setShowHistory(true)} className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-1.5">
