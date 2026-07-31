@@ -792,9 +792,25 @@ export default function OrderPlanPage() {
     const ws = workbook.addWorksheet('Order Plan')
 
     const ddpCols = Math.min(ddpSuppliers.length, 8)
-    const DDP_PALETTE = ['70AD47','ED7D31','9966FF','FFC000','A5A5A5','4472C4','FF6B6B','00B0F0']
+    // Pastel palette — soft background, dark text
+    const DDP_PALETTE = ['C6EFC5','FDDCB5','D5B8FF','FFF2CC','DCDCDC','BDD7EE','FFD0D0','B3E5FC']
     const supColor: Record<string, string> = {}
     ddpSuppliers.forEach((s, i) => { supColor[s] = DDP_PALETTE[i % DDP_PALETTE.length] })
+
+    // Row 1: legend — "Supplier Color:" then one colored cell per supplier
+    ws.getColumn(1).width = 20
+    ws.getColumn(2).width = 42
+    const legendRow = ws.addRow(['Supplier Color:', ...ddpSuppliers.map(s => s)])
+    legendRow.getCell(1).font = { bold: true }
+    ddpSuppliers.forEach((s, i) => {
+      const cell = legendRow.getCell(2 + i)
+      const color = supColor[s]
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + color } }
+      cell.font = { bold: true, color: { argb: 'FF333333' } }
+      cell.alignment = { horizontal: 'center' }
+    })
+    // Row 2: spacer
+    ws.addRow([])
 
     const ddpHeaders = Array.from({ length: ddpCols }, (_, i) => {
       if (ddpCols === 1) return 'DDP Price (THB)'
@@ -819,8 +835,6 @@ export default function OrderPlanPage() {
     const headerRow = ws.addRow(headers)
     headerRow.font = { bold: true }
     headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9D9D9' } }
-    ws.getColumn(1).width = 20
-    ws.getColumn(2).width = 42
     headers.slice(2).forEach((_, i) => { ws.getColumn(i + 3).width = 16 })
 
     rows.forEach(row => {
@@ -854,17 +868,8 @@ export default function OrderPlanPage() {
         if (!color) return
         const cell = exRow.getCell(3 + i)
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + color } }
-        cell.font = { color: { argb: 'FFFFFFFF' }, bold: true }
+        cell.font = { color: { argb: 'FF333333' }, bold: true }
       })
-    })
-
-    // Legend sheet
-    const legend = workbook.addWorksheet('Legend')
-    legend.addRow(['Supplier', 'Color'])
-    ddpSuppliers.forEach((sup, i) => {
-      const r = legend.addRow([sup, ''])
-      const color = DDP_PALETTE[i % DDP_PALETTE.length]
-      r.getCell(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + color } }
     })
 
     const buffer = await workbook.xlsx.writeBuffer()
