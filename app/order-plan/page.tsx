@@ -792,7 +792,7 @@ export default function OrderPlanPage() {
         return { ...base, colName: `${bufferPct}% Buffer Stock ที่ต้องสั่ง`, formulaStr: `${bufferPct}% Buffer Stock − max(0, PO Coverage)`, lines: [
           { op: '', label: `${bufferPct}% Buffer Stock`, val: buf },
           { op: '−', label: `PO Coverage (${Z >= 0 ? `+${fmtF(Z)} → ใช้ ${fmtF(zPos)}` : `${fmtF(Z)} → ใช้ 0`})`, val: zPos },
-          { op: '=', label: `${bufferPct}% Buffer Stock ที่ต้องสั่ง`, val: bufNeeded, isResult: true, note: bufNeeded > 0 ? `ต้องสั่ง ${Math.ceil(bufNeeded).toLocaleString()} ชิ้น` : 'buffer เพียงพอ' },
+          { op: '=', label: `${bufferPct}% Buffer Stock ที่ต้องสั่ง`, val: bufNeeded, isResult: true, note: bufNeeded > 0 ? `ต้องสั่ง ${Math.ceil(bufNeeded).toLocaleString()} ชิ้น` : 'PO Coverage เกิน Buffer — ไม่ต้องสั่งเพิ่ม' },
         ]}
       }
 
@@ -1362,8 +1362,8 @@ export default function OrderPlanPage() {
                             <C className="px-3 py-2 text-right whitespace-nowrap bg-amber-50/20 text-gray-600 text-sm hover:bg-amber-100/40" onClick={fp('buf')}>
                               {fmtF(buf)}
                             </C>
-                            <C className={`px-3 py-2 text-right whitespace-nowrap bg-amber-50/20 font-semibold text-sm hover:bg-amber-100/40 ${bufNeeded > 0 ? 'text-amber-700' : 'text-green-600'}`} onClick={fp('bufNeeded')}>
-                              {bufNeeded > 0 ? `ต้องสั่ง ${Math.ceil(bufNeeded).toLocaleString()}` : `พอ +${fmtF(Math.abs(bufNeeded))}`}
+                            <C className={`px-3 py-2 text-right whitespace-nowrap bg-amber-50/20 font-semibold text-sm hover:bg-amber-100/40 ${bufNeeded > 0 ? 'text-amber-700' : 'text-gray-300'}`} onClick={fp('bufNeeded')}>
+                              {bufNeeded > 0 ? `ต้องสั่ง ${Math.ceil(bufNeeded).toLocaleString()}` : '—'}
                             </C>
                           </>)
                         })()}
