@@ -171,6 +171,13 @@ export default function OrderPlanPage() {
   const [usageLabel, setUsageLabel] = useState<string>('Jun 2026')
   const usageFileRef = useRef<HTMLInputElement>(null)
 
+  const [supplierCurrencyPref, setSupplierCurrencyPref] = useState<Record<string, string>>({})
+  const [supplierAvailableCurrencies, setSupplierAvailableCurrencies] = useState<Record<string, string[]>>({})
+  const rawPriceCacheRef = useRef<{
+    byItem: Map<string, Map<string, Map<string, number>>>
+    latestCurrency: Map<string, string>
+  } | null>(null)
+
   // no hard limit on loading slots
   const [supplierSlotDates, setSupplierSlotDates] = useState<Record<string, string[]>>({})
   const [slotDateDialog, setSlotDateDialog] = useState<{
@@ -194,6 +201,13 @@ export default function OrderPlanPage() {
       }
     } catch { /* corrupt storage */ }
   }, [])
+
+  // Reapply rows when currency preference changes (no extra fetch needed)
+  useEffect(() => {
+    if (parsedCache.length === 0 || !rawPriceCacheRef.current) return
+    applyRows(parsedCache, supplierCurrencyPref)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supplierCurrencyPref])
 
   // Auto-suggest slot 0: min(เหลือให้ Next Month, supplier stock) — only when slot is untouched
   useEffect(() => {
@@ -465,34 +479,55 @@ export default function OrderPlanPage() {
   }
 
   async function buildPlanRows(parsed: ParsedRow[], project: string) {
-    // item_code → supplier → { fob, currency } (latest upload wins — ORDER BY uploaded_at DESC, first seen = newest)
-    const rawPrices = new Map<string, Map<string, { fob: number; currency: string }>>()
+    // item_code → supplier → currency → fob (latest per supplier+currency, ORDER BY uploaded_at DESC)
+    const byItem = new Map<string, Map<string, Map<string, number>>>()
+    const latestCurrency = new Map<string, string>()   // supplier → most-recently-uploaded currency
     const supplierSet = new Set<string>()
+    const supCurrenciesMap = new Map<string, Set<string>>()
 
     if (project) {
       const { data } = await supabase.from('po_items').select('item_code, supplier, fob_price, currency').eq('project', project).order('uploaded_at', { ascending: false })
       if (data) {
         for (const item of data as { item_code: string; supplier: string; fob_price: number; currency: string }[]) {
           supplierSet.add(item.supplier)
-          if (!rawPrices.has(item.item_code)) rawPrices.set(item.item_code, new Map())
-          const bySupplier = rawPrices.get(item.item_code)!
-          // Keep only the most-recently uploaded price per supplier (first seen = newest due to DESC order)
-          if (!bySupplier.has(item.supplier)) bySupplier.set(item.supplier, { fob: item.fob_price, currency: item.currency })
+          if (!latestCurrency.has(item.supplier)) latestCurrency.set(item.supplier, item.currency)
+          if (!supCurrenciesMap.has(item.supplier)) supCurrenciesMap.set(item.supplier, new Set())
+          supCurrenciesMap.get(item.supplier)!.add(item.currency)
+
+          if (!byItem.has(item.item_code)) byItem.set(item.item_code, new Map())
+          const bySupplier = byItem.get(item.item_code)!
+          if (!bySupplier.has(item.supplier)) bySupplier.set(item.supplier, new Map())
+          const byCur = bySupplier.get(item.supplier)!
+          if (!byCur.has(item.currency)) byCur.set(item.currency, item.fob_price)
         }
       }
     }
+    rawPriceCacheRef.current = { byItem, latestCurrency }
     setDdpSuppliers([...supplierSet].sort())
+    const newSupCur: Record<string, string[]> = {}
+    supCurrenciesMap.forEach((cs, s) => { newSupCur[s] = [...cs].sort() })
+    setSupplierAvailableCurrencies(newSupCur)
 
+    applyRows(parsed, supplierCurrencyPref)
+  }
+
+  function applyRows(parsed: ParsedRow[], currencyPrefs: Record<string, string>) {
+    const cache = rawPriceCacheRef.current
+    if (!cache) return
+    const { byItem, latestCurrency } = cache
     const { cny_rate, usd_rate, ddp_multiplier } = settings
-    function toDdp(fob: number, currency: string) { return fob * (currency === 'USD' ? usd_rate : cny_rate) * ddp_multiplier }
+    const toDdp = (fob: number, currency: string) => fob * (currency === 'USD' ? usd_rate : cny_rate) * ddp_multiplier
 
     const planRows: PlanRow[] = parsed.map(r => {
-      const bySupplier = rawPrices.get(r.item_code)
+      const bySupplier = byItem.get(r.item_code)
       const ddp_prices: DdpPrice[] = []
       if (bySupplier) {
-        for (const [supplier, { fob, currency }] of bySupplier.entries()) {
-          const ddp = toDdp(fob, currency)
-          ddp_prices.push({ supplier, ddp_thb: ddp, fob_price: fob, currency })
+        for (const [supplier, byCur] of bySupplier.entries()) {
+          const pref = currencyPrefs[supplier]
+          const useCur = pref && byCur.has(pref) ? pref : (latestCurrency.get(supplier) ?? '')
+          const fob = byCur.get(useCur)
+          if (fob === undefined) continue
+          ddp_prices.push({ supplier, ddp_thb: toDdp(fob, useCur), fob_price: fob, currency: useCur })
         }
         ddp_prices.sort((a, b) => a.ddp_thb - b.ddp_thb)
       }
@@ -1098,10 +1133,23 @@ export default function OrderPlanPage() {
                 <div className="flex items-center gap-1.5 flex-wrap">
                   {ddpSuppliers.slice(0, 8).map(s => {
                     const col = supplierColor(s)
+                    const currencies = supplierAvailableCurrencies[s] ?? []
+                    const pref = supplierCurrencyPref[s] ?? ''
                     return (
                       <span key={s} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs ${col.bg} ${col.text}`}>
                         <span className={`w-1.5 h-1.5 rounded-full ${col.dot}`} />
                         {s}
+                        {currencies.length > 1 && (
+                          <select
+                            value={pref}
+                            onChange={e => setSupplierCurrencyPref(prev => ({ ...prev, [s]: e.target.value }))}
+                            onClick={e => e.stopPropagation()}
+                            className="ml-0.5 bg-transparent border border-current/30 rounded text-xs outline-none cursor-pointer py-px"
+                          >
+                            <option value="">latest</option>
+                            {currencies.map(c => <option key={c} value={c}>{c}</option>)}
+                          </select>
+                        )}
                       </span>
                     )
                   })}
