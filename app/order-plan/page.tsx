@@ -775,6 +775,27 @@ export default function OrderPlanPage() {
         ]}
       }
 
+      case 'buf': {
+        const buf = row.next_month * bufferPct / 100
+        return { ...base, colName: `${bufferPct}% Buffer Stock`, formulaStr: `Fc. Next Month × ${bufferPct}%`, lines: [
+          { op: '', label: 'Fc. Next Month', val: row.next_month },
+          { op: '×', label: `${bufferPct}%`, val: bufferPct / 100 },
+          { op: '=', label: `${bufferPct}% Buffer Stock`, val: buf, isResult: true },
+        ]}
+      }
+
+      case 'bufNeeded': {
+        const Z = computeZ(row)
+        const buf = row.next_month * bufferPct / 100
+        const bufNeeded = buf - Math.max(0, Z)
+        const zPos = Math.max(0, Z)
+        return { ...base, colName: `${bufferPct}% Buffer Stock ที่ต้องสั่ง`, formulaStr: `${bufferPct}% Buffer Stock − max(0, PO Coverage)`, lines: [
+          { op: '', label: `${bufferPct}% Buffer Stock`, val: buf },
+          { op: '−', label: `PO Coverage (${Z >= 0 ? `+${fmtF(Z)} → ใช้ ${fmtF(zPos)}` : `${fmtF(Z)} → ใช้ 0`})`, val: zPos },
+          { op: '=', label: `${bufferPct}% Buffer Stock ที่ต้องสั่ง`, val: bufNeeded, isResult: true, note: bufNeeded > 0 ? `ต้องสั่ง ${Math.ceil(bufNeeded).toLocaleString()} ชิ้น` : 'buffer เพียงพอ' },
+        ]}
+      }
+
       default:
         return { ...base, colName: colType, lines: [] }
     }
@@ -1338,12 +1359,12 @@ export default function OrderPlanPage() {
                               {zNeg ? <span className="text-orange-600">ควรสั่ง {Math.ceil(Math.abs(Z)).toLocaleString()}</span>
                                 : <span className="text-green-600 font-normal">พอ +{fmtF(Z)}</span>}
                             </C>
-                            <td className="px-3 py-2 text-right whitespace-nowrap bg-amber-50/20 text-gray-600 text-sm">
+                            <C className="px-3 py-2 text-right whitespace-nowrap bg-amber-50/20 text-gray-600 text-sm hover:bg-amber-100/40" onClick={fp('buf')}>
                               {fmtF(buf)}
-                            </td>
-                            <td className={`px-3 py-2 text-right whitespace-nowrap bg-amber-50/20 font-semibold text-sm ${bufNeeded > 0 ? 'text-amber-700' : 'text-green-600'}`}>
+                            </C>
+                            <C className={`px-3 py-2 text-right whitespace-nowrap bg-amber-50/20 font-semibold text-sm hover:bg-amber-100/40 ${bufNeeded > 0 ? 'text-amber-700' : 'text-green-600'}`} onClick={fp('bufNeeded')}>
                               {bufNeeded > 0 ? `ต้องสั่ง ${Math.ceil(bufNeeded).toLocaleString()}` : `พอ +${fmtF(Math.abs(bufNeeded))}`}
-                            </td>
+                            </C>
                           </>)
                         })()}
                       </tr>
