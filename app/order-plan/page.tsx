@@ -171,6 +171,7 @@ export default function OrderPlanPage() {
   const [usageLabel, setUsageLabel] = useState<string>('Jun 2026')
   const usageFileRef = useRef<HTMLInputElement>(null)
 
+  const [bufferPct, setBufferPct] = useState(30)
   const [supplierCurrencyPref, setSupplierCurrencyPref] = useState<Record<string, string>>({})
   const [supplierAvailableCurrencies, setSupplierAvailableCurrencies] = useState<Record<string, string[]>>({})
   const rawPriceCacheRef = useRef<{
@@ -766,11 +767,11 @@ export default function OrderPlanPage() {
           .filter(x => getStockItem(x.name, row.item_code) !== null)
           .map((x, idx) => ({ op: (idx === 0 ? '' : '+') as FLine['op'], label: `คงเหลือ ${x.name}`, val: x.qty }))
         if (stockLines.length === 0) stockLines.push({ op: '', label: 'คงเหลือ Supplier (ไม่มีข้อมูล)', val: 0 })
-        return { ...base, colName: 'แนะนำเปิด PO', formulaStr: 'รวม คงเหลือ ทุก Supplier + Stock หลังโหลด − Fc. Next Month', lines: [
+        return { ...base, colName: 'PO Coverage for Fc. Next Month', formulaStr: 'รวม คงเหลือ ทุก Supplier + Stock หลังโหลด − Fc. Next Month', lines: [
           ...stockLines,
           { op: '+', label: 'Stock หลังโหลด (W)', val: W },
           { op: '−', label: 'Fc. Next Month', val: row.next_month },
-          { op: '=', label: 'แนะนำเปิด PO', val: Z, isResult: true, note: Z < 0 ? `ควรสั่ง ${Math.ceil(Math.abs(Z)).toLocaleString()} ชิ้น` : 'stock เพียงพอ' },
+          { op: '=', label: 'PO Coverage for Fc. Next Month', val: Z, isResult: true, note: Z < 0 ? `ควรสั่ง ${Math.ceil(Math.abs(Z)).toLocaleString()} ชิ้น` : 'stock เพียงพอ' },
         ]}
       }
 
@@ -885,7 +886,7 @@ export default function OrderPlanPage() {
         const dates = supplierSlotDates[ss.supplierName] ?? []
         return [`Stock ${ss.supplierName}`, ...dates, `คงเหลือ ${ss.supplierName}`]
       }),
-      ...(supplierStocks.length > 0 ? ['รวมโหลด', 'Stock หลังโหลด', 'แนะนำเปิด PO'] : []),
+      ...(supplierStocks.length > 0 ? ['รวมโหลด', 'Stock หลังโหลด', 'PO Coverage for Fc. Next Month', `${bufferPct}% Buffer Stock (Based on Fc. Next Month)`, `${bufferPct}% Buffer Stock ที่ต้องสั่ง`] : []),
     ]
 
     const headerRow = ws.addRow(headers)
@@ -914,7 +915,11 @@ export default function OrderPlanPage() {
           const remaining = getRemaining(ss.supplierName, row.item_code)
           return [stockQty || '', ...dates.map((_, i) => Number(plan[i]) || ''), stockQty > 0 ? parseFloat(remaining.toFixed(1)) : '']
         }),
-        ...(supplierStocks.length > 0 ? [V || '', parseFloat(W.toFixed(1)), parseFloat(Z.toFixed(1))] : []),
+        ...(supplierStocks.length > 0 ? (() => {
+          const buf = parseFloat((row.next_month * bufferPct / 100).toFixed(1))
+          const bufNeeded = parseFloat((buf - Math.max(0, Z)).toFixed(1))
+          return [V || '', parseFloat(W.toFixed(1)), parseFloat(Z.toFixed(1)), buf, bufNeeded]
+        })() : []),
       ]
       const exRow = ws.addRow(rowData)
       Array.from({ length: ddpCols }, (_, i) => {
@@ -1206,7 +1211,13 @@ export default function OrderPlanPage() {
                     {hasStock && <>
                       <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-violet-50 text-violet-700 border-l border-violet-100">รวมโหลด</th>
                       <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-violet-50 text-violet-700">Stock หลังโหลด</th>
-                      <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-orange-50 text-orange-700">แนะนำเปิด PO</th>
+                      <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-orange-50 text-orange-700">PO Coverage for<br/>Fc. Next Month</th>
+                      <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-amber-50 text-amber-700">
+                        <input type="number" min={1} max={200} value={bufferPct} onChange={e => setBufferPct(Number(e.target.value) || 30)}
+                          className="w-10 text-center bg-transparent border-b border-amber-400 outline-none font-bold text-amber-700 [appearance:textfield]" />
+                        % Buffer Stock<br/><span className="font-normal text-xs">(Based on Fc. Next Month)</span>
+                      </th>
+                      <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-amber-50 text-amber-700">{bufferPct}% Buffer Stock<br/><span className="font-normal text-xs">ที่ต้องสั่ง</span></th>
                     </>}
                   </tr>
                 </thead>
@@ -1313,18 +1324,28 @@ export default function OrderPlanPage() {
                           </>)
                         })}
 
-                        {hasStock && <>
-                          <C className="px-3 py-2 text-right whitespace-nowrap bg-violet-50/20 font-medium text-gray-700 border-l border-violet-50 hover:bg-violet-100/40" onClick={fp('V')}>
-                            {V > 0 ? V.toLocaleString() : <span className="text-gray-400">—</span>}
-                          </C>
-                          <C className={`px-3 py-2 text-right whitespace-nowrap bg-violet-50/20 font-semibold hover:bg-violet-100/40 ${wNeg ? 'text-red-600' : 'text-gray-700'}`} onClick={fp('W')}>
-                            {wNeg && <span className="mr-1">⚠</span>}{fmtF(W)}
-                          </C>
-                          <C className="px-3 py-2 text-right whitespace-nowrap bg-orange-50/20 font-semibold hover:bg-orange-100/40" onClick={fp('Z')}>
-                            {zNeg ? <span className="text-orange-600">ควรสั่ง {Math.ceil(Math.abs(Z)).toLocaleString()}</span>
-                              : <span className="text-green-600 font-normal">พอ +{fmtF(Z)}</span>}
-                          </C>
-                        </>}
+                        {hasStock && (() => {
+                          const buf = row.next_month * bufferPct / 100
+                          const bufNeeded = buf - Math.max(0, Z)
+                          return (<>
+                            <C className="px-3 py-2 text-right whitespace-nowrap bg-violet-50/20 font-medium text-gray-700 border-l border-violet-50 hover:bg-violet-100/40" onClick={fp('V')}>
+                              {V > 0 ? V.toLocaleString() : <span className="text-gray-400">—</span>}
+                            </C>
+                            <C className={`px-3 py-2 text-right whitespace-nowrap bg-violet-50/20 font-semibold hover:bg-violet-100/40 ${wNeg ? 'text-red-600' : 'text-gray-700'}`} onClick={fp('W')}>
+                              {wNeg && <span className="mr-1">⚠</span>}{fmtF(W)}
+                            </C>
+                            <C className="px-3 py-2 text-right whitespace-nowrap bg-orange-50/20 font-semibold hover:bg-orange-100/40" onClick={fp('Z')}>
+                              {zNeg ? <span className="text-orange-600">ควรสั่ง {Math.ceil(Math.abs(Z)).toLocaleString()}</span>
+                                : <span className="text-green-600 font-normal">พอ +{fmtF(Z)}</span>}
+                            </C>
+                            <td className="px-3 py-2 text-right whitespace-nowrap bg-amber-50/20 text-gray-600 text-sm">
+                              {fmtF(buf)}
+                            </td>
+                            <td className={`px-3 py-2 text-right whitespace-nowrap bg-amber-50/20 font-semibold text-sm ${bufNeeded > 0 ? 'text-amber-700' : 'text-green-600'}`}>
+                              {bufNeeded > 0 ? `ต้องสั่ง ${Math.ceil(bufNeeded).toLocaleString()}` : `พอ +${fmtF(Math.abs(bufNeeded))}`}
+                            </td>
+                          </>)
+                        })()}
                       </tr>
                     )
                   })}
