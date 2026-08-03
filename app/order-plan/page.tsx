@@ -465,8 +465,8 @@ export default function OrderPlanPage() {
   }
 
   async function buildPlanRows(parsed: ParsedRow[], project: string) {
-    // item_code → supplier → currency → fob_price (latest per supplier+currency)
-    const rawPrices = new Map<string, Map<string, Map<string, number>>>()
+    // item_code → supplier → { fob, currency } (latest upload wins — ORDER BY uploaded_at DESC, first seen = newest)
+    const rawPrices = new Map<string, Map<string, { fob: number; currency: string }>>()
     const supplierSet = new Set<string>()
 
     if (project) {
@@ -476,10 +476,8 @@ export default function OrderPlanPage() {
           supplierSet.add(item.supplier)
           if (!rawPrices.has(item.item_code)) rawPrices.set(item.item_code, new Map())
           const bySupplier = rawPrices.get(item.item_code)!
-          if (!bySupplier.has(item.supplier)) bySupplier.set(item.supplier, new Map())
-          const byCurrency = bySupplier.get(item.supplier)!
-          // Keep only most-recent price per supplier+currency (ORDER BY uploaded_at DESC)
-          if (!byCurrency.has(item.currency)) byCurrency.set(item.currency, item.fob_price)
+          // Keep only the most-recently uploaded price per supplier (first seen = newest due to DESC order)
+          if (!bySupplier.has(item.supplier)) bySupplier.set(item.supplier, { fob: item.fob_price, currency: item.currency })
         }
       }
     }
@@ -492,14 +490,9 @@ export default function OrderPlanPage() {
       const bySupplier = rawPrices.get(r.item_code)
       const ddp_prices: DdpPrice[] = []
       if (bySupplier) {
-        for (const [supplier, byCurrency] of bySupplier.entries()) {
-          // For each supplier, pick the currency that gives the cheapest DDP
-          let bestDdp = Infinity, bestFob = 0, bestCurrency = ''
-          for (const [currency, fob] of byCurrency.entries()) {
-            const ddp = toDdp(fob, currency)
-            if (ddp < bestDdp) { bestDdp = ddp; bestFob = fob; bestCurrency = currency }
-          }
-          if (bestDdp < Infinity) ddp_prices.push({ supplier, ddp_thb: bestDdp, fob_price: bestFob, currency: bestCurrency })
+        for (const [supplier, { fob, currency }] of bySupplier.entries()) {
+          const ddp = toDdp(fob, currency)
+          ddp_prices.push({ supplier, ddp_thb: ddp, fob_price: fob, currency })
         }
         ddp_prices.sort((a, b) => a.ddp_thb - b.ddp_thb)
       }
