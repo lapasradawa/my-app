@@ -41,6 +41,8 @@ interface TableRow {
   prices: Record<string, LatestPrice>
 }
 
+const THAI_COST = 'ทุนไทย'
+
 export default function ComparePage() {
   const [settings, setSettings] = useState<Settings>({ cny_rate: 4.85, usd_rate: 33.00, ddp_multiplier: 1.11 })
   const [editSettings, setEditSettings] = useState(false)
@@ -196,19 +198,72 @@ export default function ComparePage() {
     setDeletingBatch(null)
   }
 
+  function parseThaiCostFile(buf: ArrayBuffer): { item_code: string; fob_price: number; description: string }[] {
+    const wb = XLSX.read(buf, { type: 'array' })
+    const ws = wb.Sheets[wb.SheetNames[0]]
+    const raw = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '' })
+    let headerIdx = -1, itemCol = -1, priceCol = -1, descCol = -1
+    for (let i = 0; i < Math.min(raw.length, 20); i++) {
+      const row = raw[i] as unknown[]
+      for (let c = 0; c < row.length; c++) {
+        if (/item.?code/i.test(String(row[c]))) {
+          headerIdx = i; itemCol = c
+          for (let j = 0; j < row.length; j++) {
+            const h = String(row[j] || '').toLowerCase()
+            if (priceCol < 0 && /price|ราคา/.test(h)) priceCol = j
+            if (descCol < 0 && /desc|รายการ/.test(h)) descCol = j
+          }
+          break
+        }
+      }
+      if (headerIdx >= 0) break
+    }
+    if (headerIdx < 0 || itemCol < 0) throw new Error('ไม่พบคอลัมน์ Item Code ในไฟล์')
+    if (priceCol < 0) {
+      // fallback: use the first numeric column after itemCol
+      const hrow = raw[headerIdx] as unknown[]
+      for (let j = itemCol + 1; j < hrow.length; j++) {
+        const cell = raw[headerIdx + 1] ? (raw[headerIdx + 1] as unknown[])[j] : null
+        if (typeof cell === 'number' || (cell && !isNaN(Number(String(cell).replace(/,/g, ''))))) { priceCol = j; break }
+      }
+    }
+    if (priceCol < 0) throw new Error('ไม่พบคอลัมน์ราคาในไฟล์')
+    const items: { item_code: string; fob_price: number; description: string }[] = []
+    for (let i = headerIdx + 1; i < raw.length; i++) {
+      const row = raw[i] as unknown[]
+      const item_code = String(row[itemCol] || '').trim()
+      if (!item_code || /total|รวม/i.test(item_code)) continue
+      const fob_price = Number(String(row[priceCol] || '').replace(/,/g, '')) || 0
+      const description = descCol >= 0 ? String(row[descCol] || '').trim() : ''
+      if (item_code && fob_price > 0) items.push({ item_code, fob_price, description })
+    }
+    return items
+  }
+
   async function handleFileUpload(file: File) {
     setUploading(true)
     const proj = uploadProject.trim()
     const supp = uploadSupplier.trim()
     try {
       const buf = await file.arrayBuffer()
-      const { items } = parsePO(buf)
-      if (items.length === 0) { alert('ไม่พบข้อมูล item ในไฟล์'); return }
+      let parsedItems: Array<{ item_code: string; fob_price: number; currency: string; description: string; document_no?: string | null; document_date?: string | null }>
+      if (supp === THAI_COST) {
+        try {
+          const r = parsePO(buf)
+          parsedItems = r.items.map(i => ({ ...i, currency: 'THB' }))
+          if (parsedItems.length === 0) throw new Error('empty')
+        } catch {
+          parsedItems = parseThaiCostFile(buf).map(i => ({ ...i, currency: 'THB', document_no: null, document_date: null }))
+        }
+      } else {
+        parsedItems = parsePO(buf).items
+      }
+      if (parsedItems.length === 0) { alert('ไม่พบข้อมูล item ในไฟล์'); return }
       if (replaceMode) {
         const { error } = await supabase.from('po_items').delete().eq('project', proj).eq('supplier', supp)
         if (error) { alert('ลบข้อมูลเดิมไม่สำเร็จ: ' + error.message); return }
       }
-      const rows = items.map(item => ({
+      const rows = parsedItems.map(item => ({
         project: proj,
         supplier: supp,
         item_code: item.item_code,
@@ -221,7 +276,7 @@ export default function ComparePage() {
       }))
       const { error } = await supabase.from('po_items').insert(rows)
       if (error) { alert('บันทึกไม่สำเร็จ: ' + error.message); return }
-      alert(`บันทึก ${items.length} รายการสำเร็จ${replaceMode ? ' (แทนที่ข้อมูลเดิม)' : ''}`)
+      alert(`บันทึก ${parsedItems.length} รายการสำเร็จ${replaceMode ? ' (แทนที่ข้อมูลเดิม)' : ''}`)
       await loadProjects()
       if (selectedProject === proj) await loadProject(proj)
       setUploadProject('')
@@ -244,6 +299,7 @@ export default function ComparePage() {
   function exportExcel(rows: TableRow[]) {
     const header = ['Item Code', 'Description',
       ...suppliers.flatMap(s => {
+        if (s === THAI_COST) return [`${s} (THB)`]
         const currency = rows.find(r => r.prices[s])?.prices[s]?.currency ?? 'CNY'
         return [`${s} FOB ${currency}`, `${s} FOB THB`, `${s} DDP THB`]
       })
@@ -252,6 +308,7 @@ export default function ComparePage() {
       row.item_code, row.description,
       ...suppliers.flatMap(s => {
         const p = row.prices[s]
+        if (s === THAI_COST) return [p ? p.fob_price : ''] as (string | number)[]
         if (!p) return ['', '', ''] as (string | number)[]
         const fobThb = p.fob_price * getRate(p.currency)
         return [p.fob_price, fobThb, fobThb * settings.ddp_multiplier] as (string | number)[]
@@ -264,7 +321,13 @@ export default function ComparePage() {
   }
 
   function getRate(currency: string) {
+    if (currency === 'THB') return 1
     return currency === 'USD' ? settings.usd_rate : settings.cny_rate
+  }
+
+  function toDdpThb(s: string, p: LatestPrice): number {
+    if (s === THAI_COST) return p.fob_price
+    return p.fob_price * getRate(p.currency) * settings.ddp_multiplier
   }
 
   function fmtDate(iso: string) {
@@ -531,7 +594,7 @@ export default function ComparePage() {
                         Description
                       </th>
                       {suppliers.map(s => (
-                        <th key={s} colSpan={3} className="px-3 py-2 text-center border-l border-gray-600">
+                        <th key={s} colSpan={s === THAI_COST ? 1 : 3} className="px-3 py-2 text-center border-l border-gray-600">
                           <div className="flex items-center justify-center gap-2">
                             <span className="font-semibold">{s}</span>
                             <button
@@ -549,6 +612,11 @@ export default function ComparePage() {
                     </tr>
                     <tr className="bg-gray-700 text-gray-300">
                       {suppliers.map(s => {
+                        if (s === THAI_COST) return (
+                          <th key={s} className="px-3 py-1.5 text-right border-l border-r border-gray-600 whitespace-nowrap" style={{ minWidth: 100 }}>
+                            ราคา THB
+                          </th>
+                        )
                         const currency = tableRows.find(r => r.prices[s])?.prices[s]?.currency ?? '?'
                         return (
                           <Fragment key={s}>
@@ -570,7 +638,7 @@ export default function ComparePage() {
                     {filteredRows.map(row => {
                       const ddpValues = suppliers
                         .filter(s => row.prices[s])
-                        .map(s => ({ s, ddp: row.prices[s].fob_price * getRate(row.prices[s].currency) * settings.ddp_multiplier }))
+                        .map(s => ({ s, ddp: toDdpThb(s, row.prices[s]) }))
                       const minDdp = ddpValues.length > 1 ? Math.min(...ddpValues.map(v => v.ddp)) : null
 
                       return (
@@ -583,6 +651,17 @@ export default function ComparePage() {
                           </td>
                           {suppliers.map(s => {
                             const p = row.prices[s]
+                            if (s === THAI_COST) {
+                              if (!p) return <td key={s} className="px-3 py-2 text-center text-gray-200 border-l border-r border-gray-100">—</td>
+                              const isBest = minDdp !== null && Math.abs(p.fob_price - minDdp) < 0.005
+                              return (
+                                <td key={s}
+                                  className={`px-3 py-2 text-right font-semibold border-l border-r border-gray-100 cursor-pointer hover:underline ${isBest ? 'text-green-600 bg-green-50' : 'text-gray-700'}`}
+                                  onClick={() => showHistory(row.item_code, s)}>
+                                  {fmtN(p.fob_price)}
+                                </td>
+                              )
+                            }
                             if (!p) return (
                               <Fragment key={s}>
                                 <td className="px-3 py-2 text-center text-gray-200 border-l border-gray-100">—</td>

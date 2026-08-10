@@ -112,6 +112,8 @@ interface HistorySession {
   supplierSlotDates?: Record<string, string[]>
 }
 
+const THAI_COST = 'ทุนไทย'
+
 const SUPPLIER_COLORS = [
   { text: 'text-blue-700',    bg: 'bg-blue-100',    dot: 'bg-blue-500',    hover: 'hover:bg-blue-50' },
   { text: 'text-emerald-700', bg: 'bg-emerald-100', dot: 'bg-emerald-500', hover: 'hover:bg-emerald-50' },
@@ -174,6 +176,8 @@ export default function OrderPlanPage() {
   const [bufferPct, setBufferPct] = useState(30)
   const [supplierCurrencyPref, setSupplierCurrencyPref] = useState<Record<string, string>>({})
   const [supplierAvailableCurrencies, setSupplierAvailableCurrencies] = useState<Record<string, string[]>>({})
+  const [thaiCostMap, setThaiCostMap] = useState<Record<string, number>>({})
+  const [ddpExcluded, setDdpExcluded] = useState<Set<string>>(new Set())
   const rawPriceCacheRef = useRef<{
     byItem: Map<string, Map<string, Map<string, number>>>
     latestCurrency: Map<string, string>
@@ -203,12 +207,18 @@ export default function OrderPlanPage() {
     } catch { /* corrupt storage */ }
   }, [])
 
-  // Reapply rows when currency preference changes (no extra fetch needed)
+  // Reapply rows when currency preference or supplier exclusion changes
   useEffect(() => {
     if (parsedCache.length === 0 || !rawPriceCacheRef.current) return
-    applyRows(parsedCache, supplierCurrencyPref)
+    applyRows(parsedCache, supplierCurrencyPref, ddpExcluded)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [supplierCurrencyPref])
+
+  useEffect(() => {
+    if (parsedCache.length === 0 || !rawPriceCacheRef.current) return
+    applyRows(parsedCache, supplierCurrencyPref, ddpExcluded)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ddpExcluded])
 
   // Auto-suggest slot 0: min(เหลือให้ Next Month, supplier stock) — only when slot is untouched
   useEffect(() => {
@@ -485,11 +495,17 @@ export default function OrderPlanPage() {
     const latestCurrency = new Map<string, string>()   // supplier → most-recently-uploaded currency
     const supplierSet = new Set<string>()
     const supCurrenciesMap = new Map<string, Set<string>>()
+    const thaiCostByItem = new Map<string, number>()
 
     if (project) {
       const { data } = await supabase.from('po_items').select('item_code, supplier, fob_price, currency').eq('project', project).order('uploaded_at', { ascending: false })
       if (data) {
         for (const item of data as { item_code: string; supplier: string; fob_price: number; currency: string }[]) {
+          if (item.supplier === THAI_COST) {
+            // ทุนไทย: store separately (latest wins via ORDER BY uploaded_at DESC)
+            if (!thaiCostByItem.has(item.item_code)) thaiCostByItem.set(item.item_code, item.fob_price)
+            continue
+          }
           supplierSet.add(item.supplier)
           if (!latestCurrency.has(item.supplier)) latestCurrency.set(item.supplier, item.currency)
           if (!supCurrenciesMap.has(item.supplier)) supCurrenciesMap.set(item.supplier, new Set())
@@ -508,11 +524,14 @@ export default function OrderPlanPage() {
     const newSupCur: Record<string, string[]> = {}
     supCurrenciesMap.forEach((cs, s) => { newSupCur[s] = [...cs].sort() })
     setSupplierAvailableCurrencies(newSupCur)
+    const tcObj: Record<string, number> = {}
+    thaiCostByItem.forEach((price, code) => { tcObj[code] = price })
+    setThaiCostMap(tcObj)
 
-    applyRows(parsed, supplierCurrencyPref)
+    applyRows(parsed, supplierCurrencyPref, ddpExcluded)
   }
 
-  function applyRows(parsed: ParsedRow[], currencyPrefs: Record<string, string>) {
+  function applyRows(parsed: ParsedRow[], currencyPrefs: Record<string, string>, excluded: Set<string> = new Set()) {
     const cache = rawPriceCacheRef.current
     if (!cache) return
     const { byItem, latestCurrency } = cache
@@ -524,6 +543,7 @@ export default function OrderPlanPage() {
       const ddp_prices: DdpPrice[] = []
       if (bySupplier) {
         for (const [supplier, byCur] of bySupplier.entries()) {
+          if (excluded.has(supplier)) continue
           const pref = currencyPrefs[supplier]
           const useCur = pref && byCur.has(pref) ? pref : (latestCurrency.get(supplier) ?? '')
           const fob = byCur.get(useCur)
@@ -869,19 +889,27 @@ export default function OrderPlanPage() {
     const workbook = new ExcelJSWorkbook()
     const ws = workbook.addWorksheet('Order Plan')
 
-    const ddpCols = Math.min(ddpSuppliers.length, 8)
+    const exportDdpSuppliers = activeDdpSuppliers.slice(0, 8)
+    const exportDdpCols = exportDdpSuppliers.length
     // Pastel palette — soft background, dark text
     const DDP_PALETTE = ['C6EFC5','FDDCB5','D5B8FF','FFF2CC','DCDCDC','BDD7EE','FFD0D0','B3E5FC']
     const supColor: Record<string, string> = {}
-    ddpSuppliers.forEach((s, i) => { supColor[s] = DDP_PALETTE[i % DDP_PALETTE.length] })
+    exportDdpSuppliers.forEach((s, i) => { supColor[s] = DDP_PALETTE[i % DDP_PALETTE.length] })
 
     // Row 1: legend — "Supplier Color:" then one colored cell per supplier
     ws.getColumn(1).width = 20
     ws.getColumn(2).width = 42
-    const legendRow = ws.addRow(['Supplier Color:', ...ddpSuppliers.map(s => s)])
+    const legendEntries: string[] = [...(hasThaiCost ? [THAI_COST] : []), ...exportDdpSuppliers]
+    const legendRow = ws.addRow(['Supplier Color:', ...legendEntries])
     legendRow.getCell(1).font = { bold: true }
-    ddpSuppliers.forEach((s, i) => {
-      const cell = legendRow.getCell(2 + i)
+    if (hasThaiCost) {
+      const thaiCell = legendRow.getCell(2)
+      thaiCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF99F6E4' } }
+      thaiCell.font = { bold: true, color: { argb: 'FF0F766E' } }
+      thaiCell.alignment = { horizontal: 'center' }
+    }
+    exportDdpSuppliers.forEach((s, i) => {
+      const cell = legendRow.getCell(2 + (hasThaiCost ? 1 : 0) + i)
       const color = supColor[s]
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + color } }
       cell.font = { bold: true, color: { argb: 'FF333333' } }
@@ -890,15 +918,16 @@ export default function OrderPlanPage() {
     // Row 2: spacer
     ws.addRow([])
 
-    const ddpHeaders = Array.from({ length: ddpCols }, (_, i) => {
-      if (ddpCols === 1) return 'DDP Price (THB)'
+    const ddpHeaders = Array.from({ length: exportDdpCols }, (_, i) => {
+      if (exportDdpCols === 1) return 'DDP Price (THB)'
       if (i === 0) return 'DDP Price Cheapest (THB)'
-      if (i === ddpCols - 1) return 'DDP Price Most Expensive (THB)'
+      if (i === exportDdpCols - 1) return 'DDP Price Most Expensive (THB)'
       return `DDP Price Rank ${i + 1} (THB)`
     })
 
     const headers = [
       'Item Code', 'Description',
+      ...(hasThaiCost ? ['ทุนไทย (THB)'] : []),
       ...ddpHeaders,
       'PO ไทย', 'Stock ไทย', 'PO ไทย/2', 'ลงเรือ', 'Fc. W1', 'Fc. W2', 'Fc. W3+4', 'Fc. Next Month',
       ...(usageData ? [usageLabel, 'Avg. Usage 3M'] : []),
@@ -921,7 +950,8 @@ export default function OrderPlanPage() {
       const Z = computeZ(row)
       const rowData = [
         row.item_code, row.description,
-        ...Array.from({ length: ddpCols }, (_, i) => row.ddp_prices[i] ? parseFloat(row.ddp_prices[i].ddp_thb.toFixed(2)) : ''),
+        ...(hasThaiCost ? [thaiCostMap[row.item_code] ?? ''] : []),
+        ...Array.from({ length: exportDdpCols }, (_, i) => row.ddp_prices[i] ? parseFloat(row.ddp_prices[i].ddp_thb.toFixed(2)) : ''),
         row.po_thai, row.stock_thai, parseFloat(row.L.toFixed(1)),
         row.lonsua, row.week1, row.week2, row.week3_4, row.next_month,
         ...(usageData ? [
@@ -943,12 +973,20 @@ export default function OrderPlanPage() {
         })() : []),
       ]
       const exRow = ws.addRow(rowData)
-      Array.from({ length: ddpCols }, (_, i) => {
+      const ddpColOffset = 3 + (hasThaiCost ? 1 : 0)
+      if (hasThaiCost) {
+        const thaiPrice = thaiCostMap[row.item_code]
+        if (thaiPrice != null) {
+          exRow.getCell(3).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF99F6E4' } }
+          exRow.getCell(3).font = { color: { argb: 'FF0F766E' } }
+        }
+      }
+      Array.from({ length: exportDdpCols }, (_, i) => {
         const p = row.ddp_prices[i]
         if (!p) return
         const color = supColor[p.supplier]
         if (!color) return
-        const cell = exRow.getCell(3 + i)
+        const cell = exRow.getCell(ddpColOffset + i)
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + color } }
         cell.font = { color: { argb: 'FF333333' }, bold: true }
       })
@@ -973,7 +1011,9 @@ export default function OrderPlanPage() {
     return v.toLocaleString(undefined, { minimumFractionDigits: dec, maximumFractionDigits: dec })
   }
 
-  const ddpCols = Math.min(ddpSuppliers.length, 8)
+  const activeDdpSuppliers = ddpSuppliers.filter(s => !ddpExcluded.has(s))
+  const ddpCols = Math.min(activeDdpSuppliers.length, 8)
+  const hasThaiCost = Object.keys(thaiCostMap).length > 0
   const hasStock = supplierStocks.length > 0
 
   // Clickable cell wrapper
@@ -1157,15 +1197,22 @@ export default function OrderPlanPage() {
               </span>
               {ddpSuppliers.length > 0 && (
                 <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-xs text-gray-400 mr-1">DDP Ranking:</span>
                   {ddpSuppliers.slice(0, 8).map(s => {
                     const col = supplierColor(s)
                     const currencies = supplierAvailableCurrencies[s] ?? []
                     const pref = supplierCurrencyPref[s] ?? ''
+                    const excluded = ddpExcluded.has(s)
                     return (
-                      <span key={s} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs ${col.bg} ${col.text}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${col.dot}`} />
+                      <span key={s} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-opacity ${excluded ? 'opacity-40 line-through' : ''} ${col.bg} ${col.text}`}>
+                        <button
+                          onClick={() => setDdpExcluded(prev => { const n = new Set(prev); excluded ? n.delete(s) : n.add(s); return n })}
+                          title={excluded ? `เพิ่ม ${s} เข้า DDP ranking` : `ตัด ${s} ออกจาก DDP ranking`}
+                          className="w-3 h-3 rounded-full border border-current/50 flex items-center justify-center text-[9px] shrink-0 hover:bg-current/20">
+                          {excluded ? '+' : '✕'}
+                        </button>
                         {s}
-                        {currencies.length > 1 && (
+                        {!excluded && currencies.length > 1 && (
                           <select
                             value={pref}
                             onChange={e => setSupplierCurrencyPref(prev => ({ ...prev, [s]: e.target.value }))}
@@ -1179,6 +1226,12 @@ export default function OrderPlanPage() {
                       </span>
                     )
                   })}
+                  {hasThaiCost && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-teal-100 text-teal-700">
+                      <span className="w-1.5 h-1.5 rounded-full bg-teal-500" />
+                      {THAI_COST} (THB)
+                    </span>
+                  )}
                 </div>
               )}
             </div>
@@ -1196,6 +1249,7 @@ export default function OrderPlanPage() {
                   <tr className="bg-gray-50 text-gray-500 border-b border-gray-200">
                     <th className="px-3 py-2.5 text-left whitespace-nowrap font-semibold sticky left-0 bg-gray-50 z-20 border-r border-gray-200 min-w-[200px]">Item Code</th>
                     <th className="px-3 py-2.5 text-left whitespace-nowrap font-semibold sticky left-[200px] bg-gray-50 z-20 border-r border-gray-200 min-w-[220px]">Description</th>
+                    {hasThaiCost && <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-teal-50 text-teal-700 border-r border-teal-100">ทุนไทย<br/><span className="font-normal text-xs">(THB)</span></th>}
                     {Array.from({ length: ddpCols }, (_, i) => <th key={i} className="px-2 py-2.5 text-left whitespace-nowrap font-semibold text-gray-500 w-44">DDP {i + 1}</th>)}
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-amber-50 text-amber-700">PO ไทย</th>
                     <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-amber-50 text-amber-700">Stock ไทย</th>
@@ -1259,6 +1313,15 @@ export default function OrderPlanPage() {
                             {row.description || <span className="text-gray-400">—</span>}
                           </div>
                         </td>
+
+                        {hasThaiCost && (() => {
+                          const price = thaiCostMap[row.item_code]
+                          return (
+                            <td className="px-3 py-2 text-right whitespace-nowrap bg-teal-50/30 text-teal-700 font-medium border-r border-teal-100 text-xs">
+                              {price != null ? price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : <span className="text-gray-300">—</span>}
+                            </td>
+                          )
+                        })()}
 
                         {Array.from({ length: ddpCols }, (_, j) => {
                           const p = row.ddp_prices[j]
