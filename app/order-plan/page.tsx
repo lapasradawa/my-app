@@ -1254,7 +1254,11 @@ export default function OrderPlanPage() {
                     return (
                       <tr key={i} className="border-b border-gray-100 hover:bg-blue-50/10 group">
                         <td className="px-3 py-2 font-mono text-gray-800 whitespace-nowrap sticky left-0 bg-white border-r border-gray-200 z-10 min-w-[200px]">{row.item_code}</td>
-                        <td className="px-3 py-2 text-gray-600 whitespace-nowrap sticky left-[200px] bg-white border-r border-gray-200 z-10 min-w-[220px] max-w-[220px] overflow-hidden text-ellipsis">{row.description || <span className="text-gray-400">—</span>}</td>
+                        <td className="px-3 py-2 text-gray-600 sticky left-[200px] bg-white border-r border-gray-200 z-10 min-w-[220px] max-w-[320px]">
+                          <div className="overflow-x-auto whitespace-nowrap scrollbar-thin scrollbar-thumb-gray-200 hover:scrollbar-thumb-gray-400 cursor-default" title={row.description}>
+                            {row.description || <span className="text-gray-400">—</span>}
+                          </div>
+                        </td>
 
                         {Array.from({ length: ddpCols }, (_, j) => {
                           const p = row.ddp_prices[j]
