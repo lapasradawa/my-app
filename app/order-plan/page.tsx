@@ -110,6 +110,9 @@ interface HistorySession {
   supplierY: Record<string, string>
   usageData?: UsageData | null
   supplierSlotDates?: Record<string, string[]>
+  ddpExcluded?: string[]
+  supplierCurrencyPref?: Record<string, string>
+  usageLabel?: string
 }
 
 const THAI_COST = 'ทุนไทย'
@@ -846,6 +849,9 @@ export default function OrderPlanPage() {
       id, savedAt: new Date().toISOString(),
       fileName, itemCount: parsedCache.length, parsedCache,
       loadingPlan, supplierStocks, selectedProject, supplierY, usageData, supplierSlotDates,
+      ddpExcluded: [...ddpExcluded],
+      supplierCurrencyPref,
+      usageLabel,
     }
     setHistory(prev => {
       const idx = prev.findIndex(s => s.id === id)
@@ -879,6 +885,9 @@ export default function OrderPlanPage() {
     setSelectedProject(session.selectedProject); setSupplierY(session.supplierY)
     if (session.usageData !== undefined) setUsageData(session.usageData ?? null)
     setSupplierSlotDates(session.supplierSlotDates ?? {})
+    if (session.ddpExcluded) setDdpExcluded(new Set(session.ddpExcluded))
+    if (session.supplierCurrencyPref) setSupplierCurrencyPref(session.supplierCurrencyPref)
+    if (session.usageLabel) setUsageLabel(session.usageLabel)
     setShowHistory(false); setLoading(true)
     await buildPlanRows(session.parsedCache, session.selectedProject)
     setLoading(false)
