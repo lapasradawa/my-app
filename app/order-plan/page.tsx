@@ -1420,9 +1420,12 @@ export default function OrderPlanPage() {
                         {supplierStocks.map(ss => {
                           const stockItem = getStockItem(ss.supplierName, row.item_code)
                           const stockQty = stockItem?.total ?? 0
+                          const finished = stockItem?.finished ?? 0
                           const dates = supplierSlotDates[ss.supplierName] ?? []
                           const plan = loadingPlan[ss.supplierName]?.[row.item_code] ?? []
                           const remaining = getRemaining(ss.supplierName, row.item_code)
+                          const totalLoad = getLoadTotal(ss.supplierName, row.item_code)
+                          const overFinished = finished > 0 && totalLoad > finished
 
                           return (<>
                             <td key={`${ss.supplierName}-stk`} className="px-3 py-2 text-right bg-indigo-50/20 whitespace-nowrap border-l border-indigo-50">
@@ -1432,12 +1435,17 @@ export default function OrderPlanPage() {
                               ) : <span className="text-gray-300">—</span>}
                             </td>
                             {dates.map((_, i) => (
-                              <td key={`${ss.supplierName}-d${i}`} className="px-1.5 py-1 bg-indigo-50/10">
+                              <td key={`${ss.supplierName}-d${i}`} className={`px-1.5 py-1 ${overFinished ? 'bg-orange-50/40' : 'bg-indigo-50/10'}`}>
                                 <input type="number" min="0" value={plan[i] ?? ''} onChange={e => setLoadQty(ss.supplierName, row.item_code, i, e.target.value)} placeholder="0"
-                                  className="border border-gray-200 rounded px-1.5 py-1 w-20 text-right text-xs outline-none focus:border-indigo-400" />
+                                  className={`border rounded px-1.5 py-1 w-20 text-right text-xs outline-none focus:border-indigo-400 ${overFinished ? 'border-orange-400 bg-orange-50' : 'border-gray-200'}`} />
                               </td>
                             ))}
-                            <td key={`${ss.supplierName}-add-placeholder`} className="px-1.5 py-1 bg-indigo-50/5 w-8" />
+                            <td key={`${ss.supplierName}-add-placeholder`} className="px-1.5 py-1 bg-indigo-50/5 w-8">
+                              {overFinished && (
+                                <span title={`รวมโหลด ${totalLoad.toLocaleString()} เกินผลิตเสร็จ ${finished.toLocaleString()} ชิ้น`}
+                                  className="text-orange-500 text-xs font-bold cursor-help">⚠</span>
+                              )}
+                            </td>
                             <C key={`${ss.supplierName}-rem`} className={`px-3 py-2 text-right whitespace-nowrap bg-indigo-50/20 font-medium hover:bg-indigo-100/40 ${stockQty > 0 && remaining < 0 ? 'text-red-500' : 'text-gray-700'}`}
                               onClick={fp('remaining', ss.supplierName)}>
                               {stockQty > 0 ? fmtF(remaining) : <span className="text-gray-400">—</span>}
