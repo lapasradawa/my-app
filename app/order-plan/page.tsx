@@ -810,12 +810,11 @@ export default function OrderPlanPage() {
       case 'bufNeeded': {
         const Z = computeZ(row)
         const buf = row.next_month * bufferPct / 100
-        const bufNeeded = buf - Math.max(0, Z)
-        const zPos = Math.max(0, Z)
-        return { ...base, colName: `${bufferPct}% Buffer Stock ที่ต้องสั่ง`, formulaStr: `${bufferPct}% Buffer Stock − max(0, PO Coverage)`, lines: [
+        const bufNeeded = buf - Z
+        return { ...base, colName: `รวมที่ต้องสั่ง`, formulaStr: `${bufferPct}% Buffer Stock − PO Coverage`, lines: [
           { op: '', label: `${bufferPct}% Buffer Stock`, val: buf },
-          { op: '−', label: `PO Coverage (${Z >= 0 ? `+${fmtF(Z)} → ใช้ ${fmtF(zPos)}` : `${fmtF(Z)} → ใช้ 0`})`, val: zPos },
-          { op: '=', label: `${bufferPct}% Buffer Stock ที่ต้องสั่ง`, val: bufNeeded, isResult: true, note: bufNeeded > 0 ? `Buffer Qty ${Math.ceil(bufNeeded).toLocaleString()} ชิ้น` : 'PO Coverage เกิน Buffer — ไม่ต้องสั่งเพิ่ม' },
+          { op: '−', label: `PO Coverage (${Z >= 0 ? `+${fmtF(Z)} → หักออก` : `${fmtF(Z)} → ติดลบ รวมเพิ่ม`})`, val: Z },
+          { op: '=', label: `รวมที่ต้องสั่ง`, val: bufNeeded, isResult: true, note: bufNeeded > 0 ? `ต้องสั่ง ${Math.ceil(bufNeeded).toLocaleString()} ชิ้น` : 'ไม่ต้องสั่งเพิ่ม' },
         ]}
       }
 
@@ -945,7 +944,7 @@ export default function OrderPlanPage() {
         const dates = supplierSlotDates[ss.supplierName] ?? []
         return [`Stock ${ss.supplierName}`, ...dates, `คงเหลือ ${ss.supplierName}`]
       }),
-      ...(supplierStocks.length > 0 ? ['รวมโหลด', 'Stock หลังโหลด', 'PO Coverage for Fc. Next Month', `${bufferPct}% Buffer Stock (Based on Fc. Next Month)`, `${bufferPct}% Buffer Stock ที่ต้องสั่ง`] : []),
+      ...(supplierStocks.length > 0 ? ['รวมโหลด', 'Stock หลังโหลด', 'PO Coverage for Fc. Next Month', `${bufferPct}% Buffer Stock (Based on Fc. Next Month)`, 'รวมที่ต้องสั่ง (Buffer + ขาด)'] : []),
     ]
 
     const headerRow = ws.addRow(headers)
@@ -977,7 +976,7 @@ export default function OrderPlanPage() {
         }),
         ...(supplierStocks.length > 0 ? (() => {
           const buf = parseFloat((row.next_month * bufferPct / 100).toFixed(1))
-          const bufNeeded = parseFloat((buf - Math.max(0, Z)).toFixed(1))
+          const bufNeeded = parseFloat((buf - Z).toFixed(1))
           return [V || '', parseFloat(W.toFixed(1)), parseFloat(Z.toFixed(1)), buf, bufNeeded]
         })() : []),
       ]
@@ -1303,7 +1302,7 @@ export default function OrderPlanPage() {
                           className="w-10 text-center bg-transparent border-b border-amber-400 outline-none font-bold text-amber-700 [appearance:textfield]" />
                         % Buffer Stock<br/><span className="font-normal text-xs">(Based on Fc. Next Month)</span>
                       </th>
-                      <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-amber-50 text-amber-700">{bufferPct}% Buffer Stock<br/><span className="font-normal text-xs">ที่ต้องสั่ง</span></th>
+                      <th className="px-3 py-2.5 text-right whitespace-nowrap font-semibold bg-amber-50 text-amber-700">รวมที่ต้องสั่ง<br/><span className="font-normal text-xs">(Buffer + ขาด)</span></th>
                     </>}
                   </tr>
                 </thead>
@@ -1439,7 +1438,7 @@ export default function OrderPlanPage() {
 
                         {hasStock && (() => {
                           const buf = row.next_month * bufferPct / 100
-                          const bufNeeded = buf - Math.max(0, Z)
+                          const bufNeeded = buf - Z
                           return (<>
                             <C className="px-3 py-2 text-right whitespace-nowrap bg-violet-50/20 font-medium text-gray-700 border-l border-violet-50 hover:bg-violet-100/40" onClick={fp('V')}>
                               {V > 0 ? V.toLocaleString() : <span className="text-gray-400">—</span>}
