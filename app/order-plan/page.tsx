@@ -977,8 +977,10 @@ export default function OrderPlanPage() {
       if (hasThaiCost) {
         const thaiPrice = thaiCostMap[row.item_code]
         if (thaiPrice != null) {
-          exRow.getCell(3).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF99F6E4' } }
-          exRow.getCell(3).font = { color: { argb: 'FF0F766E' } }
+          const ddp1Price = row.ddp_prices[0]?.ddp_thb ?? null
+          const isCheaper = ddp1Price != null && thaiPrice < ddp1Price
+          exRow.getCell(3).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: isCheaper ? 'FFFF4444' : 'FF99F6E4' } }
+          exRow.getCell(3).font = { color: { argb: isCheaper ? 'FFFFFFFF' : 'FF0F766E' }, bold: isCheaper }
         }
       }
       Array.from({ length: exportDdpCols }, (_, i) => {
