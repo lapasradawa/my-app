@@ -656,24 +656,24 @@ export default function ComparePage() {
           </div>
 
           {/* Project selector */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm px-3 py-2">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs font-semibold text-gray-500 shrink-0">Project:</span>
-              {projects.length === 0 ? (
-                <span className="text-xs text-gray-400">ยังไม่มี — อัปโหลด PO ก่อน</span>
-              ) : (
-                projects.map(p => (
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 self-start">
+            <p className="text-sm font-semibold text-gray-700 mb-3">เลือก Project</p>
+            {projects.length === 0 ? (
+              <p className="text-sm text-gray-400">ยังไม่มี Project — อัปโหลด PO ก่อน</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {projects.map(p => (
                   <button key={p} onClick={() => loadProject(p)}
-                    className={`px-2.5 py-0.5 rounded-full text-xs font-medium border transition-colors ${
+                    className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
                       selectedProject === p
                         ? 'bg-blue-600 text-white border-blue-600'
                         : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400 hover:text-blue-600'
                     }`}>
                     {p}
                   </button>
-                ))
-              )}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
