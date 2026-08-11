@@ -210,7 +210,8 @@ export default function ComparePage() {
 
   function parseThaiCostFile(buf: ArrayBuffer): { item_code: string; fob_price: number; description: string }[] {
     const wb = XLSX.read(buf, { type: 'array' })
-    const ws = wb.Sheets[wb.SheetNames[0]]
+    const visibleName = wb.SheetNames.find((name, i) => !wb.Workbook?.Sheets?.[i]?.Hidden) ?? wb.SheetNames[0]
+    const ws = wb.Sheets[visibleName]
     const raw = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '' })
     let headerIdx = -1, itemCol = -1, priceCol = -1, descCol = -1
 
