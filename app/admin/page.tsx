@@ -6,6 +6,8 @@ import { supabase } from '@/lib/supabase'
 import { usePermissions, type PageKey } from '@/lib/permissions'
 import NavBar from '@/components/NavBar'
 
+const DEFAULT_EMAIL = '__default__'
+
 interface PermRow {
   email: string
   is_admin: boolean
@@ -30,6 +32,8 @@ export default function AdminPage() {
   const router = useRouter()
 
   const [rows, setRows] = useState<PermRow[]>([])
+  const [defaultPages, setDefaultPages] = useState<PageKey[]>(['po-matching'])
+  const [savingDefault, setSavingDefault] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<string | null>(null)
   const [newEmail, setNewEmail] = useState('')
@@ -46,8 +50,28 @@ export default function AdminPage() {
       .from('page_permissions')
       .select('email, is_admin, allowed_pages')
       .order('email')
-    setRows((data ?? []) as PermRow[])
+    const all = (data ?? []) as PermRow[]
+    const defRow = all.find(r => r.email === DEFAULT_EMAIL)
+    if (defRow?.allowed_pages) setDefaultPages(defRow.allowed_pages)
+    setRows(all.filter(r => r.email !== DEFAULT_EMAIL))
     setLoading(false)
+  }
+
+  async function saveDefaultPages() {
+    setSavingDefault(true)
+    await supabase.from('page_permissions').upsert({
+      email: DEFAULT_EMAIL,
+      is_admin: false,
+      allowed_pages: defaultPages,
+      updated_at: new Date().toISOString(),
+    })
+    setSavingDefault(false)
+  }
+
+  function toggleDefaultPage(page: PageKey, checked: boolean) {
+    setDefaultPages(prev =>
+      checked ? [...new Set([...prev, page])] : prev.filter(p => p !== page)
+    )
   }
 
   async function upsert(row: PermRow) {
@@ -62,7 +86,7 @@ export default function AdminPage() {
   }
 
   async function removeUser(email: string) {
-    if (!confirm(`ลบ ${email} ออกจากรายการ? (จะเหลือสิทธิ์แค่หน้าหลักเท่านั้น)`)) return
+    if (!confirm(`ลบ ${email} ออกจากรายการ? (จะเข้าได้เฉพาะหน้า Default เท่านั้น)`)) return
     await supabase.from('page_permissions').delete().eq('email', email)
     setRows(r => r.filter(x => x.email !== email))
   }
@@ -95,10 +119,9 @@ export default function AdminPage() {
   }
 
   function setAllPages(email: string, all: boolean) {
-    setRows(prev => prev.map(r => {
-      if (r.email !== email) return r
-      return { ...r, allowed_pages: all ? null : [] }
-    }))
+    setRows(prev => prev.map(r =>
+      r.email === email ? { ...r, allowed_pages: all ? null : [] } : r
+    ))
   }
 
   function toggleAdmin(email: string, val: boolean) {
@@ -118,13 +141,46 @@ export default function AdminPage() {
       <div className="max-w-5xl mx-auto w-full px-6 py-8">
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-gray-900">Admin — จัดการสิทธิ์ผู้ใช้</h1>
-          <p className="text-sm text-gray-500 mt-1">บัญชีที่ไม่อยู่ในรายการนี้จะเข้าได้เฉพาะหน้าหลัก (PO Matching) เท่านั้น</p>
+        </div>
+
+        {/* Default pages */}
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 mb-8">
+          <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
+            <div>
+              <h2 className="text-sm font-bold text-amber-900">หน้าที่ทุกคนเข้าได้ (Default)</h2>
+              <p className="text-xs text-amber-700 mt-0.5">บัญชีที่ไม่ได้อยู่ในรายการด้านล่างจะเข้าได้เฉพาะหน้าที่เลือกไว้นี้</p>
+            </div>
+            <button
+              onClick={saveDefaultPages}
+              disabled={savingDefault}
+              className="px-4 py-1.5 bg-amber-600 text-white text-xs font-medium rounded-lg hover:bg-amber-700 disabled:opacity-50 transition-colors"
+            >
+              {savingDefault ? 'กำลังบันทึก...' : 'บันทึก Default'}
+            </button>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
+            {ALL_PAGES.map(({ key, label }) => (
+              <label key={key} className={`flex items-center gap-2 text-xs cursor-pointer select-none px-2 py-1.5 rounded-lg border transition-colors ${
+                defaultPages.includes(key)
+                  ? 'border-amber-400 bg-amber-100 text-amber-900'
+                  : 'border-amber-200 bg-white text-gray-500 hover:border-amber-300'
+              }`}>
+                <input
+                  type="checkbox"
+                  checked={defaultPages.includes(key)}
+                  onChange={e => toggleDefaultPage(key, e.target.checked)}
+                  className="accent-amber-600"
+                />
+                {label}
+              </label>
+            ))}
+          </div>
         </div>
 
         {/* Add user */}
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 mb-6 flex items-end gap-3 flex-wrap">
           <div className="flex-1 min-w-[220px]">
-            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">เพิ่มผู้ใช้</label>
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">เพิ่มผู้ใช้ (สิทธิ์พิเศษ)</label>
             <input
               type="email"
               value={newEmail}
@@ -146,12 +202,11 @@ export default function AdminPage() {
         {loading ? (
           <p className="text-sm text-gray-400">กำลังโหลด...</p>
         ) : rows.length === 0 ? (
-          <p className="text-sm text-gray-400">ยังไม่มีผู้ใช้ในระบบสิทธิ์</p>
+          <p className="text-sm text-gray-400">ยังไม่มีผู้ใช้ในระบบสิทธิ์พิเศษ</p>
         ) : (
           <div className="space-y-4">
             {rows.map(row => (
               <div key={row.email} className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-                {/* Header row */}
                 <div className="flex items-center gap-4 flex-wrap mb-4">
                   <span className="font-medium text-gray-900 text-sm">{row.email}</span>
 
@@ -193,7 +248,6 @@ export default function AdminPage() {
                   </div>
                 </div>
 
-                {/* Page checkboxes */}
                 {!row.is_admin && (
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
                     {ALL_PAGES.map(({ key, label }) => (

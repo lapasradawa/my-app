@@ -20,9 +20,15 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
       .select('is_admin, allowed_pages')
       .eq('email', email)
       .single()
-    // not in table → restricted (empty allowlist = only home page)
-    if (!data) return buildPermissions(false, [])
-    return buildPermissions(data.is_admin ?? false, data.allowed_pages ?? null)
+    if (data) return buildPermissions(data.is_admin ?? false, data.allowed_pages ?? null)
+
+    // not in table → use default pages configured by admin
+    const { data: def } = await supabase
+      .from('page_permissions')
+      .select('allowed_pages')
+      .eq('email', '__default__')
+      .single()
+    return buildPermissions(false, def?.allowed_pages ?? [])
   }
 
   useEffect(() => {
