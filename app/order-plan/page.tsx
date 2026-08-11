@@ -492,7 +492,7 @@ export default function OrderPlanPage() {
     return vals.reduce((a, b) => a + b, 0) / vals.length
   }
 
-  async function buildPlanRows(parsed: ParsedRow[], project: string) {
+  async function buildPlanRows(parsed: ParsedRow[], project: string, excludedOverride?: Set<string>, currencyPrefsOverride?: Record<string, string>) {
     // item_code → supplier → currency → fob (latest per supplier+currency, ORDER BY uploaded_at DESC)
     const byItem = new Map<string, Map<string, Map<string, number>>>()
     const latestCurrency = new Map<string, string>()   // supplier → most-recently-uploaded currency
@@ -531,7 +531,7 @@ export default function OrderPlanPage() {
     thaiCostByItem.forEach((price, code) => { tcObj[code] = price })
     setThaiCostMap(tcObj)
 
-    applyRows(parsed, supplierCurrencyPref, ddpExcluded)
+    applyRows(parsed, currencyPrefsOverride ?? supplierCurrencyPref, excludedOverride ?? ddpExcluded)
   }
 
   function applyRows(parsed: ParsedRow[], currencyPrefs: Record<string, string>, excluded: Set<string> = new Set()) {
@@ -884,11 +884,13 @@ export default function OrderPlanPage() {
     setSelectedProject(session.selectedProject); setSupplierY(session.supplierY)
     if (session.usageData !== undefined) setUsageData(session.usageData ?? null)
     setSupplierSlotDates(session.supplierSlotDates ?? {})
-    if (session.ddpExcluded) setDdpExcluded(new Set(session.ddpExcluded))
-    if (session.supplierCurrencyPref) setSupplierCurrencyPref(session.supplierCurrencyPref)
+    const restoredExcluded = new Set<string>(session.ddpExcluded ?? [])
+    const restoredCurrencyPref = session.supplierCurrencyPref ?? {}
+    setDdpExcluded(restoredExcluded)
+    setSupplierCurrencyPref(restoredCurrencyPref)
     if (session.usageLabel) setUsageLabel(session.usageLabel)
     setShowHistory(false); setLoading(true)
-    await buildPlanRows(session.parsedCache, session.selectedProject)
+    await buildPlanRows(session.parsedCache, session.selectedProject, restoredExcluded, restoredCurrencyPref)
     setLoading(false)
   }
 
