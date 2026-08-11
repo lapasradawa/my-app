@@ -5,6 +5,7 @@ import Link from 'next/link'
 import * as XLSX from 'xlsx'
 import { supabase } from '@/lib/supabase'
 import LockButton from '@/components/LockButton'
+import NavBar from '@/components/NavBar'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface ExchangeRateEntry { amount: number; rate: number }
@@ -373,28 +374,7 @@ export default function SummaryPage() {
     <div style={{ background: '#ede5d4', minHeight: '100vh', fontFamily: 'system-ui,-apple-system,sans-serif' }}>
 
       {/* ── Nav ── */}
-      <nav className="bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-6 text-sm sticky top-0 z-20 shadow-sm flex-wrap">
-        <span className="font-bold text-gray-900">Import PO</span>
-        <Link href="/" className="text-gray-500 hover:text-gray-800 transition-colors">PO Matching</Link>
-        <Link href="/dashboard" className="text-gray-500 hover:text-gray-800 transition-colors">Dashboard</Link>
-        <Link href="/calendar" className="text-gray-500 hover:text-gray-800 transition-colors">Calendar</Link>
-        <Link href="/report" className="text-gray-500 hover:text-gray-800 transition-colors">Report</Link>
-        <Link href="/compare" className="text-gray-500 hover:text-gray-800 transition-colors">Cost Compare</Link>
-        <Link href="/po-builder" className="text-gray-500 hover:text-gray-800 transition-colors">PO Builder</Link>
-        <Link href="/order-plan" className="text-gray-500 hover:text-gray-800 transition-colors">Order Plan</Link>
-        <div className="relative group">
-          <span className="text-blue-600 cursor-default">Summary ▾</span>
-          <div className="absolute left-0 top-full pt-1 hidden group-hover:block z-50">
-            <div className="bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[150px]">
-              <Link href="/summary" className="block px-4 py-2 text-sm text-blue-600 hover:bg-blue-50">Item Summary</Link>
-              <Link href="/qc/summary" className="block px-4 py-2 text-sm text-gray-700 hover:bg-blue-50">QC Summary</Link>
-            </div>
-          </div>
-        </div>
-        <Link href="/qc" className="text-gray-500 hover:text-gray-800 transition-colors">QC Report</Link>
-        <Link href="/guide" className="text-gray-500 hover:text-gray-800 transition-colors">Guide</Link>
-        <div className="ml-auto"><LockButton /></div>
-      </nav>
+      <NavBar />
 
       {/* ── Hero header ── */}
       <div style={{ background: '#1e3340', padding: '24px 32px' }}>

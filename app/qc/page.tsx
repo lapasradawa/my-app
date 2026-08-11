@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { isUnlocked, tryUnlock } from '@/lib/auth'
+import NavBar from '@/components/NavBar'
 
 function PasswordGate({ onSuccess, onCancel }: { onSuccess: () => void; onCancel: () => void }) {
   const [pw, setPw] = useState('')
@@ -43,15 +44,6 @@ interface QCReport {
   created_at: string
 }
 
-const NAV = [
-  { href: '/', label: 'PO Matching' },
-  { href: '/dashboard', label: 'Dashboard' },
-  { href: '/calendar', label: 'Calendar' },
-  { href: '/report', label: 'Report' },
-  { href: '/compare', label: 'Cost Compare' },
-  { href: '/po-builder', label: 'PO Builder' },
-  { href: '/order-plan', label: 'Order Plan' },
-]
 
 export default function QCPage() {
   const router = useRouter()
@@ -102,23 +94,7 @@ export default function QCPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-6 text-sm sticky top-0 z-20 shadow-sm flex-wrap">
-        <span className="font-bold text-gray-900">Import PO</span>
-        {NAV.map(n => (
-          <Link key={n.href} href={n.href} className="text-gray-500 hover:text-gray-800 transition-colors">{n.label}</Link>
-        ))}
-        <div className="relative group">
-          <span className="text-gray-500 cursor-default hover:text-gray-800">Summary ▾</span>
-          <div className="absolute left-0 top-full pt-1 hidden group-hover:block z-50">
-            <div className="bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[150px]">
-              <Link href="/summary" className="block px-4 py-2 text-sm text-gray-700 hover:bg-blue-50">Item Summary</Link>
-              <Link href="/qc/summary" className="block px-4 py-2 text-sm text-gray-700 hover:bg-blue-50">QC Summary</Link>
-            </div>
-          </div>
-        </div>
-        <Link href="/qc" className="text-blue-600">QC Report</Link>
-        <Link href="/guide" className="text-gray-500 hover:text-gray-800 transition-colors">Guide</Link>
-      </nav>
+      <NavBar />
 
       <div className="max-w-5xl mx-auto px-6 py-8">
         <div className="flex items-center justify-between mb-6">
