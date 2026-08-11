@@ -203,37 +203,81 @@ export default function ComparePage() {
     const ws = wb.Sheets[wb.SheetNames[0]]
     const raw = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '' })
     let headerIdx = -1, itemCol = -1, priceCol = -1, descCol = -1
-    for (let i = 0; i < Math.min(raw.length, 20); i++) {
+
+    // Phase 1: find header row by searching for any cell containing "item" then "code"
+    // Use [\s\S]* to match across any characters including newlines/spaces/merged text
+    for (let i = 0; i < Math.min(raw.length, 20) && headerIdx < 0; i++) {
       const row = raw[i] as unknown[]
       for (let c = 0; c < row.length; c++) {
-        if (/item.?code/i.test(String(row[c]))) {
+        if (/item[\s\S]*code/i.test(String(row[c]))) {
           headerIdx = i; itemCol = c
           for (let j = 0; j < row.length; j++) {
-            const h = String(row[j] || '').toLowerCase()
-            if (priceCol < 0 && /price|ราคา/.test(h)) priceCol = j
-            if (descCol < 0 && /desc|รายการ/.test(h)) descCol = j
+            // Collapse all whitespace so "UNIT PRICE" === "UNITPRICE"
+            const h = String(row[j] || '').replace(/\s+/g, '').toLowerCase()
+            if (priceCol < 0 && (h.includes('price') || h.includes('ราคา'))) priceCol = j
+            if (descCol < 0 && (h.includes('desc') || h.includes('รายการ') || h.includes('remark'))) descCol = j
           }
           break
         }
       }
-      if (headerIdx >= 0) break
     }
-    if (headerIdx < 0 || itemCol < 0) throw new Error('ไม่พบคอลัมน์ Item Code ในไฟล์')
+
+    // Phase 2: fallback — detect header row by looking for PO-code pattern in data
+    if (headerIdx < 0) {
+      for (let i = 0; i < Math.min(raw.length, 15) && headerIdx < 0; i++) {
+        const row = raw[i] as unknown[]
+        for (let c = 0; c < Math.min(row.length, 6); c++) {
+          const cell = String(row[c] || '').trim()
+          // Item codes typically start with a letter+digits like P29S..., P01S..., etc.
+          if (/^[A-Z]\d{2}[A-Z0-9]{3,}/i.test(cell)) {
+            headerIdx = i         // treat this data row as start (no header found)
+            itemCol = c
+            for (let j = 0; j < row.length; j++) {
+              if (j === itemCol) continue
+              const v = (raw[i] as unknown[])[j]
+              if (typeof v === 'number' && v > 0) { priceCol = j; break }
+            }
+            break
+          }
+        }
+      }
+      // If fallback detected, subtract 1 so loop starts at headerIdx+1 = first data row
+      if (headerIdx >= 0) { /* headerIdx IS the first data row, handled below */ }
+    }
+
+    if (itemCol < 0) throw new Error('ไม่พบคอลัมน์ Item Code — ตรวจสอบว่าไฟล์มีหัวตาราง "ItemCode" หรือ "Item Code"')
+
+    // Phase 3: still no price col? scan header row then first data row
     if (priceCol < 0) {
-      // fallback: use the first numeric column after itemCol
       const hrow = raw[headerIdx] as unknown[]
-      for (let j = itemCol + 1; j < hrow.length; j++) {
-        const cell = raw[headerIdx + 1] ? (raw[headerIdx + 1] as unknown[])[j] : null
-        if (typeof cell === 'number' || (cell && !isNaN(Number(String(cell).replace(/,/g, ''))))) { priceCol = j; break }
+      for (let j = 0; j < hrow.length && priceCol < 0; j++) {
+        if (j === itemCol || j === descCol) continue
+        const h = String(hrow[j] || '').replace(/\s+/g, '').toLowerCase()
+        if (h.includes('price') || h.includes('ราคา') || h.includes('unit')) priceCol = j
+      }
+      // fallback: look at first data row for a positive number column
+      const dataRow = raw[headerIdx + 1] as unknown[] | undefined
+      if (priceCol < 0 && dataRow) {
+        for (let j = 0; j < dataRow.length && priceCol < 0; j++) {
+          if (j === itemCol || j === descCol) continue
+          const v = dataRow[j]
+          if (typeof v === 'number' && v > 0) priceCol = j
+        }
       }
     }
-    if (priceCol < 0) throw new Error('ไม่พบคอลัมน์ราคาในไฟล์')
+
+    if (priceCol < 0) throw new Error('ไม่พบคอลัมน์ราคา — ตรวจสอบว่าไฟล์มีคอลัมน์ "UNITPRICE" หรือ "Price"')
+
+    // Phase 4: read data
+    // If fallback detection: headerIdx IS the first data row (no header above it)
+    const dataStart = headerIdx + 1
     const items: { item_code: string; fob_price: number; description: string }[] = []
-    for (let i = headerIdx + 1; i < raw.length; i++) {
+    for (let i = dataStart; i < raw.length; i++) {
       const row = raw[i] as unknown[]
       const item_code = String(row[itemCol] || '').trim()
-      if (!item_code || /total|รวม/i.test(item_code)) continue
-      const fob_price = Number(String(row[priceCol] || '').replace(/,/g, '')) || 0
+      if (!item_code || /^(total|รวม)/i.test(item_code)) continue
+      const rawPrice = row[priceCol]
+      const fob_price = typeof rawPrice === 'number' ? rawPrice : Number(String(rawPrice || '').replace(/,/g, '')) || 0
       const description = descCol >= 0 ? String(row[descCol] || '').trim() : ''
       if (item_code && fob_price > 0) items.push({ item_code, fob_price, description })
     }
@@ -248,13 +292,9 @@ export default function ComparePage() {
       const buf = await file.arrayBuffer()
       let parsedItems: Array<{ item_code: string; fob_price: number; currency: string; description: string; document_no?: string | null; document_date?: string | null }>
       if (supp === THAI_COST) {
-        try {
-          const r = parsePO(buf)
-          parsedItems = r.items.map(i => ({ ...i, currency: 'THB' }))
-          if (parsedItems.length === 0) throw new Error('empty')
-        } catch {
-          parsedItems = parseThaiCostFile(buf).map(i => ({ ...i, currency: 'THB', document_no: null, document_date: null }))
-        }
+        // ทุนไทย: always use simple parser (price is already in THB, no FOB/DDP structure)
+        const thaiItems = parseThaiCostFile(buf)
+        parsedItems = thaiItems.map(i => ({ ...i, currency: 'THB', document_no: null, document_date: null }))
       } else {
         parsedItems = parsePO(buf).items
       }
