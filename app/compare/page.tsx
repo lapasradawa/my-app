@@ -224,7 +224,7 @@ export default function ComparePage() {
             // Collapse all whitespace so "UNIT PRICE" === "UNITPRICE"
             const h = String(row[j] || '').replace(/\s+/g, '').toLowerCase()
             if (priceCol < 0 && (h.includes('price') || h.includes('ราคา'))) priceCol = j
-            if (descCol < 0 && (h.includes('desc') || h.includes('รายการ') || h.includes('remark'))) descCol = j
+            if (descCol < 0 && (h.includes('desc') || h.includes('name') || h.includes('ชื่อ') || h.includes('สินค้า') || h.includes('product') || h.includes('รายการ') || h.includes('remark'))) descCol = j
           }
           break
         }
@@ -277,18 +277,22 @@ export default function ComparePage() {
 
     if (priceCol < 0) throw new Error('ไม่พบคอลัมน์ราคา — ตรวจสอบว่าไฟล์มีคอลัมน์ "UNITPRICE" หรือ "Price"')
 
-    // Phase 4: read data
-    // If fallback detection: headerIdx IS the first data row (no header above it)
+    // Fallback: if still no desc column, use column C (index 2) if it's not item/price
+    if (descCol < 0 && itemCol !== 2 && priceCol !== 2) descCol = 2
+
+    // Phase 4: read data (deduplicate by item_code — keep first occurrence)
     const dataStart = headerIdx + 1
+    const seenCodes = new Set<string>()
     const items: { item_code: string; fob_price: number; description: string }[] = []
     for (let i = dataStart; i < raw.length; i++) {
       const row = raw[i] as unknown[]
       const item_code = String(row[itemCol] || '').trim()
       if (!item_code || /^(total|รวม)/i.test(item_code)) continue
+      if (seenCodes.has(item_code)) continue
       const rawPrice = row[priceCol]
       const fob_price = typeof rawPrice === 'number' ? rawPrice : Number(String(rawPrice || '').replace(/,/g, '')) || 0
       const description = descCol >= 0 ? String(row[descCol] || '').trim() : ''
-      if (item_code && fob_price > 0) items.push({ item_code, fob_price, description })
+      if (item_code && fob_price > 0) { seenCodes.add(item_code); items.push({ item_code, fob_price, description }) }
     }
     return items
   }
