@@ -901,18 +901,20 @@ export default function OrderPlanPage() {
 
     const exportDdpSuppliers = activeDdpSuppliers.slice(0, 8)
     const exportDdpCols = exportDdpSuppliers.length
-    // Match UI SUPPLIER_COLORS exactly: blue, emerald, violet, orange, rose, teal, amber, pink
-    const DDP_PALETTE_BG   = ['DBEAFE','D1FAE5','EDE9FE','FFEDD5','FFE4E6','CCFBF1','FEF3C7','FCE7F3']
-    const DDP_PALETTE_TEXT = ['1D4ED8','047857','6D28D9','C2410C','BE123C','0F766E','B45309','BE185D']
-    // Use ddpSuppliers index (same as UI) so color stays consistent even when some are excluded
-    const supBg: Record<string, string> = {}
-    const supFg: Record<string, string> = {}
-    exportDdpSuppliers.forEach(s => {
-      const idx = ddpSuppliers.indexOf(s)
-      const i = idx >= 0 ? idx : 0
-      supBg[s] = DDP_PALETTE_BG[i % DDP_PALETTE_BG.length]
-      supFg[s] = DDP_PALETTE_TEXT[i % DDP_PALETTE_TEXT.length]
-    })
+    // Fixed color per supplier name — stable regardless of order or exclusions
+    const SUP_COLOR: Record<string, { bg: string; fg: string }> = {
+      'KNCD':     { bg: 'C6EFC5', fg: '166534' },
+      'LITELON':  { bg: 'FDDCB5', fg: '9A3412' },
+      'MK':       { bg: 'D5B8FF', fg: '4C1D95' },
+      'SGL':      { bg: 'FFF2CC', fg: '92400E' },
+      'YONGGUAN': { bg: 'DCDCDC', fg: '374151' },
+      'YG':       { bg: 'DCDCDC', fg: '374151' },
+      'YPN':      { bg: 'BDD7EE', fg: '1E3A8A' },
+    }
+    // Fallback palette for unknown suppliers
+    const FALLBACK_BG = ['FFD0D0','B3E5FC','FEF9C3','E0F2FE','F3E8FF','FCE7F3']
+    const supBg = (s: string) => SUP_COLOR[s]?.bg ?? FALLBACK_BG[ddpSuppliers.indexOf(s) % FALLBACK_BG.length]
+    const supFg = (s: string) => SUP_COLOR[s]?.fg ?? '374151'
 
     // Row 1: legend — "Supplier Color:" then one colored cell per supplier
     ws.getColumn(1).width = 20
@@ -928,8 +930,8 @@ export default function OrderPlanPage() {
     }
     exportDdpSuppliers.forEach((s, i) => {
       const cell = legendRow.getCell(2 + (hasThaiCost ? 1 : 0) + i)
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + supBg[s] } }
-      cell.font = { bold: true, color: { argb: 'FF' + supFg[s] } }
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + supBg(s) } }
+      cell.font = { bold: true, color: { argb: 'FF' + supFg(s) } }
       cell.alignment = { horizontal: 'center' }
     })
     // Row 2: spacer
@@ -1003,12 +1005,9 @@ export default function OrderPlanPage() {
       Array.from({ length: exportDdpCols }, (_, i) => {
         const p = row.ddp_prices[i]
         if (!p) return
-        const bg = supBg[p.supplier]
-        const fg = supFg[p.supplier]
-        if (!bg) return
         const cell = exRow.getCell(ddpColOffset + i)
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + bg } }
-        cell.font = { color: { argb: 'FF' + fg }, bold: true }
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + supBg(p.supplier) } }
+        cell.font = { color: { argb: 'FF' + supFg(p.supplier) }, bold: true }
       })
     })
 
