@@ -901,10 +901,18 @@ export default function OrderPlanPage() {
 
     const exportDdpSuppliers = activeDdpSuppliers.slice(0, 8)
     const exportDdpCols = exportDdpSuppliers.length
-    // Pastel palette — soft background, dark text
-    const DDP_PALETTE = ['C6EFC5','FDDCB5','D5B8FF','FFF2CC','DCDCDC','BDD7EE','FFD0D0','B3E5FC']
-    const supColor: Record<string, string> = {}
-    exportDdpSuppliers.forEach((s, i) => { supColor[s] = DDP_PALETTE[i % DDP_PALETTE.length] })
+    // Match UI SUPPLIER_COLORS exactly: blue, emerald, violet, orange, rose, teal, amber, pink
+    const DDP_PALETTE_BG   = ['DBEAFE','D1FAE5','EDE9FE','FFEDD5','FFE4E6','CCFBF1','FEF3C7','FCE7F3']
+    const DDP_PALETTE_TEXT = ['1D4ED8','047857','6D28D9','C2410C','BE123C','0F766E','B45309','BE185D']
+    // Use ddpSuppliers index (same as UI) so color stays consistent even when some are excluded
+    const supBg: Record<string, string> = {}
+    const supFg: Record<string, string> = {}
+    exportDdpSuppliers.forEach(s => {
+      const idx = ddpSuppliers.indexOf(s)
+      const i = idx >= 0 ? idx : 0
+      supBg[s] = DDP_PALETTE_BG[i % DDP_PALETTE_BG.length]
+      supFg[s] = DDP_PALETTE_TEXT[i % DDP_PALETTE_TEXT.length]
+    })
 
     // Row 1: legend — "Supplier Color:" then one colored cell per supplier
     ws.getColumn(1).width = 20
@@ -920,9 +928,8 @@ export default function OrderPlanPage() {
     }
     exportDdpSuppliers.forEach((s, i) => {
       const cell = legendRow.getCell(2 + (hasThaiCost ? 1 : 0) + i)
-      const color = supColor[s]
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + color } }
-      cell.font = { bold: true, color: { argb: 'FF333333' } }
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + supBg[s] } }
+      cell.font = { bold: true, color: { argb: 'FF' + supFg[s] } }
       cell.alignment = { horizontal: 'center' }
     })
     // Row 2: spacer
@@ -996,11 +1003,12 @@ export default function OrderPlanPage() {
       Array.from({ length: exportDdpCols }, (_, i) => {
         const p = row.ddp_prices[i]
         if (!p) return
-        const color = supColor[p.supplier]
-        if (!color) return
+        const bg = supBg[p.supplier]
+        const fg = supFg[p.supplier]
+        if (!bg) return
         const cell = exRow.getCell(ddpColOffset + i)
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + color } }
-        cell.font = { color: { argb: 'FF333333' }, bold: true }
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + bg } }
+        cell.font = { color: { argb: 'FF' + fg }, bold: true }
       })
     })
 
