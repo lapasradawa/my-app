@@ -820,8 +820,10 @@ export default function ComparePage() {
                   <tr className="text-gray-400 text-xs border-b border-gray-100">
                     <th className="pb-2 text-left font-medium">บันทึกเมื่อ</th>
                     <th className="pb-2 text-left font-medium">Document</th>
-                    <th className="pb-2 text-right font-medium">FOB Price</th>
-                    <th className="pb-2 text-right font-medium">DDP THB</th>
+                    {history.supplier === THAI_COST
+                      ? <th className="pb-2 text-right font-medium">ราคา THB</th>
+                      : <><th className="pb-2 text-right font-medium">FOB Price</th><th className="pb-2 text-right font-medium">DDP THB</th></>
+                    }
                   </tr>
                 </thead>
                 <tbody>
@@ -829,8 +831,11 @@ export default function ComparePage() {
                     <tr key={e.id} className={`border-b border-gray-50 ${i === 0 ? 'font-medium' : 'text-gray-500'}`}>
                       <td className="py-2">{fmtDate(e.uploaded_at)}</td>
                       <td className="py-2 text-xs">{e.file_name || e.document_no || '—'}</td>
-                      <td className="py-2 text-right">{fmtN(e.fob_price)} {e.currency}</td>
-                      <td className="py-2 text-right font-semibold">{fmtN(e.fob_price * getRate(e.currency) * settings.ddp_multiplier)}</td>
+                      {history.supplier === THAI_COST
+                        ? <td className="py-2 text-right font-semibold text-teal-700">{fmtN(e.fob_price)} THB</td>
+                        : <><td className="py-2 text-right">{fmtN(e.fob_price)} {e.currency}</td>
+                           <td className="py-2 text-right font-semibold">{fmtN(e.fob_price * getRate(e.currency) * settings.ddp_multiplier)}</td></>
+                      }
                     </tr>
                   ))}
                 </tbody>
