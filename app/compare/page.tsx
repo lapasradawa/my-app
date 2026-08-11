@@ -67,6 +67,7 @@ export default function ComparePage() {
   const [history, setHistory] = useState<{ item_code: string; supplier: string; entries: POItemDB[] } | null>(null)
   const [replaceMode, setReplaceMode] = useState(false)
   const [search, setSearch] = useState('')
+  const [showUploadGuide, setShowUploadGuide] = useState(false)
 
   interface UploadBatch { uploaded_at: string; file_name: string | null; count: number }
   const [managingSupplier, setManagingSupplier] = useState<string | null>(null)
@@ -571,6 +572,86 @@ export default function ComparePage() {
                 <span className="text-xs text-gray-500">แทนที่ข้อมูลเดิมของ Supplier นี้</span>
               </label>
               <p className="text-xs text-gray-400">รองรับเฉพาะ Excel (.xlsx, .xls)</p>
+
+              {/* Upload guide */}
+              <div className="border border-gray-200 rounded-lg overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setShowUploadGuide(v => !v)}
+                  className="w-full flex items-center justify-between px-3 py-2 text-xs text-gray-500 hover:bg-gray-50 transition-colors">
+                  <span className="font-medium">? คู่มือรูปแบบไฟล์ที่ระบบรองรับ</span>
+                  <span className="text-gray-400">{showUploadGuide ? '▲' : '▼'}</span>
+                </button>
+                {showUploadGuide && (
+                  <div className="px-3 pb-3 text-xs text-gray-600 space-y-3 border-t border-gray-100 pt-2.5">
+                    {/* ทุนไทย */}
+                    <div>
+                      <p className="font-semibold text-teal-700 mb-1.5">ไฟล์ ทุนไทย (Supplier = &ldquo;ทุนไทย&rdquo;)</p>
+                      <table className="w-full text-xs border-collapse">
+                        <thead>
+                          <tr className="bg-gray-50">
+                            <th className="text-left px-2 py-1 border border-gray-200 text-gray-500 font-medium w-16">คอลัมน์</th>
+                            <th className="text-left px-2 py-1 border border-gray-200 text-gray-500 font-medium">ข้อมูล</th>
+                            <th className="text-left px-2 py-1 border border-gray-200 text-gray-500 font-medium">ตัวอย่าง header</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td className="px-2 py-1 border border-gray-200 text-center font-mono text-gray-400">ใดก็ได้</td>
+                            <td className="px-2 py-1 border border-gray-200"><span className="text-red-500 font-semibold">Item Code *</span></td>
+                            <td className="px-2 py-1 border border-gray-200 font-mono text-gray-500">Item Code, ItemCode</td>
+                          </tr>
+                          <tr className="bg-gray-50/50">
+                            <td className="px-2 py-1 border border-gray-200 text-center font-mono text-gray-400">C (แนะนำ)</td>
+                            <td className="px-2 py-1 border border-gray-200">ชื่อสินค้า</td>
+                            <td className="px-2 py-1 border border-gray-200 font-mono text-gray-500">Description, Name, ชื่อสินค้า, รายการ</td>
+                          </tr>
+                          <tr>
+                            <td className="px-2 py-1 border border-gray-200 text-center font-mono text-gray-400">ใดก็ได้</td>
+                            <td className="px-2 py-1 border border-gray-200"><span className="text-red-500 font-semibold">ราคา THB *</span></td>
+                            <td className="px-2 py-1 border border-gray-200 font-mono text-gray-500">Price, UNITPRICE, ราคา</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                      <p className="text-gray-400 mt-1.5">* บังคับ — ถ้าไม่มี header ชื่อสินค้า ระบบใช้คอลัมน์ C อัตโนมัติ</p>
+                    </div>
+                    {/* Supplier PO */}
+                    <div>
+                      <p className="font-semibold text-blue-700 mb-1.5">ไฟล์ PO Supplier อื่น</p>
+                      <table className="w-full text-xs border-collapse">
+                        <thead>
+                          <tr className="bg-gray-50">
+                            <th className="text-left px-2 py-1 border border-gray-200 text-gray-500 font-medium">ข้อมูล</th>
+                            <th className="text-left px-2 py-1 border border-gray-200 text-gray-500 font-medium">header ที่ระบบหา</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td className="px-2 py-1 border border-gray-200"><span className="text-red-500 font-semibold">Item Code *</span></td>
+                            <td className="px-2 py-1 border border-gray-200 font-mono text-gray-500">Item Code</td>
+                          </tr>
+                          <tr className="bg-gray-50/50">
+                            <td className="px-2 py-1 border border-gray-200">ชื่อสินค้า</td>
+                            <td className="px-2 py-1 border border-gray-200 font-mono text-gray-500">Description</td>
+                          </tr>
+                          <tr>
+                            <td className="px-2 py-1 border border-gray-200"><span className="text-red-500 font-semibold">ราคา + สกุลเงิน *</span></td>
+                            <td className="px-2 py-1 border border-gray-200 font-mono text-gray-500">Unit Price (CNY/PC), Unit Price (USD/PC)</td>
+                          </tr>
+                          <tr className="bg-gray-50/50">
+                            <td className="px-2 py-1 border border-gray-200">เลขที่เอกสาร</td>
+                            <td className="px-2 py-1 border border-gray-200 font-mono text-gray-500">Document No (ในส่วนบนไฟล์)</td>
+                          </tr>
+                          <tr>
+                            <td className="px-2 py-1 border border-gray-200">วันที่เอกสาร</td>
+                            <td className="px-2 py-1 border border-gray-200 font-mono text-gray-500">Document Date (ในส่วนบนไฟล์)</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
