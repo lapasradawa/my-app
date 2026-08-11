@@ -1316,9 +1316,23 @@ export default function OrderPlanPage() {
 
                         {hasThaiCost && (() => {
                           const price = thaiCostMap[row.item_code]
+                          const ddp1 = row.ddp_prices[0]?.ddp_thb ?? null
+                          const isCheaper = price != null && ddp1 != null && price < ddp1
+                          const savePct = isCheaper ? Math.round((1 - price / ddp1) * 100) : 0
                           return (
-                            <td className="px-3 py-2 text-right whitespace-nowrap bg-teal-50/30 text-teal-700 font-medium border-r border-teal-100 text-xs">
-                              {price != null ? price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : <span className="text-gray-300">—</span>}
+                            <td className={`px-3 py-2 text-right whitespace-nowrap border-r text-xs font-medium ${isCheaper ? 'bg-green-100 border-green-200' : 'bg-teal-50/30 border-teal-100 text-teal-700'}`}>
+                              {price != null ? (
+                                <div className="flex flex-col items-end gap-0.5">
+                                  <span className={`font-mono ${isCheaper ? 'font-bold text-green-800' : ''}`}>
+                                    {price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  </span>
+                                  {isCheaper && (
+                                    <span className="text-[10px] bg-green-600 text-white px-1.5 py-px rounded font-semibold leading-tight">
+                                      ถูกกว่า {savePct}%
+                                    </span>
+                                  )}
+                                </div>
+                              ) : <span className="text-gray-300">—</span>}
                             </td>
                           )
                         })()}
