@@ -133,12 +133,21 @@ export default function ComparePage() {
         const key = `${item.supplier}__${item.item_code}`
         if (!seen.has(key)) { seen.add(key); latest.push(item) }
       }
-      // Pick the latest description per item_code across all suppliers
-      const descMap = new Map<string, { description: string; uploaded_at: string }>()
+      // Pick description: prefer non-ทุนไทย suppliers (system data), fallback to ทุนไทย file
+      const descMap = new Map<string, string>()
+      const descDate = new Map<string, string>()
       for (const item of latest) {
-        const cur = descMap.get(item.item_code)
-        if (!cur || item.uploaded_at > cur.uploaded_at)
-          descMap.set(item.item_code, { description: item.description || '', uploaded_at: item.uploaded_at })
+        if (item.supplier === THAI_COST || !item.description) continue
+        const cur = descDate.get(item.item_code)
+        if (!cur || item.uploaded_at > cur) {
+          descMap.set(item.item_code, item.description)
+          descDate.set(item.item_code, item.uploaded_at)
+        }
+      }
+      // Fill missing descriptions from ทุนไทย file
+      for (const item of latest) {
+        if (item.supplier !== THAI_COST || !item.description) continue
+        if (!descMap.has(item.item_code)) descMap.set(item.item_code, item.description)
       }
 
       const supplierSet = new Set<string>()
@@ -149,7 +158,7 @@ export default function ComparePage() {
         if (!itemMap.has(item.item_code)) {
           itemMap.set(item.item_code, {
             item_code: item.item_code,
-            description: descMap.get(item.item_code)?.description ?? '',
+            description: descMap.get(item.item_code) ?? '',
             prices: {},
           })
         }
