@@ -20,7 +20,7 @@ const ALL_PAGES: { key: PageKey; label: string }[] = [
   { key: 'calendar',     label: 'Calendar' },
   { key: 'report',       label: 'Report' },
   { key: 'compare',      label: 'Cost Compare' },
-  { key: 'po-builder',   label: 'PO Builder' },
+  { key: 'po-builder',   label: 'PO Insights' },
   { key: 'order-plan',   label: 'Order Plan' },
   { key: 'summary',      label: 'Summary' },
   { key: 'qc',           label: 'QC Report' },

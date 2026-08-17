@@ -45,7 +45,7 @@ export default function NavBar({ onUnlock, onLock }: Props) {
         <Link href="/compare" className={cls('/compare')}>Cost Compare</Link>
       )}
       {canAccess('po-builder') && (
-        <Link href="/po-builder" className={cls('/po-builder')}>PO Builder</Link>
+        <Link href="/po-builder" className={cls('/po-builder')}>PO Insights</Link>
       )}
       {canAccess('order-plan') && (
         <Link href="/order-plan" className={cls('/order-plan')}>Order Plan</Link>
