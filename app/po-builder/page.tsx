@@ -16,7 +16,11 @@ interface PoRecord {
   currency: string
   filename: string | null
   po_date: string | null
+  po_rbs_ch_no: string | null
+  po_rbs_th_no: string | null
   total_amount: number
+  cost_saving: number | null
+  cost_saving_pct: number | null
   created_at: string
   rows: { item_code: string; description: string; qty: number; unit_price: number; total: number }[]
 }
@@ -46,6 +50,7 @@ export default function PoInsightsPage() {
   const [uploadSupplier, setUploadSupplier] = useState('')
   const [uploadProject, setUploadProject] = useState('')
   const [uploadDate, setUploadDate] = useState('')
+  const [uploadChNo, setUploadChNo] = useState('')
   const [dragging, setDragging] = useState(false)
 
   // ── Exchange rates (from cost_settings) ─────────────────────────────
@@ -71,7 +76,7 @@ export default function PoInsightsPage() {
     setLoadingList(true)
     const { data } = await supabase
       .from('po_uploads')
-      .select('id, supplier, project, currency, filename, po_date, total_amount, created_at')
+      .select('id, supplier, project, currency, filename, po_date, po_rbs_ch_no, po_rbs_th_no, total_amount, cost_saving, cost_saving_pct, created_at')
       .order('created_at', { ascending: false })
     setRecords((data ?? []) as PoRecord[])
     setLoadingList(false)
@@ -123,6 +128,8 @@ export default function PoInsightsPage() {
           currency: uploadParsed.currency,
           filename: uploadFile?.name ?? null,
           po_date: uploadDate || null,
+          po_rbs_ch_no: uploadChNo.trim() || null,
+          po_rbs_th_no: null,
           rows: uploadParsed.rows,
           total_amount: uploadParsed.total_amount,
         })
@@ -157,6 +164,7 @@ export default function PoInsightsPage() {
       setUploadSupplier('')
       setUploadProject('')
       setUploadDate('')
+      setUploadChNo('')
       setShowUpload(false)
       await loadList()
     } catch (e) {
@@ -342,6 +350,21 @@ export default function PoInsightsPage() {
                 </div>
               </div>
             </div>
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1">PO RBS CH No.</label>
+                <input
+                  type="text"
+                  value={uploadChNo}
+                  onChange={e => setUploadChNo(e.target.value)}
+                  placeholder="เช่น RBSYG01-GEN5"
+                  className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm outline-none focus:border-blue-400"
+                />
+              </div>
+              <div className="flex items-end">
+                <p className="text-xs text-gray-400 pb-2">PO RBS TH No. เพิ่มได้ในหน้า detail หลังจาก upload แล้ว</p>
+              </div>
+            </div>
 
             <div className="flex items-center gap-2 justify-end">
               <button onClick={() => { setShowUpload(false); setUploadParsed(null); setUploadFile(null) }} className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700">ยกเลิก</button>
@@ -448,10 +471,11 @@ export default function PoInsightsPage() {
                 <tr className="bg-gray-50 text-gray-500 text-xs border-b border-gray-200">
                   <th className="px-4 py-3 text-left">Supplier</th>
                   <th className="px-4 py-3 text-left">Project</th>
+                  <th className="px-4 py-3 text-left">PO RBS CH No.</th>
                   <th className="px-4 py-3 text-left">วันที่เปิด PO</th>
                   <th className="px-4 py-3 text-right">Original currency FOB</th>
                   <th className="px-4 py-3 text-right">FOB (THB)</th>
-                  <th className="px-4 py-3 text-left">ไฟล์</th>
+                  <th className="px-4 py-3 text-right">Cost Saving (THB)</th>
                   <th className="px-4 py-3 text-left">อัปโหลดเมื่อ</th>
                   <th className="px-4 py-3"></th>
                 </tr>
@@ -461,6 +485,7 @@ export default function PoInsightsPage() {
                   <tr key={rec.id} className="border-b border-gray-100 hover:bg-blue-50/30 transition-colors">
                     <td className="px-4 py-3 font-medium text-gray-900">{rec.supplier}</td>
                     <td className="px-4 py-3 text-gray-600">{rec.project}</td>
+                    <td className="px-4 py-3 text-gray-600 text-xs font-mono">{rec.po_rbs_ch_no ?? <span className="text-gray-400">—</span>}</td>
                     <td className="px-4 py-3 text-gray-600">
                       {rec.po_date ? new Date(rec.po_date).toLocaleDateString('th-TH', { day: '2-digit', month: 'short', year: 'numeric' }) : <span className="text-gray-400">—</span>}
                     </td>
@@ -471,7 +496,9 @@ export default function PoInsightsPage() {
                       {fmt(rec.total_amount * (rec.currency === 'USD' ? usdRate : cnyRate))}
                       <span className="text-gray-400 text-xs ml-1">THB</span>
                     </td>
-                    <td className="px-4 py-3 text-gray-400 text-xs truncate max-w-[160px]">{rec.filename ?? '—'}</td>
+                    <td className="px-4 py-3 text-right text-gray-700 text-xs">
+                      {rec.cost_saving != null ? fmt(rec.cost_saving) : <span className="text-gray-400">—</span>}
+                    </td>
                     <td className="px-4 py-3 text-gray-400 text-xs">{fmtDate(rec.created_at)}</td>
                     <td className="px-4 py-3 text-right">
                       <Link href={`/po-builder/${rec.id}`} className="text-blue-600 hover:text-blue-800 text-xs font-medium whitespace-nowrap">

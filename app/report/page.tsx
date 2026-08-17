@@ -9,6 +9,29 @@ import LockButton from '@/components/LockButton'
 import PasswordModal from '@/components/PasswordModal'
 import NavBar from '@/components/NavBar'
 
+// ── PO Perspective types ──────────────────────────────────────────────────
+interface PORow {
+  id: string
+  supplier: string
+  project: string
+  currency: string
+  po_date: string | null
+  po_rbs_ch_no: string | null
+  po_rbs_th_no: string | null
+  total_amount: number
+  cost_saving: number | null
+  cost_saving_pct: number | null
+}
+
+function poMonthKey(d: string): string {
+  const dt = new Date(d + 'T00:00:00')
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`
+}
+
+function poMonthLabel(d: string): string {
+  return new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+}
+
 interface ExchangeRateEntry { amount: number; rate: number }
 
 interface InvRow {
@@ -91,6 +114,9 @@ function Cell({ v, gray }: { v: string; gray?: boolean }) {
 }
 
 export default function ReportPage() {
+  const [perspective, setPerspective] = useState<'invoice' | 'po'>('invoice')
+
+  // Invoice perspective state
   const [rows, setRows] = useState<InvRow[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedMonths, setSelectedMonths] = useState<Set<string>>(new Set())
@@ -102,9 +128,15 @@ export default function ReportPage() {
   const [rateDetail, setRateDetail] = useState<InvRow | null>(null)
   const [groupMode, setGroupMode] = useState<GroupMode>('arrival')
 
-  useEffect(() => { load(); setUnlocked(isUnlocked()) }, [])
+  // PO perspective state
+  const [poRows, setPORows] = useState<PORow[]>([])
+  const [poSelectedMonths, setPOSelectedMonths] = useState<Set<string>>(new Set())
+  const [cnyRate, setCnyRate] = useState(4.85)
+  const [usdRate, setUsdRate] = useState(33.00)
 
-  async function load() {
+  useEffect(() => { loadInvoices(); loadPO(); setUnlocked(isUnlocked()) }, [])
+
+  async function loadInvoices() {
     const { data } = await supabase
       .from('invoices')
       .select('id, invoice_no, estimated_arrival, total_amount, currency, exchange_rate, exchange_rates, cost_saving, cost_saving_pct, bl_date, payment_date, commission_payment_date')
@@ -116,6 +148,24 @@ export default function ReportPage() {
     setCommEdits(ce)
     setLoading(false)
   }
+
+  async function loadPO() {
+    const [{ data: pos }, { data: settings }] = await Promise.all([
+      supabase.from('po_uploads')
+        .select('id, supplier, project, currency, po_date, po_rbs_ch_no, po_rbs_th_no, total_amount, cost_saving, cost_saving_pct')
+        .not('po_date', 'is', null)
+        .order('po_date', { ascending: true }),
+      supabase.from('cost_settings').select('key, value'),
+    ])
+    setPORows((pos ?? []) as PORow[])
+    if (settings) {
+      const m = Object.fromEntries((settings as { key: string; value: string }[]).map(r => [r.key, r.value]))
+      if (m.cny_rate) setCnyRate(parseFloat(m.cny_rate))
+      if (m.usd_rate) setUsdRate(parseFloat(m.usd_rate))
+    }
+  }
+
+  async function load() { await loadInvoices() }
 
   async function saveCommission(id: string) {
     const val = commEdits[id] ?? ''
@@ -182,6 +232,89 @@ export default function ReportPage() {
   function selectAll() { setSelectedMonths(new Set(allMonths.map(m => m[0]))) }
   function clearAll() { setSelectedMonths(new Set()) }
 
+  // PO perspective derived data
+  const poAllMonths = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const p of poRows) {
+      if (!p.po_date) continue
+      const k = poMonthKey(p.po_date)
+      if (!map.has(k)) map.set(k, poMonthLabel(p.po_date))
+    }
+    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]))
+  }, [poRows])
+
+  useEffect(() => {
+    setPOSelectedMonths(new Set(poAllMonths.map(m => m[0])))
+  }, [poAllMonths])
+
+  const poGrouped = useMemo(() => {
+    const result: { key: string; label: string; rows: PORow[] }[] = []
+    for (const p of poRows) {
+      if (!p.po_date) continue
+      const k = poMonthKey(p.po_date)
+      if (!poSelectedMonths.has(k)) continue
+      let mg = result.find(m => m.key === k)
+      if (!mg) { mg = { key: k, label: poMonthLabel(p.po_date), rows: [] }; result.push(mg) }
+      mg.rows.push(p)
+    }
+    return result
+  }, [poRows, poSelectedMonths])
+
+  function getEstFobThb(p: PORow): number {
+    return p.total_amount * (p.currency === 'USD' ? usdRate : cnyRate)
+  }
+
+  const poGrandTotal = useMemo(() => ({
+    fobCny: sumN(poGrouped.flatMap(g => g.rows).map(p => p.currency === 'CNY' ? p.total_amount : null)),
+    fobUsd: sumN(poGrouped.flatMap(g => g.rows).map(p => p.currency === 'USD' ? p.total_amount : null)),
+    estThb: sumN(poGrouped.flatMap(g => g.rows).map(p => getEstFobThb(p))),
+    costSaving: sumN(poGrouped.flatMap(g => g.rows).map(p => p.cost_saving)),
+  }), [poGrouped, cnyRate, usdRate])
+
+  function exportPOExcel() {
+    const header = ['PO Issue MONTH', 'PO RBS CH No.', 'PO RBS TH No.', 'FOB CNY', 'FOB USD', 'Estimated FOB THB', 'Cost saving (THB)', 'Cost saving (%)']
+    const aoa: (string | number | null)[][] = [header]
+    for (const mg of poGrouped) {
+      mg.rows.forEach((p, i) => {
+        aoa.push([
+          i === 0 ? mg.label : '',
+          p.po_rbs_ch_no ?? '',
+          p.po_rbs_th_no ?? '',
+          p.currency === 'CNY' ? p.total_amount : null,
+          p.currency === 'USD' ? p.total_amount : null,
+          getEstFobThb(p),
+          p.cost_saving,
+          p.cost_saving_pct != null ? p.cost_saving_pct / 100 : null,
+        ])
+      })
+      const g = mg.rows
+      aoa.push([
+        mg.label + ' Total', '', '',
+        sumN(g.map(p => p.currency === 'CNY' ? p.total_amount : null)),
+        sumN(g.map(p => p.currency === 'USD' ? p.total_amount : null)),
+        sumN(g.map(p => getEstFobThb(p))),
+        sumN(g.map(p => p.cost_saving)),
+        null,
+      ])
+    }
+    aoa.push(['GRAND TOTAL', '', '', poGrandTotal.fobCny, poGrandTotal.fobUsd, poGrandTotal.estThb, poGrandTotal.costSaving, null])
+    const ws = XLSX.utils.aoa_to_sheet(aoa)
+    const numCols = [3, 4, 5, 6]
+    const range = XLSX.utils.decode_range(ws['!ref'] || 'A1')
+    for (let r = 1; r <= range.e.r; r++) {
+      numCols.forEach(c => {
+        const addr = XLSX.utils.encode_cell({ r, c })
+        if (ws[addr] && typeof ws[addr].v === 'number') ws[addr].z = '#,##0.00'
+      })
+      const pctAddr = XLSX.utils.encode_cell({ r, c: 7 })
+      if (ws[pctAddr] && typeof ws[pctAddr].v === 'number') ws[pctAddr].z = '0.00%'
+    }
+    ws['!cols'] = [{ wch: 20 }, { wch: 18 }, { wch: 18 }, { wch: 16 }, { wch: 14 }, { wch: 20 }, { wch: 18 }, { wch: 14 }]
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'PO Report')
+    XLSX.writeFile(wb, `PO_Report_${new Date().toISOString().slice(0, 10)}.xlsx`)
+  }
+
   function exportExcel() {
     const header = [groupLabel, 'Invoice No.', 'FOB CNY', 'FOB USD', 'Actual FOB THB (Finance)', 'Due Date', 'Payment Date', 'Cost saving (THB)', 'Cost saving (%)', 'Commission Payment']
     const aoa: (string | number | null)[][] = [header]
@@ -244,18 +377,38 @@ export default function ReportPage() {
       <NavBar onUnlock={() => setUnlocked(true)} onLock={() => setUnlocked(false)} />
 
       <div className="max-w-full mx-auto px-6 py-8">
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Report</h1>
             <p className="text-sm text-gray-500 mt-1">สรุปยอด FOB และ Cost Saving รายเดือน</p>
           </div>
-          <button
-            onClick={exportExcel}
-            className="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors"
-          >
-            Export Excel
-          </button>
+          <div className="flex items-center gap-3">
+            {/* Perspective dropdown */}
+            <div className="flex rounded-lg overflow-hidden border border-gray-200 text-sm">
+              <button
+                onClick={() => setPerspective('invoice')}
+                className={`px-4 py-2 font-medium transition-colors ${perspective === 'invoice' ? 'bg-amber-400 text-gray-900' : 'bg-white text-gray-500 hover:bg-amber-50'}`}
+              >
+                Invoice Perspective
+              </button>
+              <button
+                onClick={() => setPerspective('po')}
+                className={`px-4 py-2 font-medium transition-colors border-l border-gray-200 ${perspective === 'po' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-blue-50'}`}
+              >
+                PO Perspective
+              </button>
+            </div>
+            <button
+              onClick={perspective === 'invoice' ? exportExcel : exportPOExcel}
+              className="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors"
+            >
+              Export Excel
+            </button>
+          </div>
         </div>
+
+        {/* ── Invoice Perspective ──────────────────────────────────────── */}
+        {perspective === 'invoice' && (<>
 
         {/* Filters */}
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 mb-4 space-y-3">
@@ -427,7 +580,91 @@ export default function ReportPage() {
             </tbody>
           </table>
         </div>
-      </div>
+
+        </>)} {/* end invoice perspective */}
+
+        {/* ── PO Perspective ───────────────────────────────────────────── */}
+        {perspective === 'po' && (<>
+          {/* Month filter */}
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 mb-4">
+            <div className="flex items-center gap-3 mb-2">
+              <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">PO Issue Month</span>
+              <button onClick={() => setPOSelectedMonths(new Set(poAllMonths.map(m => m[0])))} className="text-xs text-blue-600 hover:underline">เลือกทั้งหมด</button>
+              <button onClick={() => setPOSelectedMonths(new Set())} className="text-xs text-gray-400 hover:underline">ยกเลิกทั้งหมด</button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {poAllMonths.map(([k, label]) => {
+                const active = poSelectedMonths.has(k)
+                return (
+                  <button key={k} onClick={() => setPOSelectedMonths(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n })}
+                    className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${active ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-gray-300 text-gray-500 hover:border-blue-300'}`}>
+                    {label}
+                  </button>
+                )
+              })}
+              {poAllMonths.length === 0 && <p className="text-xs text-gray-400">ไม่มีข้อมูล PO ที่มีวันที่เปิด</p>}
+            </div>
+          </div>
+
+          {/* PO table */}
+          <div className="bg-white rounded-xl border border-gray-200 overflow-auto shadow-sm">
+            <table className="text-sm border-collapse w-full">
+              <thead>
+                <tr className="bg-blue-600 text-white">
+                  {(['PO Issue MONTH', 'PO RBS CH No.', 'PO RBS TH No.', 'FOB CNY', 'FOB USD', 'Estimated FOB THB', 'Cost saving (THB)', 'Cost saving (%)']).map((h, i) => (
+                    <th key={h} className={`px-3 py-2.5 border border-blue-500 whitespace-nowrap font-bold text-xs ${i >= 3 ? 'text-right' : 'text-left'}`}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {poGrouped.flatMap(mg => {
+                  const mFobCny = sumN(mg.rows.map(p => p.currency === 'CNY' ? p.total_amount : null))
+                  const mFobUsd = sumN(mg.rows.map(p => p.currency === 'USD' ? p.total_amount : null))
+                  const mEstThb = sumN(mg.rows.map(p => getEstFobThb(p)))
+                  const mCost = sumN(mg.rows.map(p => p.cost_saving))
+                  return [
+                    ...mg.rows.map((p, i) => (
+                      <tr key={p.id} className="border-b border-gray-100 hover:bg-gray-50">
+                        <td className="px-3 py-2 border border-gray-200 text-gray-700 whitespace-nowrap">{i === 0 ? mg.label : ''}</td>
+                        <td className="px-3 py-2 border border-gray-200 font-mono text-gray-800 text-xs">{p.po_rbs_ch_no || <span className="text-gray-400">—</span>}</td>
+                        <td className="px-3 py-2 border border-gray-200 font-mono text-gray-800 text-xs">{p.po_rbs_th_no || <span className="text-gray-400">—</span>}</td>
+                        <td className="px-3 py-2 border border-gray-200 text-right text-gray-700">{p.currency === 'CNY' ? fmt(p.total_amount) : <span className="text-gray-300">—</span>}</td>
+                        <td className="px-3 py-2 border border-gray-200 text-right text-gray-700">{p.currency === 'USD' ? fmt(p.total_amount) : <span className="text-gray-300">—</span>}</td>
+                        <td className="px-3 py-2 border border-gray-200 text-right text-gray-700">{fmt(getEstFobThb(p))}</td>
+                        <td className="px-3 py-2 border border-gray-200 text-right text-gray-700">{p.cost_saving != null ? fmt(p.cost_saving) : <span className="text-gray-400">—</span>}</td>
+                        <td className="px-3 py-2 border border-gray-200 text-right text-gray-700">{p.cost_saving_pct != null ? `${p.cost_saving_pct}%` : <span className="text-gray-400">—</span>}</td>
+                      </tr>
+                    )),
+                    <tr key={`${mg.key}-total`} className="bg-blue-50 font-semibold text-gray-800">
+                      <td className="px-3 py-2 border border-blue-200 text-blue-900 whitespace-nowrap">{mg.label} Total</td>
+                      <td className="px-3 py-2 border border-blue-200" colSpan={2}></td>
+                      <td className="px-3 py-2 border border-blue-200 text-right">{fmt(mFobCny)}</td>
+                      <td className="px-3 py-2 border border-blue-200 text-right">{fmt(mFobUsd)}</td>
+                      <td className="px-3 py-2 border border-blue-200 text-right">{fmt(mEstThb)}</td>
+                      <td className="px-3 py-2 border border-blue-200 text-right">{fmt(mCost)}</td>
+                      <td className="px-3 py-2 border border-blue-200"></td>
+                    </tr>,
+                  ]
+                })}
+                {poGrouped.length === 0 && (
+                  <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400 text-sm">ไม่มีข้อมูล PO</td></tr>
+                )}
+                <tr className="bg-blue-800 text-white font-bold border-t-2 border-blue-900">
+                  <td className="px-3 py-2.5 border border-blue-700 whitespace-nowrap">GRAND TOTAL {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}</td>
+                  <td className="px-3 py-2.5 border border-blue-700" colSpan={2}></td>
+                  <td className="px-3 py-2.5 border border-blue-700 text-right">{fmt(poGrandTotal.fobCny)}</td>
+                  <td className="px-3 py-2.5 border border-blue-700 text-right">{fmt(poGrandTotal.fobUsd)}</td>
+                  <td className="px-3 py-2.5 border border-blue-700 text-right">{fmt(poGrandTotal.estThb)}</td>
+                  <td className="px-3 py-2.5 border border-blue-700 text-right">{fmt(poGrandTotal.costSaving)}</td>
+                  <td className="px-3 py-2.5 border border-blue-700"></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-gray-400 mt-2">Estimated FOB THB คำนวณจาก ESTIMATE RATES ในหน้า Cost Compare (CNY: {cnyRate}, USD: {usdRate})</p>
+        </>)}
+
+      </div> {/* end max-w-full */}
 
       {rateDetail && (() => {
         const entries = rateDetail.exchange_rates && rateDetail.exchange_rates.length > 0
