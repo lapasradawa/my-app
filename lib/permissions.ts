@@ -13,6 +13,7 @@ export type PageKey =
   | 'summary'
   | 'qc'
   | 'guide'
+  | 'po-summary'
 
 export interface UserPermissions {
   isAdmin: boolean
@@ -60,6 +61,7 @@ export function pathnameToPageKey(pathname: string): PageKey | null {
     case 'summary':    return 'summary'
     case 'qc':         return 'qc'
     case 'guide':      return 'guide'
+    case 'po-summary': return 'po-summary'
     case 'admin':      return null // handled separately
     case 'login':      return null // public
     default:           return null
