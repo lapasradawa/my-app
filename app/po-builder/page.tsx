@@ -469,9 +469,9 @@ export default function PoInsightsPage() {
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr className="bg-gray-50 text-gray-500 text-xs border-b border-gray-200">
-                  <th className="px-4 py-3 text-left">Supplier</th>
-                  <th className="px-4 py-3 text-left">Project</th>
                   <th className="px-4 py-3 text-left">PO RBS CH No.</th>
+                  <th className="px-4 py-3 text-left">Project</th>
+                  <th className="px-4 py-3 text-left">Supplier</th>
                   <th className="px-4 py-3 text-left">วันที่เปิด PO</th>
                   <th className="px-4 py-3 text-right">Original currency FOB</th>
                   <th className="px-4 py-3 text-right">FOB (THB)</th>
@@ -483,9 +483,9 @@ export default function PoInsightsPage() {
               <tbody>
                 {records.map(rec => (
                   <tr key={rec.id} className="border-b border-gray-100 hover:bg-blue-50/30 transition-colors">
-                    <td className="px-4 py-3 font-medium text-gray-900">{rec.supplier}</td>
+                    <td className="px-4 py-3 text-gray-900 text-xs font-mono">{rec.po_rbs_ch_no ?? <span className="text-gray-400">—</span>}</td>
                     <td className="px-4 py-3 text-gray-600">{rec.project}</td>
-                    <td className="px-4 py-3 text-gray-600 text-xs font-mono">{rec.po_rbs_ch_no ?? <span className="text-gray-400">—</span>}</td>
+                    <td className="px-4 py-3 font-medium text-gray-700">{rec.supplier}</td>
                     <td className="px-4 py-3 text-gray-600">
                       {rec.po_date ? new Date(rec.po_date).toLocaleDateString('th-TH', { day: '2-digit', month: 'short', year: 'numeric' }) : <span className="text-gray-400">—</span>}
                     </td>
