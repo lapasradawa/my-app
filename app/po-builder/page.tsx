@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import * as XLSX from 'xlsx'
 import { supabase } from '@/lib/supabase'
 import { isUnlocked } from '@/lib/auth'
@@ -35,7 +35,6 @@ interface PoBuilderItem {
 
 export default function PoInsightsPage() {
   const fileRef = useRef<HTMLInputElement>(null)
-  const router = useRouter()
   const [, setUnlocked] = useState(false)
 
   // ── PO list ──────────────────────────────────────────────────────────
@@ -482,12 +481,12 @@ export default function PoInsightsPage() {
               </thead>
               <tbody>
                 {records.map(rec => (
-                  <tr
-                    key={rec.id}
-                    onClick={() => router.push(`/po-builder/${rec.id}`)}
-                    className="border-b border-gray-100 hover:bg-blue-50/40 cursor-pointer transition-colors"
-                  >
-                    <td className="px-4 py-3 text-gray-900 text-xs font-mono">{rec.po_rbs_ch_no ?? <span className="text-gray-400">—</span>}</td>
+                  <tr key={rec.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                    <td className="px-4 py-3 text-xs font-mono font-semibold">
+                      <Link href={`/po-builder/${rec.id}`} className="text-blue-600 hover:text-blue-800 hover:underline">
+                        {rec.po_rbs_ch_no || <span className="text-gray-400 font-normal">—</span>}
+                      </Link>
+                    </td>
                     <td className="px-4 py-3 text-gray-600">{rec.project}</td>
                     <td className="px-4 py-3 font-medium text-gray-700">{rec.supplier}</td>
                     <td className="px-4 py-3 text-gray-600">
