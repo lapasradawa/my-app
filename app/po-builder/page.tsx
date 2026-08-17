@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import * as XLSX from 'xlsx'
 import { supabase } from '@/lib/supabase'
 import { isUnlocked } from '@/lib/auth'
@@ -35,6 +35,7 @@ interface PoBuilderItem {
 
 export default function PoInsightsPage() {
   const fileRef = useRef<HTMLInputElement>(null)
+  const router = useRouter()
   const [, setUnlocked] = useState(false)
 
   // ── PO list ──────────────────────────────────────────────────────────
@@ -477,12 +478,15 @@ export default function PoInsightsPage() {
                   <th className="px-4 py-3 text-right">FOB (THB)</th>
                   <th className="px-4 py-3 text-right">Cost Saving (THB)</th>
                   <th className="px-4 py-3 text-left">อัปโหลดเมื่อ</th>
-                  <th className="px-4 py-3"></th>
                 </tr>
               </thead>
               <tbody>
                 {records.map(rec => (
-                  <tr key={rec.id} className="border-b border-gray-100 hover:bg-blue-50/30 transition-colors">
+                  <tr
+                    key={rec.id}
+                    onClick={() => router.push(`/po-builder/${rec.id}`)}
+                    className="border-b border-gray-100 hover:bg-blue-50/40 cursor-pointer transition-colors"
+                  >
                     <td className="px-4 py-3 text-gray-900 text-xs font-mono">{rec.po_rbs_ch_no ?? <span className="text-gray-400">—</span>}</td>
                     <td className="px-4 py-3 text-gray-600">{rec.project}</td>
                     <td className="px-4 py-3 font-medium text-gray-700">{rec.supplier}</td>
@@ -500,11 +504,6 @@ export default function PoInsightsPage() {
                       {rec.cost_saving != null ? fmt(rec.cost_saving) : <span className="text-gray-400">—</span>}
                     </td>
                     <td className="px-4 py-3 text-gray-400 text-xs">{fmtDate(rec.created_at)}</td>
-                    <td className="px-4 py-3 text-right">
-                      <Link href={`/po-builder/${rec.id}`} className="text-blue-600 hover:text-blue-800 text-xs font-medium whitespace-nowrap">
-                        ดูรายละเอียด →
-                      </Link>
-                    </td>
                   </tr>
                 ))}
               </tbody>
