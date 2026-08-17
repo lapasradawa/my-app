@@ -48,6 +48,10 @@ export default function PoInsightsPage() {
   const [uploadDate, setUploadDate] = useState('')
   const [dragging, setDragging] = useState(false)
 
+  // ── Exchange rates (from cost_settings) ─────────────────────────────
+  const [cnyRate, setCnyRate] = useState(4.85)
+  const [usdRate, setUsdRate] = useState(33.00)
+
   // ── PO Builder (generate) ─────────────────────────────────────────────
   const [showBuilder, setShowBuilder] = useState(false)
   const [allSuppliers, setAllSuppliers] = useState<string[]>([])
@@ -74,11 +78,19 @@ export default function PoInsightsPage() {
   }
 
   async function loadMeta() {
-    const { data } = await supabase.from('po_items').select('supplier, project')
-    if (data) {
-      const rows = data as { supplier: string; project: string }[]
+    const [{ data: items }, { data: settings }] = await Promise.all([
+      supabase.from('po_items').select('supplier, project'),
+      supabase.from('cost_settings').select('key, value'),
+    ])
+    if (items) {
+      const rows = items as { supplier: string; project: string }[]
       setAllSuppliers([...new Set(rows.map(r => r.supplier))].sort())
       setAllProjects([...new Set(rows.map(r => r.project))].sort())
+    }
+    if (settings) {
+      const m = Object.fromEntries((settings as { key: string; value: string }[]).map(r => [r.key, r.value]))
+      if (m.cny_rate) setCnyRate(parseFloat(m.cny_rate))
+      if (m.usd_rate) setUsdRate(parseFloat(m.usd_rate))
     }
   }
 
@@ -437,7 +449,8 @@ export default function PoInsightsPage() {
                   <th className="px-4 py-3 text-left">Supplier</th>
                   <th className="px-4 py-3 text-left">Project</th>
                   <th className="px-4 py-3 text-left">วันที่เปิด PO</th>
-                  <th className="px-4 py-3 text-right">ยอดรวม</th>
+                  <th className="px-4 py-3 text-right">Original currency FOB</th>
+                  <th className="px-4 py-3 text-right">FOB (THB)</th>
                   <th className="px-4 py-3 text-left">ไฟล์</th>
                   <th className="px-4 py-3 text-left">อัปโหลดเมื่อ</th>
                   <th className="px-4 py-3"></th>
@@ -453,6 +466,10 @@ export default function PoInsightsPage() {
                     </td>
                     <td className="px-4 py-3 text-right font-medium text-gray-800">
                       {fmt(rec.total_amount)} <span className="text-gray-400 text-xs">{rec.currency}</span>
+                    </td>
+                    <td className="px-4 py-3 text-right font-medium text-gray-800">
+                      {fmt(rec.total_amount * (rec.currency === 'USD' ? usdRate : cnyRate))}
+                      <span className="text-gray-400 text-xs ml-1">THB</span>
                     </td>
                     <td className="px-4 py-3 text-gray-400 text-xs truncate max-w-[160px]">{rec.filename ?? '—'}</td>
                     <td className="px-4 py-3 text-gray-400 text-xs">{fmtDate(rec.created_at)}</td>
