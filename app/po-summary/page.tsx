@@ -574,7 +574,11 @@ export default function POSummaryPage() {
                       return (
                         <tr key={g.group} className="border-b hover:bg-amber-50/50 cursor-pointer transition-colors"
                           style={{ borderColor: '#ede8df' }}
-                          onClick={() => setExpandedGroup(expandedGroup === g.group ? null : g.group)}>
+                          onClick={() => {
+                            const next = expandedGroup === g.group ? null : g.group
+                            setExpandedGroup(next)
+                            if (next) setTimeout(() => document.getElementById(`group-card-${next}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
+                          }}>
                           <td className="py-2.5 pr-3">
                             <div className="flex items-center gap-2">
                               <span className="w-3 h-3 rounded-full shrink-0" style={{ background: g.color }} />
@@ -678,7 +682,7 @@ export default function POSummaryPage() {
             {groupData.map(g => {
               const isExpanded = expandedGroup === g.group
               return (
-                <div key={g.group} className="bg-white rounded-2xl border shadow-sm overflow-hidden"
+                <div key={g.group} id={`group-card-${g.group}`} className="bg-white rounded-2xl border shadow-sm overflow-hidden"
                   style={{ borderColor: isExpanded ? g.color : '#ede8df' }}>
 
                   {/* Card header */}
