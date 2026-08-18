@@ -206,6 +206,37 @@ export default function POSummaryPage() {
     filteredUploads.reduce((s, u) => s + u.total_amount * rateFor(u), 0)
   , [filteredUploads, cnyRate, usdRate])
 
+  // Allocate each PO's total_amount×rate to its items proportionally by fob_price.
+  // When row-level totals exist, use those directly; remaining budget split by weight.
+  // This ensures sum(itemFobThbMap) === grandPoThb.
+  const itemFobThbMap = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const u of filteredUploads) {
+      const rate = rateFor(u)
+      const totalThb = u.total_amount * rate
+      const poItems = filteredItems.filter(i => i.supplier === u.supplier && i.project === u.project)
+      if (poItems.length === 0) continue
+
+      const withRows = poItems.filter(i => rowLookup.has(`${u.supplier}|${u.project}|${i.item_code}`))
+      let rowsThb = 0
+      for (const item of withRows) {
+        const rd = rowLookup.get(`${u.supplier}|${u.project}|${item.item_code}`)!
+        const v = rd.total * rate
+        map.set(`${u.supplier}|${u.project}|${item.item_code}`, v)
+        rowsThb += v
+      }
+      const rest = poItems.filter(i => !rowLookup.has(`${u.supplier}|${u.project}|${i.item_code}`))
+      if (rest.length > 0) {
+        const remaining = Math.max(0, totalThb - rowsThb)
+        const wSum = rest.reduce((s, i) => s + (i.fob_price || 1), 0) || 1
+        for (const item of rest) {
+          map.set(`${u.supplier}|${u.project}|${item.item_code}`, remaining * ((item.fob_price || 1) / wSum))
+        }
+      }
+    }
+    return map
+  }, [filteredUploads, filteredItems, rowLookup, cnyRate, usdRate])
+
   // Group items by product category
   const groupData = useMemo(() => {
     const map = new Map<string, { items: POItem[] }>()
@@ -220,21 +251,14 @@ export default function POSummaryPage() {
         const itemCount = gItems.length
         const pct = filteredItems.length > 0 ? (itemCount / filteredItems.length) * 100 : 0
 
-        // FOB THB for this group
-        const fobThb = gItems.reduce((sum, item) => {
-          const po = poMap.get(`${item.supplier}|${item.project}`)
-          const rowData = rowLookup.get(`${item.supplier}|${item.project}|${item.item_code}`)
-          const rate = po ? rateFor(po) : (item.currency === 'USD' ? usdRate : cnyRate)
-          return sum + (rowData ? rowData.total * rate : item.fob_price * rate)
-        }, 0)
+        // FOB THB for this group — from pre-computed allocation map
+        const fobThb = gItems.reduce((sum, item) =>
+          sum + (itemFobThbMap.get(`${item.supplier}|${item.project}|${item.item_code}`) ?? 0), 0)
 
         // Supplier breakdown by item count AND FOB THB
         const suppMap = new Map<string, { count: number; fobThb: number }>()
         for (const item of gItems) {
-          const po = poMap.get(`${item.supplier}|${item.project}`)
-          const rowData = rowLookup.get(`${item.supplier}|${item.project}|${item.item_code}`)
-          const rate = po ? rateFor(po) : (item.currency === 'USD' ? usdRate : cnyRate)
-          const itemFob = rowData ? rowData.total * rate : item.fob_price * rate
+          const itemFob = itemFobThbMap.get(`${item.supplier}|${item.project}|${item.item_code}`) ?? 0
           const cur = suppMap.get(item.supplier) ?? { count: 0, fobThb: 0 }
           suppMap.set(item.supplier, { count: cur.count + 1, fobThb: cur.fobThb + itemFob })
         }
@@ -254,7 +278,7 @@ export default function POSummaryPage() {
         return { group, itemCount, pct, fobThb, suppliers, suppSet, sortedItems, color: PALETTE[gi % PALETTE.length] }
       })
       .sort((a, b) => b.itemCount - a.itemCount)
-  }, [filteredItems, poMap, rowLookup, cnyRate, usdRate])
+  }, [filteredItems, itemFobThbMap])
 
   const grandGroupFobThb = useMemo(() => groupData.reduce((s, g) => s + g.fobThb, 0), [groupData])
 
@@ -463,8 +487,8 @@ export default function POSummaryPage() {
                 <div className="flex flex-col items-center gap-1">
                   <DonutChart
                     slices={groupData.map(g => ({ label: g.group, value: g.fobThb, color: g.color }))}
-                    total={grandGroupFobThb} size={150}
-                    centerLabel={grandGroupFobThb >= 1000000 ? `${(grandGroupFobThb/1000000).toFixed(1)}M` : `${(grandGroupFobThb/1000).toFixed(0)}k`}
+                    total={grandPoThb} size={150}
+                    centerLabel={grandPoThb >= 1000000 ? `${(grandPoThb/1000000).toFixed(1)}M` : `${(grandPoThb/1000).toFixed(0)}k`}
                     centerSub="FOB THB" />
                   <span className="text-xs font-semibold mt-1" style={{ color: '#8a7a6a' }}>by FOB THB</span>
                 </div>
@@ -483,7 +507,7 @@ export default function POSummaryPage() {
                   </thead>
                   <tbody>
                     {groupData.map(g => {
-                      const fobPct = grandGroupFobThb > 0 ? (g.fobThb / grandGroupFobThb) * 100 : 0
+                      const fobPct = grandPoThb > 0 ? (g.fobThb / grandPoThb) * 100 : 0
                       return (
                         <tr key={g.group} className="border-b hover:bg-amber-50/50 cursor-pointer transition-colors"
                           style={{ borderColor: '#ede8df' }}
@@ -525,7 +549,7 @@ export default function POSummaryPage() {
                       <td className="py-2.5 pr-2 text-right font-bold" style={{ color: '#3d8b82' }}>{fmt(grandItemCount)}</td>
                       <td />
                       <td className="py-2.5 pr-2 text-right font-bold" style={{ color: '#3d8b82' }}>
-                        {grandGroupFobThb >= 1000000 ? `${(grandGroupFobThb/1000000).toFixed(1)}M` : fmt(grandGroupFobThb, 0)}
+                        {grandPoThb >= 1000000 ? `${(grandPoThb/1000000).toFixed(1)}M` : fmt(grandPoThb, 0)}
                       </td>
                       <td colSpan={2} />
                     </tr>
@@ -596,9 +620,9 @@ export default function POSummaryPage() {
                       <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: g.color + '22', color: g.color }}>
                         {g.pct.toFixed(1)}% (items)
                       </span>
-                      {grandGroupFobThb > 0 && (
+                      {grandPoThb > 0 && (
                         <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: g.color + '15', color: g.color, opacity: 0.85 }}>
-                          {((g.fobThb / grandGroupFobThb) * 100).toFixed(1)}% (FOB)
+                          {((g.fobThb / grandPoThb) * 100).toFixed(1)}% (FOB)
                         </span>
                       )}
                       <span className="text-xs" style={{ color: '#8a7a6a' }}>{fmt(g.itemCount)} item codes · {g.suppSet.size} supplier{g.suppSet.size > 1 ? 's' : ''}</span>
