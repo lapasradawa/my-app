@@ -319,6 +319,14 @@ export default function POSummaryPage() {
   const grandItemCount = filteredItems.length
   const overviewSlices = groupData.map(g => ({ label: g.group, value: g.itemCount, color: g.color }))
 
+  // FOB donut slices — include Unknown slice so the ring is always a full circle
+  const fobDonutSlices = useMemo(() => {
+    const slices = groupData.map(g => ({ label: g.group, value: g.fobThb, color: g.color }))
+    const unknownThb = groupFobAlloc.byGroup.get('Unknown') ?? 0
+    if (unknownThb > 0) slices.push({ label: 'Unknown', value: unknownThb, color: '#c8bfb4' })
+    return slices
+  }, [groupData, groupFobAlloc])
+
   // ── Export Excel ────────────────────────────────────────────────────────────
   async function exportExcel() {
     setExporting(true)
@@ -513,7 +521,7 @@ export default function POSummaryPage() {
                 </div>
                 <div className="flex flex-col items-center gap-1">
                   <DonutChart
-                    slices={groupData.map(g => ({ label: g.group, value: g.fobThb, color: g.color }))}
+                    slices={fobDonutSlices}
                     total={grandGroupFobThb} size={150}
                     centerLabel={grandGroupFobThb >= 1000000 ? `${(grandGroupFobThb/1000000).toFixed(1)}M` : `${(grandGroupFobThb/1000).toFixed(0)}k`}
                     centerSub="FOB THB" />
