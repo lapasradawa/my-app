@@ -322,11 +322,16 @@ export default function POSummaryPage() {
   const grandItemCount = filteredItems.length
   const overviewSlices = groupData.map(g => ({ label: g.group, value: g.itemCount, color: g.color }))
 
-  // FOB donut slices — include Unknown slice so the ring is always a full circle
+  // FOB donut slices — any allocated value not in groupData (different group name from rows/fallback)
+  // is collected into "Other" so the ring is always a full circle
   const fobDonutSlices = useMemo(() => {
+    const knownGroups = new Set(groupData.map(g => g.group))
     const slices = groupData.map(g => ({ label: g.group, value: g.fobThb, color: g.color }))
-    const unknownThb = groupFobAlloc.byGroup.get('Unknown') ?? 0
-    if (unknownThb > 0) slices.push({ label: 'Unknown', value: unknownThb, color: '#c8bfb4' })
+    let extraThb = 0
+    for (const [group, thb] of groupFobAlloc.byGroup) {
+      if (!knownGroups.has(group)) extraThb += thb
+    }
+    if (extraThb > 0) slices.push({ label: 'Other', value: extraThb, color: '#c8bfb4' })
     return slices
   }, [groupData, groupFobAlloc])
 
