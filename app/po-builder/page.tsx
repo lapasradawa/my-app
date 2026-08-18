@@ -180,13 +180,7 @@ export default function PoInsightsPage() {
         .single()
       if (error) throw new Error(error.message)
 
-      // Update po_items (delete old, insert new prices) for Cost Compare
-      await supabase
-        .from('po_items')
-        .delete()
-        .eq('project', uploadProject)
-        .eq('supplier', uploadSupplier)
-
+      // Insert new prices into po_items for Cost Compare (keeps history, latest wins by uploaded_at)
       const poItemRows = uploadParsed.rows.map(r => ({
         project: uploadProject,
         supplier: uploadSupplier,
