@@ -225,19 +225,22 @@ export default function POSummaryPage() {
       const rate = rateFor(u)
       const totalThb = u.total_amount * rate
 
-      // 1. Use row-level totals when available
+      // 1. Use row-level totals when available and non-zero
       if (u.rows && u.rows.length > 0) {
-        const rowsSum = u.rows.reduce((s, r) => s + (r.total || 0), 0) || 1
-        for (const row of u.rows) {
-          add(extractGroup(row.description, row.item_code), u.supplier, (row.total / rowsSum) * totalThb)
+        const rowsSum = u.rows.reduce((s, r) => s + (r.total || 0), 0)
+        if (rowsSum > 0) {
+          for (const row of u.rows) {
+            add(extractGroup(row.description, row.item_code), u.supplier, (row.total / rowsSum) * totalThb)
+          }
+          continue
         }
-        continue
+        // rows exist but all totals are 0 → fall through to po_items
       }
 
-      // 2. po_items: supplier + project exact match
-      let matched = items.filter(i => i.supplier === u.supplier && i.project === u.project)
+      // 2. po_items: supplier + project exact match (use filteredItems to stay period-consistent)
+      let matched = filteredItems.filter(i => i.supplier === u.supplier && i.project === u.project)
 
-      // 3. Fallback: supplier only (handles project field mismatch)
+      // 3. Fallback: supplier only in all items (catches project field mismatch)
       if (matched.length === 0) matched = items.filter(i => i.supplier === u.supplier)
 
       if (matched.length > 0) {
@@ -252,7 +255,7 @@ export default function POSummaryPage() {
     }
 
     return { byGroup, bySuppGroup }
-  }, [filteredUploads, items, rowLookup, cnyRate, usdRate])
+  }, [filteredUploads, filteredItems, items, cnyRate, usdRate])
 
   // Group items by product category
   const groupData = useMemo(() => {
@@ -300,7 +303,11 @@ export default function POSummaryPage() {
       .sort((a, b) => b.itemCount - a.itemCount)
   }, [filteredItems, groupFobAlloc])
 
-  const grandGroupFobThb = useMemo(() => groupData.reduce((s, g) => s + g.fobThb, 0), [groupData])
+  // Sum all allocated groups (includes Unknown) — equals grandPoThb when allocation is complete
+  const grandGroupFobThb = useMemo(
+    () => Array.from(groupFobAlloc.byGroup.values()).reduce((s, v) => s + v, 0),
+    [groupFobAlloc]
+  )
 
   // Supplier totals from po_uploads
   const supplierTotals = useMemo(() => {
@@ -508,7 +515,7 @@ export default function POSummaryPage() {
                   <DonutChart
                     slices={groupData.map(g => ({ label: g.group, value: g.fobThb, color: g.color }))}
                     total={grandGroupFobThb} size={150}
-                    centerLabel={grandPoThb >= 1000000 ? `${(grandPoThb/1000000).toFixed(1)}M` : `${(grandPoThb/1000).toFixed(0)}k`}
+                    centerLabel={grandGroupFobThb >= 1000000 ? `${(grandGroupFobThb/1000000).toFixed(1)}M` : `${(grandGroupFobThb/1000).toFixed(0)}k`}
                     centerSub="FOB THB" />
                   <span className="text-xs font-semibold mt-1" style={{ color: '#8a7a6a' }}>by FOB THB</span>
                 </div>
@@ -527,7 +534,7 @@ export default function POSummaryPage() {
                   </thead>
                   <tbody>
                     {groupData.map(g => {
-                      const fobPct = grandPoThb > 0 ? (g.fobThb / grandPoThb) * 100 : 0
+                      const fobPct = grandGroupFobThb > 0 ? (g.fobThb / grandGroupFobThb) * 100 : 0
                       return (
                         <tr key={g.group} className="border-b hover:bg-amber-50/50 cursor-pointer transition-colors"
                           style={{ borderColor: '#ede8df' }}
@@ -569,10 +576,17 @@ export default function POSummaryPage() {
                       <td className="py-2.5 pr-2 text-right font-bold" style={{ color: '#3d8b82' }}>{fmt(grandItemCount)}</td>
                       <td />
                       <td className="py-2.5 pr-2 text-right font-bold" style={{ color: '#3d8b82' }}>
-                        {grandPoThb >= 1000000 ? `${(grandPoThb/1000000).toFixed(1)}M` : fmt(grandPoThb, 0)}
+                        {grandGroupFobThb >= 1000000 ? `${(grandGroupFobThb/1000000).toFixed(1)}M` : fmt(grandGroupFobThb, 0)}
                       </td>
                       <td colSpan={2} />
                     </tr>
+                    {(groupFobAlloc.byGroup.get('Unknown') ?? 0) > 0 && (
+                      <tr>
+                        <td colSpan={6} className="py-1.5 text-xs" style={{ color: '#b0a090' }}>
+                          * รวม PO ที่ไม่มี item record ({((groupFobAlloc.byGroup.get('Unknown')! / grandGroupFobThb) * 100).toFixed(1)}% → จัดไว้ใน "Unknown") — อัปโหลดใหม่ผ่าน PO Insights เพื่อแบ่งกลุ่มได้ถูกต้อง
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -640,9 +654,9 @@ export default function POSummaryPage() {
                       <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: g.color + '22', color: g.color }}>
                         {g.pct.toFixed(1)}% (items)
                       </span>
-                      {grandPoThb > 0 && (
+                      {grandGroupFobThb > 0 && (
                         <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: g.color + '15', color: g.color, opacity: 0.85 }}>
-                          {((g.fobThb / grandPoThb) * 100).toFixed(1)}% (FOB)
+                          {((g.fobThb / grandGroupFobThb) * 100).toFixed(1)}% (FOB)
                         </span>
                       )}
                       <span className="text-xs" style={{ color: '#8a7a6a' }}>{fmt(g.itemCount)} item codes · {g.suppSet.size} supplier{g.suppSet.size > 1 ? 's' : ''}</span>
