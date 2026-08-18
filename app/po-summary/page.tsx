@@ -25,6 +25,24 @@ interface POItem {
   currency: string
 }
 
+interface DetailEntry {
+  supplier: string
+  qty: number
+  unit_price: number
+  currency: string
+  unit_thb: number
+  total_thb: number
+  poId: string
+  poLabel: string
+}
+
+interface GroupDetailItem {
+  item_code: string
+  description: string | null
+  supplierEntries: DetailEntry[]
+  total_thb: number
+}
+
 interface POUpload {
   id: string
   supplier: string
@@ -200,16 +218,15 @@ export default function POSummaryPage() {
     selectedProject === 'all' ? periodFilteredUploads : periodFilteredUploads.filter(u => u.project === selectedProject)
   , [periodFilteredUploads, selectedProject])
 
-  // Items derived from PO Insights rows — unique item_code per supplier (source of truth for group counts)
+  // Unique item_codes from PO rows — dedup by item_code only (1 item = 1 SKU regardless of supplier)
   const rowItems = useMemo((): POItem[] => {
     const seen = new Map<string, POItem>()
     for (const u of filteredUploads) {
       if (!u.rows) continue
       for (const row of u.rows) {
         if (!row.item_code) continue
-        const key = `${u.supplier}|${row.item_code}`
-        if (!seen.has(key)) {
-          seen.set(key, {
+        if (!seen.has(row.item_code)) {
+          seen.set(row.item_code, {
             project: u.project,
             supplier: u.supplier,
             item_code: row.item_code,
@@ -222,6 +239,40 @@ export default function POSummaryPage() {
     }
     return Array.from(seen.values())
   }, [filteredUploads])
+
+  // Per-item detail: item_code → all supplier entries (for detail table)
+  const groupDetailMap = useMemo(() => {
+    const map = new Map<string, DetailEntry[]>()
+    // latest PO per supplier in filteredUploads
+    const latestPo = new Map<string, POUpload>()
+    for (const u of filteredUploads) {
+      const ex = latestPo.get(u.supplier)
+      if (!ex || u.created_at > ex.created_at) latestPo.set(u.supplier, u)
+    }
+    for (const u of filteredUploads) {
+      if (!u.rows) continue
+      const rate = rateFor(u)
+      const po = latestPo.get(u.supplier)!
+      for (const row of u.rows) {
+        if (!row.item_code) continue
+        if (!map.has(row.item_code)) map.set(row.item_code, [])
+        const entries = map.get(row.item_code)!
+        if (!entries.find(e => e.supplier === u.supplier)) {
+          entries.push({
+            supplier: u.supplier,
+            qty: row.qty,
+            unit_price: row.unit_price,
+            currency: u.currency,
+            unit_thb: row.unit_price * rate,
+            total_thb: row.qty * row.unit_price * rate,
+            poId: po.id,
+            poLabel: po.po_rbs_ch_no || po.filename?.replace(/\.xlsx?$/i, '') || po.id.slice(0, 8),
+          })
+        }
+      }
+    }
+    return map
+  }, [filteredUploads, cnyRate, usdRate])
 
   const rateFor = (u: POUpload) => u.exchange_rate ?? (u.currency === 'USD' ? usdRate : cnyRate)
 
@@ -283,55 +334,66 @@ export default function POSummaryPage() {
     return { byGroup, bySuppGroup }
   }, [filteredUploads, filteredItems, items, cnyRate, usdRate])
 
-  // Group items by product category — using rowItems (from PO Insights rows), not po_items catalog
+  // Group items by product category — unique item_codes, multi-supplier detail from groupDetailMap
   const groupData = useMemo(() => {
-    const map = new Map<string, { items: POItem[] }>()
+    const map = new Map<string, Set<string>>() // group → unique item_codes
     for (const item of rowItems) {
       const g = extractGroup(item.description, item.item_code)
-      if (!map.has(g)) map.set(g, { items: [] })
-      map.get(g)!.items.push(item)
+      if (!map.has(g)) map.set(g, new Set())
+      map.get(g)!.add(item.item_code)
     }
-    // Include any groups from FOB allocation that have no items in rowItems
     for (const [group] of groupFobAlloc.byGroup) {
-      if (!map.has(group)) map.set(group, { items: [] })
+      if (!map.has(group)) map.set(group, new Set())
     }
 
     return Array.from(map.entries())
-      .map(([group, { items: gItems }], gi) => {
-        const itemCount = gItems.length
+      .map(([group, itemCodes], gi) => {
+        const itemCount = itemCodes.size
         const pct = rowItems.length > 0 ? (itemCount / rowItems.length) * 100 : 0
 
-        // FOB THB for this group — from allocation map keyed by group name
         const fobThb = groupFobAlloc.byGroup.get(group) ?? 0
         const suppFobMap = groupFobAlloc.bySuppGroup.get(group) ?? new Map<string, number>()
 
-        // Supplier breakdown by item count AND FOB THB
-        const suppMap = new Map<string, { count: number; fobThb: number }>()
-        for (const item of gItems) {
-          const cur = suppMap.get(item.supplier) ?? { count: 0, fobThb: 0 }
-          suppMap.set(item.supplier, { count: cur.count + 1, fobThb: suppFobMap.get(item.supplier) ?? 0 })
+        // Supplier item-code counts from groupDetailMap
+        const suppItemCount = new Map<string, number>()
+        for (const ic of itemCodes) {
+          for (const e of (groupDetailMap.get(ic) ?? [])) {
+            suppItemCount.set(e.supplier, (suppItemCount.get(e.supplier) ?? 0) + 1)
+          }
         }
-        // Also include any suppliers in suppFobMap not in gItems (e.g. from rows fallback)
-        for (const [supp, fob] of suppFobMap) {
-          if (!suppMap.has(supp)) suppMap.set(supp, { count: 0, fobThb: fob })
-        }
-        const suppliers = Array.from(suppMap.entries())
-          .map(([supplier, { count, fobThb: suppFob }], si) => ({
-            supplier, count, suppFob,
-            pct: itemCount > 0 ? (count / itemCount) * 100 : 0,
-            fobPct: fobThb > 0 ? (suppFob / fobThb) * 100 : 0,
-            color: PALETTE[si % PALETTE.length],
-          }))
+        const suppSet = new Set([...suppItemCount.keys(), ...suppFobMap.keys()])
+        const suppliers = Array.from(suppSet)
+          .map((supplier, si) => {
+            const count = suppItemCount.get(supplier) ?? 0
+            const suppFob = suppFobMap.get(supplier) ?? 0
+            return {
+              supplier, count, suppFob,
+              pct: itemCount > 0 ? (count / itemCount) * 100 : 0,
+              fobPct: fobThb > 0 ? (suppFob / fobThb) * 100 : 0,
+              color: PALETTE[si % PALETTE.length],
+            }
+          })
           .sort((a, b) => b.suppFob - a.suppFob)
 
-        const suppSet = new Set(gItems.map(i => i.supplier))
-        const sortedItems = [...gItems].sort((a, b) =>
-          a.supplier.localeCompare(b.supplier) || a.item_code.localeCompare(b.item_code))
+        // Detail items: 1 row per unique item_code, with all supplier entries
+        const sortedItems: GroupDetailItem[] = Array.from(itemCodes)
+          .map(ic => {
+            const baseItem = rowItems.find(i => i.item_code === ic)
+            const supplierEntries = (groupDetailMap.get(ic) ?? [])
+              .sort((a, b) => b.total_thb - a.total_thb)
+            return {
+              item_code: ic,
+              description: baseItem?.description ?? null,
+              supplierEntries,
+              total_thb: supplierEntries.reduce((s, e) => s + e.total_thb, 0),
+            }
+          })
+          .sort((a, b) => b.total_thb - a.total_thb)
 
         return { group, itemCount, pct, fobThb, suppliers, suppSet, sortedItems, color: PALETTE[gi % PALETTE.length] }
       })
       .sort((a, b) => b.itemCount - a.itemCount)
-  }, [rowItems, groupFobAlloc])
+  }, [rowItems, groupFobAlloc, groupDetailMap])
 
   // Sum all allocated groups (includes Unknown) — equals grandPoThb when allocation is complete
   const grandGroupFobThb = useMemo(
@@ -758,46 +820,33 @@ export default function POSummaryPage() {
                               <tr style={{ color: '#9a8a7a', borderBottom: '1px solid #ede8df' }}>
                                 <th className="text-left py-2 pr-3">Item Code</th>
                                 <th className="text-left py-2 pr-3">Description</th>
-                                <th className="text-left py-2 pr-3">Supplier</th>
-                                <th className="text-left py-2 pr-3">PO</th>
-                                <th className="text-right py-2 pr-3">QTY</th>
-                                <th className="text-right py-2 pr-3">Unit Price</th>
-                                <th className="text-right py-2 pr-3">FOB THB</th>
-                                <th className="text-right py-2">CCY</th>
+                                <th className="text-left py-2">Suppliers (QTY × Unit Price)</th>
+                                <th className="text-right py-2 pl-3">FOB THB รวม</th>
                               </tr>
                             </thead>
                             <tbody>
-                              {g.sortedItems.map((item, idx) => {
-                                const po = poMap.get(`${item.supplier}|${item.project}`)
-                                const rowData = rowLookup.get(`${item.supplier}|${item.project}|${item.item_code}`)
-                                const rate = po ? rateFor(po) : (item.currency === 'USD' ? usdRate : cnyRate)
-                                const unitPrice = rowData?.unit_price ?? item.fob_price
-                                const fobThb = unitPrice * rate
-                                return (
-                                  <tr key={idx} className="border-t" style={{ borderColor: '#f5f0e8' }}>
-                                    <td className="py-1.5 pr-3 font-mono font-medium" style={{ color: '#3a2a1a' }}>{item.item_code}</td>
-                                    <td className="py-1.5 pr-3 max-w-xs truncate" style={{ color: '#5a5a5a' }}>{item.description || '—'}</td>
-                                    <td className="py-1.5 pr-3 font-medium" style={{ color: '#3d8b82' }}>{item.supplier}</td>
-                                    <td className="py-1.5 pr-3">
-                                      {po ? (
-                                        <Link href={`/po-builder/${po.id}`} className="hover:underline font-mono" style={{ color: '#d4962a' }}>
-                                          {po.po_rbs_ch_no || po.filename?.replace(/\.xlsx?$/i,'') || po.id.slice(0,8)}
-                                        </Link>
-                                      ) : <span style={{ color: '#c0b0a0' }}>—</span>}
-                                    </td>
-                                    <td className="py-1.5 pr-3 text-right font-medium" style={{ color: '#3a2a1a' }}>
-                                      {rowData ? fmt(rowData.qty) : <span style={{ color: '#c0b0a0' }}>—</span>}
-                                    </td>
-                                    <td className="py-1.5 pr-3 text-right" style={{ color: '#5a5a5a' }}>
-                                      {fmt(unitPrice, 2)}
-                                    </td>
-                                    <td className="py-1.5 pr-3 text-right font-medium" style={{ color: '#3d8b82' }}>
-                                      {fmt(fobThb, 2)}
-                                    </td>
-                                    <td className="py-1.5 text-right" style={{ color: '#8a7a6a' }}>{item.currency}</td>
-                                  </tr>
-                                )
-                              })}
+                              {g.sortedItems.map((item) => (
+                                <tr key={item.item_code} className="border-t align-top" style={{ borderColor: '#f5f0e8' }}>
+                                  <td className="py-2 pr-3 font-mono font-medium text-xs" style={{ color: '#3a2a1a' }}>{item.item_code}</td>
+                                  <td className="py-2 pr-3 text-xs max-w-xs" style={{ color: '#5a5a5a' }}>{item.description || '—'}</td>
+                                  <td className="py-2 text-xs">
+                                    <div className="flex flex-col gap-0.5">
+                                      {item.supplierEntries.map((e, i) => (
+                                        <div key={e.supplier} className="flex items-center gap-1.5 flex-wrap">
+                                          <Link href={`/po-builder/${e.poId}`} className="hover:underline font-mono text-xs" style={{ color: '#d4962a' }}>{e.poLabel}</Link>
+                                          <span className="font-semibold" style={{ color: '#3d8b82' }}>{e.supplier}</span>
+                                          <span style={{ color: '#8a7a6a' }}>×{fmt(e.qty)}</span>
+                                          <span style={{ color: '#5a5a5a' }}>@{e.currency === 'USD' ? '$' : '¥'}{fmt(e.unit_price, 2)}</span>
+                                          <span className="text-xs px-1 rounded" style={{ background: '#f0ebe0', color: '#6a5a4a' }}>{fmt(e.unit_thb, 0)} THB/unit</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </td>
+                                  <td className="py-2 pl-3 text-right font-semibold text-xs" style={{ color: '#3d8b82' }}>
+                                    {fmt(item.total_thb, 0)}
+                                  </td>
+                                </tr>
+                              ))}
                             </tbody>
                           </table>
                         </div>
