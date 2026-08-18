@@ -220,25 +220,43 @@ export default function POSummaryPage() {
         const itemCount = gItems.length
         const pct = filteredItems.length > 0 ? (itemCount / filteredItems.length) * 100 : 0
 
-        // Supplier breakdown by item count
-        const suppMap = new Map<string, number>()
-        for (const item of gItems) suppMap.set(item.supplier, (suppMap.get(item.supplier) || 0) + 1)
+        // FOB THB for this group
+        const fobThb = gItems.reduce((sum, item) => {
+          const po = poMap.get(`${item.supplier}|${item.project}`)
+          const rowData = rowLookup.get(`${item.supplier}|${item.project}|${item.item_code}`)
+          const rate = po ? rateFor(po) : (item.currency === 'USD' ? usdRate : cnyRate)
+          return sum + (rowData ? rowData.total * rate : item.fob_price * rate)
+        }, 0)
+
+        // Supplier breakdown by item count AND FOB THB
+        const suppMap = new Map<string, { count: number; fobThb: number }>()
+        for (const item of gItems) {
+          const po = poMap.get(`${item.supplier}|${item.project}`)
+          const rowData = rowLookup.get(`${item.supplier}|${item.project}|${item.item_code}`)
+          const rate = po ? rateFor(po) : (item.currency === 'USD' ? usdRate : cnyRate)
+          const itemFob = rowData ? rowData.total * rate : item.fob_price * rate
+          const cur = suppMap.get(item.supplier) ?? { count: 0, fobThb: 0 }
+          suppMap.set(item.supplier, { count: cur.count + 1, fobThb: cur.fobThb + itemFob })
+        }
         const suppliers = Array.from(suppMap.entries())
-          .map(([supplier, count], si) => ({
-            supplier, count,
+          .map(([supplier, { count, fobThb: suppFob }], si) => ({
+            supplier, count, suppFob,
             pct: itemCount > 0 ? (count / itemCount) * 100 : 0,
+            fobPct: fobThb > 0 ? (suppFob / fobThb) * 100 : 0,
             color: PALETTE[si % PALETTE.length],
           }))
-          .sort((a, b) => b.count - a.count)
+          .sort((a, b) => b.suppFob - a.suppFob)
 
         const suppSet = new Set(gItems.map(i => i.supplier))
         const sortedItems = [...gItems].sort((a, b) =>
           a.supplier.localeCompare(b.supplier) || a.item_code.localeCompare(b.item_code))
 
-        return { group, itemCount, pct, suppliers, suppSet, sortedItems, color: PALETTE[gi % PALETTE.length] }
+        return { group, itemCount, pct, fobThb, suppliers, suppSet, sortedItems, color: PALETTE[gi % PALETTE.length] }
       })
       .sort((a, b) => b.itemCount - a.itemCount)
-  }, [filteredItems])
+  }, [filteredItems, poMap, rowLookup, cnyRate, usdRate])
+
+  const grandGroupFobThb = useMemo(() => groupData.reduce((s, g) => s + g.fobThb, 0), [groupData])
 
   // Supplier totals from po_uploads
   const supplierTotals = useMemo(() => {
@@ -419,7 +437,7 @@ export default function POSummaryPage() {
           {/* Stats row */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
             {[
-              { label: 'Item Codes', value: fmt(grandItemCount), color: '#3d8b82' },
+              { label: 'Item Code', value: fmt(grandItemCount), color: '#3d8b82' },
               { label: 'กลุ่มสินค้า', value: fmt(groupData.length), color: '#d4962a' },
               { label: 'Suppliers', value: fmt(new Set(filteredItems.map(i => i.supplier)).size), color: '#6b5ea8' },
               { label: 'FOB THB รวม', value: grandPoThb > 0 ? `${(grandPoThb / 1000000).toFixed(1)}M` : '—', color: '#c85a3a' },
@@ -433,50 +451,82 @@ export default function POSummaryPage() {
 
           {/* Overview chart */}
           <div className="bg-white rounded-2xl border border-amber-100 shadow-sm p-6 mb-6">
-            <h2 className="text-sm font-bold mb-5" style={{ color: '#3a2a1a' }}>สัดส่วนตามกลุ่มสินค้า (Item Code Count)</h2>
+            <h2 className="text-sm font-bold mb-5" style={{ color: '#3a2a1a' }}>สัดส่วนตามกลุ่มสินค้า</h2>
             <div className="flex flex-col lg:flex-row gap-8 items-start">
-              <div className="shrink-0">
-                <DonutChart slices={overviewSlices} total={grandItemCount} size={160}
-                  centerLabel={String(grandItemCount)} centerSub="items" />
+              {/* Two donuts */}
+              <div className="shrink-0 flex gap-6 items-start">
+                <div className="flex flex-col items-center gap-1">
+                  <DonutChart slices={overviewSlices} total={grandItemCount} size={150}
+                    centerLabel={String(grandItemCount)} centerSub="item code" />
+                  <span className="text-xs font-semibold mt-1" style={{ color: '#8a7a6a' }}>by Item Code</span>
+                </div>
+                <div className="flex flex-col items-center gap-1">
+                  <DonutChart
+                    slices={groupData.map(g => ({ label: g.group, value: g.fobThb, color: g.color }))}
+                    total={grandGroupFobThb} size={150}
+                    centerLabel={grandGroupFobThb >= 1000000 ? `${(grandGroupFobThb/1000000).toFixed(1)}M` : `${(grandGroupFobThb/1000).toFixed(0)}k`}
+                    centerSub="FOB THB" />
+                  <span className="text-xs font-semibold mt-1" style={{ color: '#8a7a6a' }}>by FOB THB</span>
+                </div>
               </div>
               <div className="flex-1 overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-xs font-semibold border-b" style={{ color: '#8a7a6a', borderColor: '#ede8df' }}>
                       <th className="py-2 text-left pr-3">กลุ่มสินค้า</th>
-                      <th className="py-2 text-right pr-3">Items</th>
-                      <th className="py-2 text-right pr-6">%</th>
+                      <th className="py-2 text-right pr-2">Item Code</th>
+                      <th className="py-2 text-right pr-5">% items</th>
+                      <th className="py-2 text-right pr-2">FOB THB</th>
+                      <th className="py-2 text-right pr-5">% FOB</th>
                       <th className="py-2 text-left">Suppliers</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {groupData.map(g => (
-                      <tr key={g.group} className="border-b hover:bg-amber-50/50 cursor-pointer transition-colors"
-                        style={{ borderColor: '#ede8df' }}
-                        onClick={() => setExpandedGroup(expandedGroup === g.group ? null : g.group)}>
-                        <td className="py-2.5 pr-3">
-                          <div className="flex items-center gap-2">
-                            <span className="w-3 h-3 rounded-full shrink-0" style={{ background: g.color }} />
-                            <span className="font-semibold" style={{ color: '#3a2a1a' }}>{g.group}</span>
-                          </div>
-                        </td>
-                        <td className="py-2.5 pr-3 text-right font-medium" style={{ color: '#3a2a1a' }}>{fmt(g.itemCount)}</td>
-                        <td className="py-2.5 pr-6 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <div className="w-16 h-1.5 rounded-full overflow-hidden" style={{ background: '#ede8df' }}>
-                              <div className="h-full rounded-full" style={{ width: `${Math.min(g.pct, 100)}%`, background: g.color }} />
+                    {groupData.map(g => {
+                      const fobPct = grandGroupFobThb > 0 ? (g.fobThb / grandGroupFobThb) * 100 : 0
+                      return (
+                        <tr key={g.group} className="border-b hover:bg-amber-50/50 cursor-pointer transition-colors"
+                          style={{ borderColor: '#ede8df' }}
+                          onClick={() => setExpandedGroup(expandedGroup === g.group ? null : g.group)}>
+                          <td className="py-2.5 pr-3">
+                            <div className="flex items-center gap-2">
+                              <span className="w-3 h-3 rounded-full shrink-0" style={{ background: g.color }} />
+                              <span className="font-semibold" style={{ color: '#3a2a1a' }}>{g.group}</span>
                             </div>
-                            <span className="text-xs font-semibold w-10 text-right" style={{ color: g.color }}>{g.pct.toFixed(1)}%</span>
-                          </div>
-                        </td>
-                        <td className="py-2.5 text-xs" style={{ color: '#5a6a68' }}>
-                          {g.suppliers.map(s => s.supplier).join(', ')}
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                          <td className="py-2.5 pr-2 text-right font-medium" style={{ color: '#3a2a1a' }}>{fmt(g.itemCount)}</td>
+                          <td className="py-2.5 pr-5 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <div className="w-12 h-1.5 rounded-full overflow-hidden" style={{ background: '#ede8df' }}>
+                                <div className="h-full rounded-full" style={{ width: `${Math.min(g.pct, 100)}%`, background: g.color }} />
+                              </div>
+                              <span className="text-xs font-semibold w-9 text-right" style={{ color: g.color }}>{g.pct.toFixed(1)}%</span>
+                            </div>
+                          </td>
+                          <td className="py-2.5 pr-2 text-right font-medium" style={{ color: '#5a6a68' }}>
+                            {g.fobThb >= 1000000 ? `${(g.fobThb/1000000).toFixed(1)}M` : g.fobThb >= 1000 ? `${(g.fobThb/1000).toFixed(0)}k` : fmt(g.fobThb, 0)}
+                          </td>
+                          <td className="py-2.5 pr-5 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <div className="w-12 h-1.5 rounded-full overflow-hidden" style={{ background: '#ede8df' }}>
+                                <div className="h-full rounded-full" style={{ width: `${Math.min(fobPct, 100)}%`, background: g.color, opacity: 0.65 }} />
+                              </div>
+                              <span className="text-xs font-semibold w-9 text-right" style={{ color: g.color, opacity: 0.8 }}>{fobPct.toFixed(1)}%</span>
+                            </div>
+                          </td>
+                          <td className="py-2.5 text-xs" style={{ color: '#5a6a68' }}>
+                            {g.suppliers.map(s => s.supplier).join(', ')}
+                          </td>
+                        </tr>
+                      )
+                    })}
                     <tr style={{ borderTop: '2px solid #d4962a' }}>
                       <td className="py-2.5 pr-3 font-bold text-sm" style={{ color: '#3a2a1a' }}>TOTAL</td>
-                      <td className="py-2.5 pr-3 text-right font-bold" style={{ color: '#3d8b82' }}>{fmt(grandItemCount)}</td>
+                      <td className="py-2.5 pr-2 text-right font-bold" style={{ color: '#3d8b82' }}>{fmt(grandItemCount)}</td>
+                      <td />
+                      <td className="py-2.5 pr-2 text-right font-bold" style={{ color: '#3d8b82' }}>
+                        {grandGroupFobThb >= 1000000 ? `${(grandGroupFobThb/1000000).toFixed(1)}M` : fmt(grandGroupFobThb, 0)}
+                      </td>
                       <td colSpan={2} />
                     </tr>
                   </tbody>
@@ -544,9 +594,14 @@ export default function POSummaryPage() {
                       <span className="w-3 h-3 rounded-full" style={{ background: g.color }} />
                       <span className="font-bold text-base" style={{ color: '#3a2a1a' }}>{g.group}</span>
                       <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: g.color + '22', color: g.color }}>
-                        {g.pct.toFixed(1)}% of total
+                        {g.pct.toFixed(1)}% (items)
                       </span>
-                      <span className="text-xs" style={{ color: '#8a7a6a' }}>{fmt(g.itemCount)} items · {g.suppSet.size} supplier{g.suppSet.size > 1 ? 's' : ''}</span>
+                      {grandGroupFobThb > 0 && (
+                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: g.color + '15', color: g.color, opacity: 0.85 }}>
+                          {((g.fobThb / grandGroupFobThb) * 100).toFixed(1)}% (FOB)
+                        </span>
+                      )}
+                      <span className="text-xs" style={{ color: '#8a7a6a' }}>{fmt(g.itemCount)} item codes · {g.suppSet.size} supplier{g.suppSet.size > 1 ? 's' : ''}</span>
                     </div>
                     <span className="text-gray-400 text-sm ml-4 shrink-0">{isExpanded ? '▲' : '▼'}</span>
                   </div>
@@ -558,24 +613,35 @@ export default function POSummaryPage() {
                         <DonutChart
                           slices={g.suppliers.map(s => ({ label: s.supplier, value: s.count, color: s.color }))}
                           total={g.itemCount} size={100}
-                          centerLabel={String(g.itemCount)} centerSub="items"
+                          centerLabel={String(g.itemCount)} centerSub="item code"
                         />
                       </div>
-                      <div className="flex-1 space-y-1.5 pt-1 min-w-0">
+                      <div className="flex-1 space-y-2.5 pt-1 min-w-0">
                         {g.suppliers.map(s => (
                           <div key={s.supplier}>
-                            <div className="flex items-center justify-between mb-0.5">
-                              <div className="flex items-center gap-1.5 min-w-0">
-                                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: s.color }} />
-                                <span className="text-xs font-medium truncate" style={{ color: '#3a2a1a' }}>{s.supplier}</span>
-                              </div>
-                              <div className="flex items-center gap-2 shrink-0 ml-2">
-                                <span className="text-xs" style={{ color: '#8a7a6a' }}>{s.count} items</span>
-                                <span className="text-xs font-semibold w-10 text-right" style={{ color: s.color }}>{s.pct.toFixed(1)}%</span>
-                              </div>
+                            <div className="flex items-center gap-1.5 min-w-0 mb-1">
+                              <span className="w-2 h-2 rounded-full shrink-0" style={{ background: s.color }} />
+                              <span className="text-xs font-medium truncate" style={{ color: '#3a2a1a' }}>{s.supplier}</span>
                             </div>
-                            <div className="w-full h-1 rounded-full overflow-hidden" style={{ background: '#ede8df' }}>
-                              <div className="h-full rounded-full" style={{ width: `${s.pct}%`, background: s.color }} />
+                            {/* Item code bar */}
+                            <div className="flex items-center gap-2 mb-0.5">
+                              <span className="text-xs w-16 shrink-0" style={{ color: '#9a8a7a' }}>item code</span>
+                              <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: '#ede8df' }}>
+                                <div className="h-full rounded-full" style={{ width: `${s.pct}%`, background: s.color }} />
+                              </div>
+                              <span className="text-xs font-semibold w-8 text-right shrink-0" style={{ color: s.color }}>{s.pct.toFixed(0)}%</span>
+                              <span className="text-xs w-14 text-right shrink-0" style={{ color: '#8a7a6a' }}>{s.count} codes</span>
+                            </div>
+                            {/* FOB THB bar */}
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs w-16 shrink-0" style={{ color: '#9a8a7a' }}>FOB THB</span>
+                              <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: '#ede8df' }}>
+                                <div className="h-full rounded-full" style={{ width: `${s.fobPct}%`, background: s.color, opacity: 0.55 }} />
+                              </div>
+                              <span className="text-xs font-semibold w-8 text-right shrink-0" style={{ color: s.color, opacity: 0.8 }}>{s.fobPct.toFixed(0)}%</span>
+                              <span className="text-xs w-14 text-right shrink-0" style={{ color: '#8a7a6a' }}>
+                                {s.suppFob >= 1000000 ? `${(s.suppFob/1000000).toFixed(1)}M` : `${(s.suppFob/1000).toFixed(0)}k`}
+                              </span>
                             </div>
                           </div>
                         ))}
