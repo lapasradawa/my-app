@@ -1,13 +1,34 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import * as XLSX from 'xlsx'
 import { supabase } from '@/lib/supabase'
 import { isUnlocked } from '@/lib/auth'
-import LockButton from '@/components/LockButton'
 import NavBar from '@/components/NavBar'
 import { parsePOUploadExcel } from '@/lib/po-upload-parser'
+import { extractGroup } from '@/lib/po-group'
+
+// ── Period helpers ────────────────────────────────────────────────────────────
+function mKey(d: string | null): string | null {
+  if (!d) return null
+  const dt = new Date(d + 'T00:00:00')
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`
+}
+function mLabel(k: string): string {
+  const [y, m] = k.split('-')
+  const names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  return `${names[parseInt(m) - 1]} ${y}`
+}
+function generateMonthKeys(count = 18): string[] {
+  const keys: string[] = []
+  const d = new Date()
+  for (let i = 0; i < count; i++) {
+    keys.unshift(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
+    d.setMonth(d.getMonth() - 1)
+  }
+  return keys
+}
 
 interface PoRecord {
   id: string
@@ -54,9 +75,22 @@ export default function PoInsightsPage() {
   const [uploadChNo, setUploadChNo] = useState('')
   const [dragging, setDragging] = useState(false)
 
+  // ── Period filter ─────────────────────────────────────────────────────
+  const allMonthKeys = useMemo(() => generateMonthKeys(18), [])
+  const [selectedMonths, setSelectedMonths] = useState<Set<string>>(() => {
+    const now = new Date()
+    return new Set([`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`])
+  })
+  const [periodOpen, setPeriodOpen] = useState(false)
+  const toggleMonth = useCallback((k: string) => {
+    setSelectedMonths(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n })
+  }, [])
+
   // ── Exchange rates (from cost_settings) ─────────────────────────────
   const [cnyRate, setCnyRate] = useState(4.85)
   const [usdRate, setUsdRate] = useState(33.00)
+  const [vendorCodeMap, setVendorCodeMap] = useState<Map<string, string>>(new Map())
+  const [exporting, setExporting] = useState(false)
 
   // ── PO Builder (generate) ─────────────────────────────────────────────
   const [showBuilder, setShowBuilder] = useState(false)
@@ -84,9 +118,10 @@ export default function PoInsightsPage() {
   }
 
   async function loadMeta() {
-    const [{ data: items }, { data: settings }] = await Promise.all([
+    const [{ data: items }, { data: settings }, { data: invs }] = await Promise.all([
       supabase.from('po_items').select('supplier, project'),
       supabase.from('cost_settings').select('key, value'),
+      supabase.from('invoices').select('supplier, vendor_code').not('vendor_code', 'is', null),
     ])
     if (items) {
       const rows = items as { supplier: string; project: string }[]
@@ -97,6 +132,13 @@ export default function PoInsightsPage() {
       const m = Object.fromEntries((settings as { key: string; value: string }[]).map(r => [r.key, r.value]))
       if (m.cny_rate) setCnyRate(parseFloat(m.cny_rate))
       if (m.usd_rate) setUsdRate(parseFloat(m.usd_rate))
+    }
+    if (invs) {
+      const vcMap = new Map<string, string>()
+      for (const inv of invs as { supplier: string | null; vendor_code: string | null }[]) {
+        if (inv.supplier && inv.vendor_code) vcMap.set(inv.supplier, inv.vendor_code)
+      }
+      setVendorCodeMap(vcMap)
     }
   }
 
@@ -250,6 +292,81 @@ export default function PoInsightsPage() {
     XLSX.writeFile(wb, `PO_${poSupplier}_${new Date().toISOString().slice(0, 10)}.xlsx`)
   }
 
+  // ── Filtered records by period ────────────────────────────────────────
+  const filteredRecords = useMemo(() => {
+    if (selectedMonths.size === 0) return records
+    return records.filter(r => {
+      const k = mKey(r.po_date)
+      return k !== null && selectedMonths.has(k)
+    })
+  }, [records, selectedMonths])
+
+  // ── Export Excel ──────────────────────────────────────────────────────
+  async function exportInsightsExcel() {
+    if (filteredRecords.length === 0) return
+    setExporting(true)
+    try {
+      // Fetch rows for each filtered PO
+      const ids = filteredRecords.map(r => r.id)
+      const { data: rowsData } = await supabase
+        .from('po_uploads')
+        .select('id, rows')
+        .in('id', ids)
+      const rowsMap = new Map<string, { item_code: string; description: string; qty: number; unit_price: number; total: number }[]>()
+      for (const r of (rowsData ?? []) as { id: string; rows: { item_code: string; description: string; qty: number; unit_price: number; total: number }[] | null }[]) {
+        if (r.rows) rowsMap.set(r.id, r.rows)
+      }
+
+      const excelRows: Record<string, string | number>[] = []
+      for (const rec of filteredRecords) {
+        const rows = rowsMap.get(rec.id)
+        if (rows && rows.length > 0) {
+          for (const row of rows) {
+            excelRows.push({
+              'Item Code': row.item_code,
+              'Description': row.description || '',
+              'Supplier': rec.supplier,
+              'Vendor Code': vendorCodeMap.get(rec.supplier) || '',
+              'Quantity': row.qty,
+              'FOB Unit Price': row.unit_price,
+              'FOB Total Price': row.total,
+              'Original Currency': rec.currency,
+              'PO RBS CH': rec.po_rbs_ch_no || '',
+              'Group': extractGroup(row.description, row.item_code),
+            })
+          }
+        } else {
+          // PO without row detail — export PO-level row
+          excelRows.push({
+            'Item Code': '',
+            'Description': '',
+            'Supplier': rec.supplier,
+            'Vendor Code': vendorCodeMap.get(rec.supplier) || '',
+            'Quantity': '',
+            'FOB Unit Price': '',
+            'FOB Total Price': rec.total_amount,
+            'Original Currency': rec.currency,
+            'PO RBS CH': rec.po_rbs_ch_no || '',
+            'Group': '',
+          })
+        }
+      }
+
+      const ws = XLSX.utils.json_to_sheet(excelRows)
+      ws['!cols'] = [
+        { wch: 22 }, { wch: 50 }, { wch: 20 }, { wch: 16 },
+        { wch: 10 }, { wch: 16 }, { wch: 16 }, { wch: 14 },
+        { wch: 20 }, { wch: 20 },
+      ]
+      const wb = XLSX.utils.book_new()
+      const sheetName = selectedMonths.size === 1 ? mLabel([...selectedMonths][0]) : 'PO Items'
+      XLSX.utils.book_append_sheet(wb, ws, sheetName)
+      XLSX.writeFile(wb, `po-insights-${new Date().toISOString().slice(0, 10)}.xlsx`)
+    } finally {
+      setExporting(false)
+    }
+  }
+
   const fmt = (n: number, d = 2) => n.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d })
   const fmtDate = (iso: string) => new Date(iso).toLocaleDateString('th-TH', { day: '2-digit', month: 'short', year: 'numeric' })
 
@@ -264,7 +381,14 @@ export default function PoInsightsPage() {
             <h1 className="text-2xl font-bold text-gray-900">PO Insights</h1>
             <p className="text-sm text-gray-500 mt-0.5">บันทึกและติดตาม Purchase Order ที่เปิดกับ Supplier</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={exportInsightsExcel}
+              disabled={exporting || filteredRecords.length === 0}
+              className="flex items-center gap-1.5 px-4 py-2 bg-white border border-gray-300 text-gray-700 text-sm rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-40"
+            >
+              {exporting ? '...' : '↓ Export Excel'}
+            </button>
             <button
               onClick={() => { setShowUpload(v => !v); setShowBuilder(false) }}
               className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
@@ -278,6 +402,65 @@ export default function PoInsightsPage() {
               + สร้าง PO
             </button>
           </div>
+        </div>
+
+        {/* ── Period filter ──────────────────────────────────────────── */}
+        <div className="bg-gray-800 rounded-xl px-5 py-3 mb-5 flex items-center gap-3 flex-wrap relative">
+          <span className="text-xs font-bold text-gray-400 uppercase tracking-widest shrink-0">Period:</span>
+
+          {/* Dropdown trigger */}
+          <div className="relative">
+            <button onClick={() => setPeriodOpen(o => !o)}
+              className="flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-bold text-gray-200"
+              style={{ background: '#1e3a4a', border: '1px solid #2e5060', minWidth: 170 }}>
+              <span className="flex-1 text-left">
+                {selectedMonths.size === 0
+                  ? 'ทั้งหมด'
+                  : selectedMonths.size === 1
+                  ? mLabel([...selectedMonths][0])
+                  : `${selectedMonths.size} เดือนที่เลือก`}
+              </span>
+              <span className="text-gray-500 text-xs">{periodOpen ? '▲' : '▼'}</span>
+            </button>
+
+            {periodOpen && (
+              <div className="absolute top-full left-0 mt-1 z-50 rounded-xl p-3 shadow-2xl"
+                style={{ background: '#1a2e3c', border: '1px solid #2e5060', minWidth: 280 }}>
+                <div className="flex gap-2 mb-3 pb-2" style={{ borderBottom: '1px solid #2a4455' }}>
+                  <button onClick={() => setSelectedMonths(new Set())}
+                    className="flex-1 py-1 rounded-lg text-xs font-bold"
+                    style={{ background: '#2a4455', color: '#8a9aaa' }}>ทั้งหมด</button>
+                  <button onClick={() => setPeriodOpen(false)}
+                    className="px-3 py-1 rounded-lg text-xs font-bold"
+                    style={{ background: '#d4962a', color: '#fff' }}>Done</button>
+                </div>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {allMonthKeys.map(k => (
+                    <button key={k} onClick={() => toggleMonth(k)}
+                      className="py-1.5 rounded-lg text-xs font-bold transition-all"
+                      style={selectedMonths.has(k)
+                        ? { background: '#d4962a', color: '#1a2d3a', border: '1px solid #d4962a' }
+                        : { background: 'transparent', color: '#8a9aaa', border: '1px solid #2a4455' }}>
+                      {mLabel(k)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Selected month chips */}
+          {[...selectedMonths].sort().map(k => (
+            <span key={k} className="flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold"
+              style={{ background: '#d4962a', color: '#fff' }}>
+              {mLabel(k)}
+              <button onClick={() => toggleMonth(k)} className="ml-1 opacity-75 hover:opacity-100 leading-none">×</button>
+            </span>
+          ))}
+
+          {selectedMonths.size > 0 && (
+            <span className="ml-auto text-xs text-gray-400">{filteredRecords.length} PO</span>
+          )}
         </div>
 
         {/* ── Upload form ──────────────────────────────────────────────── */}
@@ -460,10 +643,10 @@ export default function PoInsightsPage() {
         {/* ── PO list ──────────────────────────────────────────────────── */}
         {loadingList ? (
           <p className="text-sm text-gray-400">กำลังโหลด...</p>
-        ) : records.length === 0 ? (
+        ) : filteredRecords.length === 0 ? (
           <div className="text-center py-16 text-gray-400">
             <p className="text-4xl mb-3">📄</p>
-            <p className="text-sm">ยังไม่มี PO ในระบบ — กด "อัปโหลด PO" เพื่อเริ่มต้น</p>
+            <p className="text-sm">{records.length === 0 ? 'ยังไม่มี PO ในระบบ — กด "อัปโหลด PO" เพื่อเริ่มต้น' : 'ไม่มี PO ในช่วงเวลาที่เลือก'}</p>
           </div>
         ) : (
           <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
@@ -481,7 +664,7 @@ export default function PoInsightsPage() {
                 </tr>
               </thead>
               <tbody>
-                {records.map(rec => (
+                {filteredRecords.map(rec => (
                   <tr key={rec.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3 text-xs font-mono font-semibold">
                       <Link href={`/po-builder/${rec.id}`} className="text-blue-600 hover:text-blue-800 hover:underline">

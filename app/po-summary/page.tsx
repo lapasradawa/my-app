@@ -25,6 +25,7 @@ interface POUpload {
   po_rbs_ch_no: string | null
   po_rbs_th_no: string | null
   po_date: string | null
+  filename: string | null
   created_at: string
 }
 
@@ -35,34 +36,7 @@ function fmt(n: number, dec = 0) {
   return n.toLocaleString(undefined, { minimumFractionDigits: dec, maximumFractionDigits: dec })
 }
 
-// Keywords that form a multi-word group — order matters (most specific first)
-const MULTI_WORD_GROUPS: [string[], string][] = [
-  [['data strip', 'data-strip', 'datastrip'], 'Data Strip'],
-  [['kick plate', 'kick-plate', 'kickplate'], 'Kick Plate'],
-  [['h-beam', 'h beam', 'h_beam'], 'H-Beam'],
-  [['back panel', 'back-panel'], 'Back Panel'],
-  [['price tag', 'price-tag'], 'Price Tag'],
-  [['sign board', 'sign-board', 'signboard'], 'Sign Board'],
-  [['end cap', 'end-cap'], 'End Cap'],
-]
-
-function extractGroup(description: string | null, itemCode: string): string {
-  const raw = (description || itemCode || '').trim()
-  if (!raw) return 'Other'
-  const lower = raw.toLowerCase()
-
-  // Multi-word groups first
-  for (const [keywords, label] of MULTI_WORD_GROUPS) {
-    if (keywords.some(k => lower.startsWith(k) || lower.includes(' ' + k) || lower.includes('-' + k))) {
-      return label
-    }
-  }
-
-  // First word before space, dash, or underscore → capitalize first letter
-  const firstWord = raw.split(/[\s\-_]/)[0].trim()
-  if (!firstWord) return 'Other'
-  return firstWord.charAt(0).toUpperCase() + firstWord.slice(1)
-}
+import { extractGroup } from '@/lib/po-group'
 
 // ── DonutChart ───────────────────────────────────────────────────────────────
 function DonutChart({ slices, total, size = 140, centerLabel, centerSub }: {
@@ -110,7 +84,7 @@ export default function POSummaryPage() {
     async function load() {
       const [{ data: poItems }, { data: poUploads }, { data: settings }] = await Promise.all([
         supabase.from('po_items').select('project, supplier, item_code, description, fob_price, currency'),
-        supabase.from('po_uploads').select('id, supplier, project, currency, total_amount, exchange_rate, po_rbs_ch_no, po_rbs_th_no, po_date, created_at'),
+        supabase.from('po_uploads').select('id, supplier, project, currency, total_amount, exchange_rate, po_rbs_ch_no, po_rbs_th_no, po_date, filename, created_at'),
         supabase.from('cost_settings').select('key, value'),
       ])
       setItems((poItems ?? []) as POItem[])
