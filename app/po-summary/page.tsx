@@ -237,10 +237,13 @@ export default function POSummaryPage() {
         // rows exist but all totals are 0 → fall through to po_items
       }
 
-      // 2. po_items: supplier + project exact match (use filteredItems to stay period-consistent)
+      // 2. po_items: supplier + project exact match (period-filtered)
       let matched = filteredItems.filter(i => i.supplier === u.supplier && i.project === u.project)
 
-      // 3. Fallback: supplier only in all items (catches project field mismatch)
+      // 3a. Supplier only in period-filtered items (project mismatch within same period)
+      if (matched.length === 0) matched = filteredItems.filter(i => i.supplier === u.supplier)
+
+      // 3b. Supplier only across all periods (last resort — cross-period fallback)
       if (matched.length === 0) matched = items.filter(i => i.supplier === u.supplier)
 
       if (matched.length > 0) {
