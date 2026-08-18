@@ -1,11 +1,21 @@
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
+import { useCallback, useEffect, useState, useMemo } from 'react'
 import Link from 'next/link'
+import * as XLSX from 'xlsx'
 import { supabase } from '@/lib/supabase'
 import NavBar from '@/components/NavBar'
+import { extractGroup } from '@/lib/po-group'
 
 // ── Types ────────────────────────────────────────────────────────────────────
+interface POItemRow {
+  item_code: string
+  description: string
+  qty: number
+  unit_price: number
+  total: number
+}
+
 interface POItem {
   project: string
   supplier: string
@@ -27,6 +37,28 @@ interface POUpload {
   po_date: string | null
   filename: string | null
   created_at: string
+  rows: POItemRow[] | null
+}
+
+// ── Period helpers ────────────────────────────────────────────────────────────
+function mKey(d: string | null): string | null {
+  if (!d) return null
+  const dt = new Date(d + 'T00:00:00')
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`
+}
+function mLabel(k: string): string {
+  const [y, m] = k.split('-')
+  const names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  return `${names[parseInt(m) - 1]} ${y}`
+}
+function generateMonthKeys(count = 18): string[] {
+  const keys: string[] = []
+  const d = new Date()
+  for (let i = 0; i < count; i++) {
+    keys.unshift(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
+    d.setMonth(d.getMonth() - 1)
+  }
+  return keys
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -35,8 +67,6 @@ const PALETTE = ['#3d8b82','#d4962a','#c85a3a','#6b5ea8','#2a7c9a','#c87a3a','#5
 function fmt(n: number, dec = 0) {
   return n.toLocaleString(undefined, { minimumFractionDigits: dec, maximumFractionDigits: dec })
 }
-
-import { extractGroup } from '@/lib/po-group'
 
 // ── DonutChart ───────────────────────────────────────────────────────────────
 function DonutChart({ slices, total, size = 140, centerLabel, centerSub }: {
@@ -77,15 +107,29 @@ export default function POSummaryPage() {
   const [loading, setLoading] = useState(true)
   const [cnyRate, setCnyRate] = useState(4.85)
   const [usdRate, setUsdRate] = useState(33.00)
+  const [vendorCodeMap, setVendorCodeMap] = useState<Map<string, string>>(new Map())
   const [selectedProject, setSelectedProject] = useState<string>('all')
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null)
+  const [exporting, setExporting] = useState(false)
+
+  // Period filter
+  const allMonthKeys = useMemo(() => generateMonthKeys(18), [])
+  const [selectedMonths, setSelectedMonths] = useState<Set<string>>(() => {
+    const now = new Date()
+    return new Set([`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`])
+  })
+  const [periodOpen, setPeriodOpen] = useState(false)
+  const toggleMonth = useCallback((k: string) => {
+    setSelectedMonths(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n })
+  }, [])
 
   useEffect(() => {
     async function load() {
-      const [{ data: poItems }, { data: poUploads }, { data: settings }] = await Promise.all([
+      const [{ data: poItems }, { data: poUploads }, { data: settings }, { data: invs }] = await Promise.all([
         supabase.from('po_items').select('project, supplier, item_code, description, fob_price, currency'),
-        supabase.from('po_uploads').select('id, supplier, project, currency, total_amount, exchange_rate, po_rbs_ch_no, po_rbs_th_no, po_date, filename, created_at'),
+        supabase.from('po_uploads').select('id, supplier, project, currency, total_amount, exchange_rate, po_rbs_ch_no, po_rbs_th_no, po_date, filename, created_at, rows'),
         supabase.from('cost_settings').select('key, value'),
+        supabase.from('invoices').select('supplier, vendor_code').not('vendor_code', 'is', null),
       ])
       setItems((poItems ?? []) as POItem[])
       setUploads((poUploads ?? []) as POUpload[])
@@ -94,27 +138,55 @@ export default function POSummaryPage() {
         if (m.cny_rate) setCnyRate(parseFloat(m.cny_rate))
         if (m.usd_rate) setUsdRate(parseFloat(m.usd_rate))
       }
+      if (invs) {
+        const vcMap = new Map<string, string>()
+        for (const inv of invs as { supplier: string | null; vendor_code: string | null }[]) {
+          if (inv.supplier && inv.vendor_code) vcMap.set(inv.supplier, inv.vendor_code)
+        }
+        setVendorCodeMap(vcMap)
+      }
       setLoading(false)
     }
     load()
   }, [])
 
-  // Latest po_upload per (supplier, project) for linking
+  // ── Derived data ──────────────────────────────────────────────────────────
+
+  // Uploads filtered by period
+  const periodFilteredUploads = useMemo(() => {
+    if (selectedMonths.size === 0) return uploads
+    return uploads.filter(u => { const k = mKey(u.po_date); return k !== null && selectedMonths.has(k) })
+  }, [uploads, selectedMonths])
+
+  // Keys of uploads that have actual po records (from po_uploads, not Cost Compare)
+  const poKeys = useMemo(() => new Set(periodFilteredUploads.map(u => `${u.supplier}|${u.project}`)), [periodFilteredUploads])
+
+  // po_items filtered to only those in period-filtered uploads
+  const poOnlyItems = useMemo(() => items.filter(i => poKeys.has(`${i.supplier}|${i.project}`)), [items, poKeys])
+
+  // Latest po_upload per (supplier, project) for linking in item detail
   const poMap = useMemo(() => {
     const map = new Map<string, POUpload>()
-    for (const u of uploads) {
+    for (const u of periodFilteredUploads) {
       const key = `${u.supplier}|${u.project}`
       const ex = map.get(key)
       if (!ex || u.created_at > ex.created_at) map.set(key, u)
     }
     return map
+  }, [periodFilteredUploads])
+
+  // Row-level lookup: {supplier|project|item_code} → {qty, unit_price, total}
+  const rowLookup = useMemo(() => {
+    const map = new Map<string, { qty: number; unit_price: number; total: number }>()
+    for (const u of uploads) {
+      if (!u.rows) continue
+      for (const row of u.rows) {
+        const key = `${u.supplier}|${u.project}|${row.item_code}`
+        if (!map.has(key)) map.set(key, { qty: row.qty, unit_price: row.unit_price, total: row.total })
+      }
+    }
+    return map
   }, [uploads])
-
-  // Supplier+project keys that actually have PO uploads — filter out Cost Compare-only entries
-  const poKeys = useMemo(() => new Set(uploads.map(u => `${u.supplier}|${u.project}`)), [uploads])
-
-  // po_items filtered to only suppliers/projects that have actual po_uploads
-  const poOnlyItems = useMemo(() => items.filter(i => poKeys.has(`${i.supplier}|${i.project}`)), [items, poKeys])
 
   const allProjects = useMemo(() =>
     [...new Set(uploads.map(u => u.project))].filter(Boolean).sort()
@@ -125,8 +197,8 @@ export default function POSummaryPage() {
   , [poOnlyItems, selectedProject])
 
   const filteredUploads = useMemo(() =>
-    selectedProject === 'all' ? uploads : uploads.filter(u => u.project === selectedProject)
-  , [uploads, selectedProject])
+    selectedProject === 'all' ? periodFilteredUploads : periodFilteredUploads.filter(u => u.project === selectedProject)
+  , [periodFilteredUploads, selectedProject])
 
   const rateFor = (u: POUpload) => u.exchange_rate ?? (u.currency === 'USD' ? usdRate : cnyRate)
 
@@ -151,19 +223,15 @@ export default function POSummaryPage() {
         // Supplier breakdown by item count
         const suppMap = new Map<string, number>()
         for (const item of gItems) suppMap.set(item.supplier, (suppMap.get(item.supplier) || 0) + 1)
-
         const suppliers = Array.from(suppMap.entries())
           .map(([supplier, count], si) => ({
-            supplier,
-            count,
+            supplier, count,
             pct: itemCount > 0 ? (count / itemCount) * 100 : 0,
             color: PALETTE[si % PALETTE.length],
           }))
           .sort((a, b) => b.count - a.count)
 
         const suppSet = new Set(gItems.map(i => i.supplier))
-
-        // Unique items sorted by supplier then item_code
         const sortedItems = [...gItems].sort((a, b) =>
           a.supplier.localeCompare(b.supplier) || a.item_code.localeCompare(b.item_code))
 
@@ -181,6 +249,66 @@ export default function POSummaryPage() {
 
   const grandItemCount = filteredItems.length
   const overviewSlices = groupData.map(g => ({ label: g.group, value: g.itemCount, color: g.color }))
+
+  // ── Export Excel ────────────────────────────────────────────────────────────
+  async function exportExcel() {
+    setExporting(true)
+    try {
+      const excelRows: Record<string, string | number>[] = []
+      for (const u of filteredUploads) {
+        const po = u
+        const vendorCode = vendorCodeMap.get(u.supplier) || ''
+        if (po.rows && po.rows.length > 0) {
+          for (const row of po.rows) {
+            excelRows.push({
+              'Item Code': row.item_code,
+              'Description': row.description || '',
+              'Supplier': u.supplier,
+              'Vendor Code': vendorCode,
+              'Quantity': row.qty,
+              'FOB Unit Price': row.unit_price,
+              'FOB Total Price': row.total,
+              'Original Currency': u.currency,
+              'PO RBS CH': u.po_rbs_ch_no || '',
+              'Group': extractGroup(row.description, row.item_code),
+            })
+          }
+        } else {
+          // No row detail — use po_items for this (supplier, project)
+          const matchingItems = (selectedProject === 'all' ? items : items.filter(i => i.project === selectedProject))
+            .filter(i => i.supplier === u.supplier && i.project === u.project)
+          for (const item of matchingItems) {
+            const rowData = rowLookup.get(`${item.supplier}|${item.project}|${item.item_code}`)
+            excelRows.push({
+              'Item Code': item.item_code,
+              'Description': item.description || '',
+              'Supplier': item.supplier,
+              'Vendor Code': vendorCode,
+              'Quantity': rowData?.qty ?? '',
+              'FOB Unit Price': item.fob_price,
+              'FOB Total Price': rowData?.total ?? '',
+              'Original Currency': item.currency,
+              'PO RBS CH': u.po_rbs_ch_no || '',
+              'Group': extractGroup(item.description, item.item_code),
+            })
+          }
+        }
+      }
+
+      const ws = XLSX.utils.json_to_sheet(excelRows)
+      ws['!cols'] = [
+        { wch: 22 }, { wch: 50 }, { wch: 20 }, { wch: 16 },
+        { wch: 10 }, { wch: 16 }, { wch: 16 }, { wch: 14 },
+        { wch: 20 }, { wch: 20 },
+      ]
+      const wb = XLSX.utils.book_new()
+      const sheetName = selectedMonths.size === 1 ? mLabel([...selectedMonths][0]) : 'PO Summary'
+      XLSX.utils.book_append_sheet(wb, ws, sheetName)
+      XLSX.writeFile(wb, `po-summary-${new Date().toISOString().slice(0, 10)}.xlsx`)
+    } finally {
+      setExporting(false)
+    }
+  }
 
   if (loading) {
     return (
@@ -200,13 +328,18 @@ export default function POSummaryPage() {
       <div className="max-w-7xl mx-auto w-full px-6 py-8">
 
         {/* Header */}
-        <div className="flex items-start justify-between flex-wrap gap-4 mb-6">
+        <div className="flex items-start justify-between flex-wrap gap-4 mb-4">
           <div>
             <h1 className="text-2xl font-bold" style={{ color: '#3a2a1a' }}>PO Summary</h1>
             <p className="text-sm mt-0.5" style={{ color: '#8a7a6a' }}>สัดส่วนรายการสินค้าตามกลุ่มและ Supplier จากทุก PO</p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: '#8a7a6a' }}>Project</span>
+            <button onClick={exportExcel} disabled={exporting || filteredUploads.length === 0}
+              className="px-4 py-2 text-sm font-medium rounded-lg border transition-colors disabled:opacity-40"
+              style={{ background: '#fff', borderColor: '#d4c8b0', color: '#5a4a3a' }}>
+              {exporting ? '...' : '↓ Export Excel'}
+            </button>
+            {/* Project filter */}
             <div className="flex gap-1 flex-wrap">
               <button onClick={() => setSelectedProject('all')}
                 className="px-3 py-1 rounded-full text-xs font-medium border transition-colors"
@@ -228,19 +361,68 @@ export default function POSummaryPage() {
           </div>
         </div>
 
+        {/* Period filter bar */}
+        <div className="bg-gray-800 rounded-xl px-5 py-3 mb-5 flex items-center gap-3 flex-wrap relative">
+          <span className="text-xs font-bold text-gray-400 uppercase tracking-widest shrink-0">Period:</span>
+          <div className="relative">
+            <button onClick={() => setPeriodOpen(o => !o)}
+              className="flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-bold text-gray-200"
+              style={{ background: '#1e3a4a', border: '1px solid #2e5060', minWidth: 170 }}>
+              <span className="flex-1 text-left">
+                {selectedMonths.size === 0 ? 'ทั้งหมด'
+                  : selectedMonths.size === 1 ? mLabel([...selectedMonths][0])
+                  : `${selectedMonths.size} เดือนที่เลือก`}
+              </span>
+              <span className="text-gray-500 text-xs">{periodOpen ? '▲' : '▼'}</span>
+            </button>
+            {periodOpen && (
+              <div className="absolute top-full left-0 mt-1 z-50 rounded-xl p-3 shadow-2xl"
+                style={{ background: '#1a2e3c', border: '1px solid #2e5060', minWidth: 280 }}>
+                <div className="flex gap-2 mb-3 pb-2" style={{ borderBottom: '1px solid #2a4455' }}>
+                  <button onClick={() => setSelectedMonths(new Set())}
+                    className="flex-1 py-1 rounded-lg text-xs font-bold" style={{ background: '#2a4455', color: '#8a9aaa' }}>ทั้งหมด</button>
+                  <button onClick={() => setPeriodOpen(false)}
+                    className="px-3 py-1 rounded-lg text-xs font-bold" style={{ background: '#d4962a', color: '#fff' }}>Done</button>
+                </div>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {allMonthKeys.map(k => (
+                    <button key={k} onClick={() => toggleMonth(k)}
+                      className="py-1.5 rounded-lg text-xs font-bold transition-all"
+                      style={selectedMonths.has(k)
+                        ? { background: '#d4962a', color: '#1a2d3a', border: '1px solid #d4962a' }
+                        : { background: 'transparent', color: '#8a9aaa', border: '1px solid #2a4455' }}>
+                      {mLabel(k)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          {[...selectedMonths].sort().map(k => (
+            <span key={k} className="flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold"
+              style={{ background: '#d4962a', color: '#fff' }}>
+              {mLabel(k)}
+              <button onClick={() => toggleMonth(k)} className="ml-1 opacity-75 hover:opacity-100">×</button>
+            </span>
+          ))}
+          {selectedMonths.size > 0 && (
+            <span className="ml-auto text-xs text-gray-400">{filteredUploads.length} PO</span>
+          )}
+        </div>
+
         {grandItemCount === 0 ? (
           <div className="bg-white rounded-2xl border border-amber-100 p-12 text-center">
-            <p className="text-sm" style={{ color: '#c0a060' }}>ยังไม่มีข้อมูลรายการสินค้า กรุณาอัปโหลด PO ผ่านหน้า PO Insights</p>
+            <p className="text-sm" style={{ color: '#c0a060' }}>ไม่มีข้อมูล PO ในช่วงเวลาที่เลือก</p>
           </div>
         ) : (<>
 
           {/* Stats row */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
             {[
-              { label: 'Item Codes ทั้งหมด', value: fmt(grandItemCount), color: '#3d8b82' },
+              { label: 'Item Codes', value: fmt(grandItemCount), color: '#3d8b82' },
               { label: 'กลุ่มสินค้า', value: fmt(groupData.length), color: '#d4962a' },
               { label: 'Suppliers', value: fmt(new Set(filteredItems.map(i => i.supplier)).size), color: '#6b5ea8' },
-              { label: 'FOB THB รวม (est.)', value: grandPoThb > 0 ? `${(grandPoThb / 1000000).toFixed(1)}M` : '—', color: '#c85a3a' },
+              { label: 'FOB THB รวม', value: grandPoThb > 0 ? `${(grandPoThb / 1000000).toFixed(1)}M` : '—', color: '#c85a3a' },
             ].map(s => (
               <div key={s.label} className="bg-white rounded-xl border border-amber-100 shadow-sm px-4 py-3">
                 <p className="text-xs" style={{ color: '#8a7a6a' }}>{s.label}</p>
@@ -249,22 +431,21 @@ export default function POSummaryPage() {
             ))}
           </div>
 
-          {/* Overview — item group proportion */}
+          {/* Overview chart */}
           <div className="bg-white rounded-2xl border border-amber-100 shadow-sm p-6 mb-6">
             <h2 className="text-sm font-bold mb-5" style={{ color: '#3a2a1a' }}>สัดส่วนตามกลุ่มสินค้า (Item Code Count)</h2>
             <div className="flex flex-col lg:flex-row gap-8 items-start">
               <div className="shrink-0">
                 <DonutChart slices={overviewSlices} total={grandItemCount} size={160}
-                  centerLabel={grandItemCount >= 1000 ? `${(grandItemCount/1000).toFixed(1)}k` : String(grandItemCount)}
-                  centerSub="items" />
+                  centerLabel={String(grandItemCount)} centerSub="items" />
               </div>
               <div className="flex-1 overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-xs font-semibold border-b" style={{ color: '#8a7a6a', borderColor: '#ede8df' }}>
                       <th className="py-2 text-left pr-3">กลุ่มสินค้า</th>
-                      <th className="py-2 text-right pr-3">Item Codes</th>
-                      <th className="py-2 text-right pr-6">% ของรวม</th>
+                      <th className="py-2 text-right pr-3">Items</th>
+                      <th className="py-2 text-right pr-6">%</th>
                       <th className="py-2 text-left">Suppliers</th>
                     </tr>
                   </thead>
@@ -296,8 +477,7 @@ export default function POSummaryPage() {
                     <tr style={{ borderTop: '2px solid #d4962a' }}>
                       <td className="py-2.5 pr-3 font-bold text-sm" style={{ color: '#3a2a1a' }}>TOTAL</td>
                       <td className="py-2.5 pr-3 text-right font-bold" style={{ color: '#3d8b82' }}>{fmt(grandItemCount)}</td>
-                      <td className="py-2.5 pr-6 text-right font-bold text-xs" style={{ color: '#8a7a6a' }}>100%</td>
-                      <td />
+                      <td colSpan={2} />
                     </tr>
                   </tbody>
                 </table>
@@ -313,8 +493,7 @@ export default function POSummaryPage() {
                 <div className="shrink-0">
                   <DonutChart
                     slices={supplierTotals.map((s, i) => ({ label: s.supplier, value: s.thb, color: PALETTE[i % PALETTE.length] }))}
-                    total={grandPoThb}
-                    size={140}
+                    total={grandPoThb} size={140}
                     centerLabel={grandPoThb >= 1000000 ? `${(grandPoThb / 1000000).toFixed(1)}M` : `${(grandPoThb/1000).toFixed(0)}k`}
                     centerSub="FOB THB"
                   />
@@ -367,21 +546,19 @@ export default function POSummaryPage() {
                       <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: g.color + '22', color: g.color }}>
                         {g.pct.toFixed(1)}% of total
                       </span>
-                      <span className="text-xs" style={{ color: '#8a7a6a' }}>{fmt(g.itemCount)} item codes · {g.suppSet.size} supplier{g.suppSet.size > 1 ? 's' : ''}</span>
+                      <span className="text-xs" style={{ color: '#8a7a6a' }}>{fmt(g.itemCount)} items · {g.suppSet.size} supplier{g.suppSet.size > 1 ? 's' : ''}</span>
                     </div>
                     <span className="text-gray-400 text-sm ml-4 shrink-0">{isExpanded ? '▲' : '▼'}</span>
                   </div>
 
-                  {/* Supplier proportion bars */}
+                  {/* Supplier bars */}
                   <div className="px-5 pb-4 border-t" style={{ borderColor: '#f5f0e8' }}>
                     <div className="flex flex-col lg:flex-row gap-4 pt-4 items-start">
                       <div className="shrink-0">
                         <DonutChart
                           slices={g.suppliers.map(s => ({ label: s.supplier, value: s.count, color: s.color }))}
-                          total={g.itemCount}
-                          size={100}
-                          centerLabel={String(g.itemCount)}
-                          centerSub="items"
+                          total={g.itemCount} size={100}
+                          centerLabel={String(g.itemCount)} centerSub="items"
                         />
                       </div>
                       <div className="flex-1 space-y-1.5 pt-1 min-w-0">
@@ -406,7 +583,7 @@ export default function POSummaryPage() {
                     </div>
                   </div>
 
-                  {/* Expanded item detail */}
+                  {/* Expanded: item detail table */}
                   {isExpanded && (
                     <div className="border-t" style={{ borderColor: '#ede8df' }}>
                       <div className="px-5 py-3">
@@ -419,29 +596,41 @@ export default function POSummaryPage() {
                                 <th className="text-left py-2 pr-3">Description</th>
                                 <th className="text-left py-2 pr-3">Supplier</th>
                                 <th className="text-left py-2 pr-3">PO</th>
+                                <th className="text-right py-2 pr-3">QTY</th>
                                 <th className="text-right py-2 pr-3">Unit Price</th>
-                                <th className="text-right py-2">Currency</th>
+                                <th className="text-right py-2 pr-3">FOB THB</th>
+                                <th className="text-right py-2">CCY</th>
                               </tr>
                             </thead>
                             <tbody>
                               {g.sortedItems.map((item, idx) => {
                                 const po = poMap.get(`${item.supplier}|${item.project}`)
+                                const rowData = rowLookup.get(`${item.supplier}|${item.project}|${item.item_code}`)
+                                const rate = po ? rateFor(po) : (item.currency === 'USD' ? usdRate : cnyRate)
+                                const unitPrice = rowData?.unit_price ?? item.fob_price
+                                const fobThb = unitPrice * rate
                                 return (
                                   <tr key={idx} className="border-t" style={{ borderColor: '#f5f0e8' }}>
                                     <td className="py-1.5 pr-3 font-mono font-medium" style={{ color: '#3a2a1a' }}>{item.item_code}</td>
-                                    <td className="py-1.5 pr-3" style={{ color: '#5a5a5a' }}>{item.description || <span style={{ color: '#c0b0a0' }}>—</span>}</td>
+                                    <td className="py-1.5 pr-3 max-w-xs truncate" style={{ color: '#5a5a5a' }}>{item.description || '—'}</td>
                                     <td className="py-1.5 pr-3 font-medium" style={{ color: '#3d8b82' }}>{item.supplier}</td>
                                     <td className="py-1.5 pr-3">
                                       {po ? (
-                                        <Link href={`/po-builder/${po.id}`}
-                                          className="hover:underline font-mono"
-                                          style={{ color: '#d4962a' }}>
-                                          {po.po_rbs_ch_no || po.filename || po.id.slice(0, 8)}
+                                        <Link href={`/po-builder/${po.id}`} className="hover:underline font-mono" style={{ color: '#d4962a' }}>
+                                          {po.po_rbs_ch_no || po.filename?.replace(/\.xlsx?$/i,'') || po.id.slice(0,8)}
                                         </Link>
                                       ) : <span style={{ color: '#c0b0a0' }}>—</span>}
                                     </td>
-                                    <td className="py-1.5 pr-3 text-right" style={{ color: '#5a5a5a' }}>{fmt(item.fob_price, 2)}</td>
-                                    <td className="py-1.5 text-right font-medium" style={{ color: '#8a7a6a' }}>{item.currency}</td>
+                                    <td className="py-1.5 pr-3 text-right font-medium" style={{ color: '#3a2a1a' }}>
+                                      {rowData ? fmt(rowData.qty) : <span style={{ color: '#c0b0a0' }}>—</span>}
+                                    </td>
+                                    <td className="py-1.5 pr-3 text-right" style={{ color: '#5a5a5a' }}>
+                                      {fmt(unitPrice, 2)}
+                                    </td>
+                                    <td className="py-1.5 pr-3 text-right font-medium" style={{ color: '#3d8b82' }}>
+                                      {fmt(fobThb, 2)}
+                                    </td>
+                                    <td className="py-1.5 text-right" style={{ color: '#8a7a6a' }}>{item.currency}</td>
                                   </tr>
                                 )
                               })}
