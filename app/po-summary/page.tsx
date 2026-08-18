@@ -487,7 +487,7 @@ export default function POSummaryPage() {
                 <div className="flex flex-col items-center gap-1">
                   <DonutChart
                     slices={groupData.map(g => ({ label: g.group, value: g.fobThb, color: g.color }))}
-                    total={grandPoThb} size={150}
+                    total={grandGroupFobThb} size={150}
                     centerLabel={grandPoThb >= 1000000 ? `${(grandPoThb/1000000).toFixed(1)}M` : `${(grandPoThb/1000).toFixed(0)}k`}
                     centerSub="FOB THB" />
                   <span className="text-xs font-semibold mt-1" style={{ color: '#8a7a6a' }}>by FOB THB</span>
