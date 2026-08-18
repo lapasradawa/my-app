@@ -846,9 +846,9 @@ export default function POSummaryPage() {
                                     <td className="py-1.5 pr-4 text-xs font-semibold" style={{ color: '#3d8b82' }}>{e.supplier}</td>
                                     <td className="py-1.5 pr-3 text-right text-xs tabular-nums" style={{ color: '#3a2a1a' }}>{fmt(e.qty)}</td>
                                     <td className="py-1.5 pr-3 text-right text-xs tabular-nums" style={{ color: '#5a5a5a' }}>{e.currency === 'USD' ? '$' : '¥'}{fmt(e.unit_price, 2)}</td>
-                                    <td className="py-1.5 pr-3 text-right text-xs tabular-nums" style={{ color: '#6a5a4a' }}>{fmt(e.unit_thb, 0)}</td>
+                                    <td className="py-1.5 pr-3 text-right text-xs tabular-nums" style={{ color: '#6a5a4a' }}>{fmt(e.unit_thb, 2)}</td>
                                     {ei === 0 ? (
-                                      <td className="py-2 text-right text-xs font-bold tabular-nums align-top" rowSpan={item.supplierEntries.length} style={{ color: '#3d8b82' }}>{fmt(item.total_thb, 0)}</td>
+                                      <td className="py-2 text-right text-xs font-bold tabular-nums align-top" rowSpan={item.supplierEntries.length} style={{ color: '#3d8b82' }}>{fmt(item.total_thb, 2)}</td>
                                     ) : null}
                                   </tr>
                                 ))
