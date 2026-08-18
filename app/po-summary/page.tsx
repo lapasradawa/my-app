@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useMemo } from 'react'
+import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import NavBar from '@/components/NavBar'
 
@@ -15,10 +16,16 @@ interface POItem {
 }
 
 interface POUpload {
+  id: string
   supplier: string
   project: string
   currency: string
   total_amount: number
+  exchange_rate: number | null
+  po_rbs_ch_no: string | null
+  po_rbs_th_no: string | null
+  po_date: string | null
+  created_at: string
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -28,17 +35,33 @@ function fmt(n: number, dec = 0) {
   return n.toLocaleString(undefined, { minimumFractionDigits: dec, maximumFractionDigits: dec })
 }
 
+// Keywords that form a multi-word group — order matters (most specific first)
+const MULTI_WORD_GROUPS: [string[], string][] = [
+  [['data strip', 'data-strip', 'datastrip'], 'Data Strip'],
+  [['kick plate', 'kick-plate', 'kickplate'], 'Kick Plate'],
+  [['h-beam', 'h beam', 'h_beam'], 'H-Beam'],
+  [['back panel', 'back-panel'], 'Back Panel'],
+  [['price tag', 'price-tag'], 'Price Tag'],
+  [['sign board', 'sign-board', 'signboard'], 'Sign Board'],
+  [['end cap', 'end-cap'], 'End Cap'],
+]
+
 function extractGroup(description: string | null, itemCode: string): string {
-  const d = (description || itemCode || '').trim()
-  if (!d) return 'Other'
-  const lower = d.toLowerCase()
-  if (lower.startsWith('h-beam') || lower.startsWith('h beam')) return 'H-Beam'
-  if (lower.startsWith('data strip') || lower.startsWith('data-strip')) return 'Data Strip'
-  const first = d.split('-')[0].trim()
-  if (!first || first.length <= 1) {
-    return d.split(' ')[0].trim() || 'Other'
+  const raw = (description || itemCode || '').trim()
+  if (!raw) return 'Other'
+  const lower = raw.toLowerCase()
+
+  // Multi-word groups first
+  for (const [keywords, label] of MULTI_WORD_GROUPS) {
+    if (keywords.some(k => lower.startsWith(k) || lower.includes(' ' + k) || lower.includes('-' + k))) {
+      return label
+    }
   }
-  return first.charAt(0).toUpperCase() + first.slice(1)
+
+  // First word before space, dash, or underscore → capitalize first letter
+  const firstWord = raw.split(/[\s\-_]/)[0].trim()
+  if (!firstWord) return 'Other'
+  return firstWord.charAt(0).toUpperCase() + firstWord.slice(1)
 }
 
 // ── DonutChart ───────────────────────────────────────────────────────────────
@@ -63,14 +86,11 @@ function DonutChart({ slices, total, size = 140, centerLabel, centerSub }: {
     return { ...s, path: `M ${x1} ${y1} A ${R} ${R} 0 ${large} 1 ${x2} ${y2} L ${ix1} ${iy1} A ${r} ${r} 0 ${large} 0 ${ix2} ${iy2} Z` }
   })
   const label = centerLabel ?? (total >= 1000 ? `${(total / 1000).toFixed(1)}k` : fmt(total))
-  const sub = centerSub ?? 'items'
   return (
     <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size}>
-      {arcs.map((arc, i) => (
-        <path key={i} d={arc.path} fill={arc.color} opacity={0.88} />
-      ))}
+      {arcs.map((arc, i) => <path key={i} d={arc.path} fill={arc.color} opacity={0.88} />)}
       <circle cx={cx} cy={cy} r={r - 3} fill="#faf5ee" />
-      <text x={cx} y={cy - 6} textAnchor="middle" fontSize={size * 0.065} fill="#8a7a6a" fontWeight="600">{sub}</text>
+      <text x={cx} y={cy - 6} textAnchor="middle" fontSize={size * 0.065} fill="#8a7a6a" fontWeight="600">{centerSub ?? 'items'}</text>
       <text x={cx} y={cy + 9} textAnchor="middle" fontSize={size * 0.11} fill="#3a2a1a" fontWeight="800">{label}</text>
     </svg>
   )
@@ -90,7 +110,7 @@ export default function POSummaryPage() {
     async function load() {
       const [{ data: poItems }, { data: poUploads }, { data: settings }] = await Promise.all([
         supabase.from('po_items').select('project, supplier, item_code, description, fob_price, currency'),
-        supabase.from('po_uploads').select('supplier, project, currency, total_amount'),
+        supabase.from('po_uploads').select('id, supplier, project, currency, total_amount, exchange_rate, po_rbs_ch_no, po_rbs_th_no, po_date, created_at'),
         supabase.from('cost_settings').select('key, value'),
       ])
       setItems((poItems ?? []) as POItem[])
@@ -105,6 +125,17 @@ export default function POSummaryPage() {
     load()
   }, [])
 
+  // Latest po_upload per (supplier, project) for linking
+  const poMap = useMemo(() => {
+    const map = new Map<string, POUpload>()
+    for (const u of uploads) {
+      const key = `${u.supplier}|${u.project}`
+      const ex = map.get(key)
+      if (!ex || u.created_at > ex.created_at) map.set(key, u)
+    }
+    return map
+  }, [uploads])
+
   const allProjects = useMemo(() =>
     [...new Set(items.map(i => i.project))].filter(Boolean).sort()
   , [items])
@@ -117,9 +148,10 @@ export default function POSummaryPage() {
     selectedProject === 'all' ? uploads : uploads.filter(u => u.project === selectedProject)
   , [uploads, selectedProject])
 
-  // Total PO value (THB) from po_uploads
+  const rateFor = (u: POUpload) => u.exchange_rate ?? (u.currency === 'USD' ? usdRate : cnyRate)
+
   const grandPoThb = useMemo(() =>
-    filteredUploads.reduce((s, u) => s + u.total_amount * (u.currency === 'USD' ? usdRate : cnyRate), 0)
+    filteredUploads.reduce((s, u) => s + u.total_amount * rateFor(u), 0)
   , [filteredUploads, cnyRate, usdRate])
 
   // Group items by product category
@@ -138,9 +170,8 @@ export default function POSummaryPage() {
 
         // Supplier breakdown by item count
         const suppMap = new Map<string, number>()
-        for (const item of gItems) {
-          suppMap.set(item.supplier, (suppMap.get(item.supplier) || 0) + 1)
-        }
+        for (const item of gItems) suppMap.set(item.supplier, (suppMap.get(item.supplier) || 0) + 1)
+
         const suppliers = Array.from(suppMap.entries())
           .map(([supplier, count], si) => ({
             supplier,
@@ -152,7 +183,11 @@ export default function POSummaryPage() {
 
         const suppSet = new Set(gItems.map(i => i.supplier))
 
-        return { group, itemCount, pct, suppliers, suppSet, color: PALETTE[gi % PALETTE.length] }
+        // Unique items sorted by supplier then item_code
+        const sortedItems = [...gItems].sort((a, b) =>
+          a.supplier.localeCompare(b.supplier) || a.item_code.localeCompare(b.item_code))
+
+        return { group, itemCount, pct, suppliers, suppSet, sortedItems, color: PALETTE[gi % PALETTE.length] }
       })
       .sort((a, b) => b.itemCount - a.itemCount)
   }, [filteredItems])
@@ -160,10 +195,7 @@ export default function POSummaryPage() {
   // Supplier totals from po_uploads
   const supplierTotals = useMemo(() => {
     const map = new Map<string, number>()
-    for (const u of filteredUploads) {
-      const rate = u.currency === 'USD' ? usdRate : cnyRate
-      map.set(u.supplier, (map.get(u.supplier) || 0) + u.total_amount * rate)
-    }
+    for (const u of filteredUploads) map.set(u.supplier, (map.get(u.supplier) || 0) + u.total_amount * rateFor(u))
     return Array.from(map.entries()).map(([s, v]) => ({ supplier: s, thb: v })).sort((a, b) => b.thb - a.thb)
   }, [filteredUploads, cnyRate, usdRate])
 
@@ -293,10 +325,10 @@ export default function POSummaryPage() {
             </div>
           </div>
 
-          {/* FOB THB by Supplier (from po_uploads totals) */}
+          {/* FOB THB by Supplier */}
           {supplierTotals.length > 0 && grandPoThb > 0 && (
             <div className="bg-white rounded-2xl border border-amber-100 shadow-sm p-6 mb-6">
-              <h2 className="text-sm font-bold mb-4" style={{ color: '#3a2a1a' }}>มูลค่า PO รวมแยกตาม Supplier (Estimated FOB THB)</h2>
+              <h2 className="text-sm font-bold mb-4" style={{ color: '#3a2a1a' }}>มูลค่า PO รวมแยกตาม Supplier (FOB THB)</h2>
               <div className="flex flex-col lg:flex-row gap-6 items-start">
                 <div className="shrink-0">
                   <DonutChart
@@ -330,7 +362,7 @@ export default function POSummaryPage() {
                     )
                   })}
                   <p className="text-xs pt-1" style={{ color: '#b0a090' }}>
-                    คำนวณจาก ESTIMATE RATES (CNY × {cnyRate}, USD × {usdRate})
+                    ใช้ exchange rate ต่อ PO (PO ที่ยังไม่ได้ใส่ rate ใช้ estimate CNY × {cnyRate}, USD × {usdRate})
                   </p>
                 </div>
               </div>
@@ -339,53 +371,51 @@ export default function POSummaryPage() {
 
           {/* Per-group cards */}
           <h2 className="text-sm font-bold mb-3" style={{ color: '#3a2a1a' }}>รายละเอียดแยกตามกลุ่มสินค้า</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          <div className="space-y-3">
             {groupData.map(g => {
               const isExpanded = expandedGroup === g.group
               return (
                 <div key={g.group} className="bg-white rounded-2xl border shadow-sm overflow-hidden"
                   style={{ borderColor: isExpanded ? g.color : '#ede8df' }}>
-                  <div className="px-5 pt-4 pb-3 flex items-center justify-between cursor-pointer"
+
+                  {/* Card header */}
+                  <div className="px-5 py-4 flex items-center justify-between cursor-pointer"
                     onClick={() => setExpandedGroup(isExpanded ? null : g.group)}>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-3 flex-wrap">
                       <span className="w-3 h-3 rounded-full" style={{ background: g.color }} />
-                      <span className="font-bold" style={{ color: '#3a2a1a' }}>{g.group}</span>
+                      <span className="font-bold text-base" style={{ color: '#3a2a1a' }}>{g.group}</span>
                       <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: g.color + '22', color: g.color }}>
-                        {g.pct.toFixed(1)}%
+                        {g.pct.toFixed(1)}% of total
                       </span>
+                      <span className="text-xs" style={{ color: '#8a7a6a' }}>{fmt(g.itemCount)} item codes · {g.suppSet.size} supplier{g.suppSet.size > 1 ? 's' : ''}</span>
                     </div>
-                    <span className="text-gray-400 text-xs">{isExpanded ? '▲' : '▼'}</span>
+                    <span className="text-gray-400 text-sm ml-4 shrink-0">{isExpanded ? '▲' : '▼'}</span>
                   </div>
 
-                  <div className="px-5 pb-4 grid grid-cols-2 gap-2 text-xs border-b" style={{ borderColor: '#ede8df' }}>
-                    <div>
-                      <p style={{ color: '#b0a090' }}>Item Codes</p>
-                      <p className="font-bold" style={{ color: '#3a2a1a' }}>{fmt(g.itemCount)} รายการ</p>
-                    </div>
-                    <div>
-                      <p style={{ color: '#b0a090' }}>Suppliers</p>
-                      <p className="font-bold" style={{ color: '#3a2a1a' }}>{g.suppSet.size} ราย</p>
-                    </div>
-                  </div>
-
-                  <div className="px-5 py-4">
-                    <div className="flex gap-4 items-start">
-                      <DonutChart
-                        slices={g.suppliers.map(s => ({ label: s.supplier, value: s.count, color: s.color }))}
-                        total={g.itemCount}
-                        size={96}
-                        centerLabel={String(g.itemCount)}
-                        centerSub="items"
-                      />
-                      <div className="flex-1 space-y-1.5 pt-1">
+                  {/* Supplier proportion bars */}
+                  <div className="px-5 pb-4 border-t" style={{ borderColor: '#f5f0e8' }}>
+                    <div className="flex flex-col lg:flex-row gap-4 pt-4 items-start">
+                      <div className="shrink-0">
+                        <DonutChart
+                          slices={g.suppliers.map(s => ({ label: s.supplier, value: s.count, color: s.color }))}
+                          total={g.itemCount}
+                          size={100}
+                          centerLabel={String(g.itemCount)}
+                          centerSub="items"
+                        />
+                      </div>
+                      <div className="flex-1 space-y-1.5 pt-1 min-w-0">
                         {g.suppliers.map(s => (
                           <div key={s.supplier}>
                             <div className="flex items-center justify-between mb-0.5">
-                              <div className="flex items-center gap-1.5">
+                              <div className="flex items-center gap-1.5 min-w-0">
                                 <span className="w-2 h-2 rounded-full shrink-0" style={{ background: s.color }} />
-                                <span className="text-xs font-medium" style={{ color: '#3a2a1a' }}>{s.supplier}</span>
+                                <span className="text-xs font-medium truncate" style={{ color: '#3a2a1a' }}>{s.supplier}</span>
                               </div>
-                              <span className="text-xs font-semibold" style={{ color: s.color }}>{s.pct.toFixed(1)}%</span>
+                              <div className="flex items-center gap-2 shrink-0 ml-2">
+                                <span className="text-xs" style={{ color: '#8a7a6a' }}>{s.count} items</span>
+                                <span className="text-xs font-semibold w-10 text-right" style={{ color: s.color }}>{s.pct.toFixed(1)}%</span>
+                              </div>
                             </div>
                             <div className="w-full h-1 rounded-full overflow-hidden" style={{ background: '#ede8df' }}>
                               <div className="h-full rounded-full" style={{ width: `${s.pct}%`, background: s.color }} />
@@ -396,26 +426,49 @@ export default function POSummaryPage() {
                     </div>
                   </div>
 
+                  {/* Expanded item detail */}
                   {isExpanded && (
-                    <div className="px-5 pb-4 border-t" style={{ borderColor: '#ede8df' }}>
-                      <table className="w-full text-xs mt-3">
-                        <thead>
-                          <tr style={{ color: '#8a7a6a' }}>
-                            <th className="text-left py-1">Supplier</th>
-                            <th className="text-right py-1">Item Codes</th>
-                            <th className="text-right py-1">%</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {g.suppliers.map(s => (
-                            <tr key={s.supplier} className="border-t" style={{ borderColor: '#f0ebe3' }}>
-                              <td className="py-1.5 font-medium" style={{ color: '#3a2a1a' }}>{s.supplier}</td>
-                              <td className="py-1.5 text-right" style={{ color: '#5a5a5a' }}>{fmt(s.count)}</td>
-                              <td className="py-1.5 text-right font-semibold" style={{ color: s.color }}>{s.pct.toFixed(1)}%</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                    <div className="border-t" style={{ borderColor: '#ede8df' }}>
+                      <div className="px-5 py-3">
+                        <p className="text-xs font-semibold mb-2" style={{ color: '#8a7a6a' }}>ITEM CODES ในกลุ่มนี้ ({g.itemCount} รายการ)</p>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr style={{ color: '#9a8a7a', borderBottom: '1px solid #ede8df' }}>
+                                <th className="text-left py-2 pr-3">Item Code</th>
+                                <th className="text-left py-2 pr-3">Description</th>
+                                <th className="text-left py-2 pr-3">Supplier</th>
+                                <th className="text-left py-2 pr-3">PO</th>
+                                <th className="text-right py-2 pr-3">Unit Price</th>
+                                <th className="text-right py-2">Currency</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {g.sortedItems.map((item, idx) => {
+                                const po = poMap.get(`${item.supplier}|${item.project}`)
+                                return (
+                                  <tr key={idx} className="border-t" style={{ borderColor: '#f5f0e8' }}>
+                                    <td className="py-1.5 pr-3 font-mono font-medium" style={{ color: '#3a2a1a' }}>{item.item_code}</td>
+                                    <td className="py-1.5 pr-3" style={{ color: '#5a5a5a' }}>{item.description || <span style={{ color: '#c0b0a0' }}>—</span>}</td>
+                                    <td className="py-1.5 pr-3 font-medium" style={{ color: '#3d8b82' }}>{item.supplier}</td>
+                                    <td className="py-1.5 pr-3">
+                                      {po ? (
+                                        <Link href={`/po-builder/${po.id}`}
+                                          className="hover:underline font-mono"
+                                          style={{ color: '#d4962a' }}>
+                                          {po.po_rbs_ch_no || po.filename || po.id.slice(0, 8)}
+                                        </Link>
+                                      ) : <span style={{ color: '#c0b0a0' }}>—</span>}
+                                    </td>
+                                    <td className="py-1.5 pr-3 text-right" style={{ color: '#5a5a5a' }}>{fmt(item.fob_price, 2)}</td>
+                                    <td className="py-1.5 text-right font-medium" style={{ color: '#8a7a6a' }}>{item.currency}</td>
+                                  </tr>
+                                )
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>

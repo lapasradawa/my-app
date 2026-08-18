@@ -26,6 +26,7 @@ interface PODetail {
   po_rbs_th_no: string | null
   rows: PORow[]
   total_amount: number
+  exchange_rate: number | null
   cost_saving: number | null
   cost_saving_pct: number | null
   cost_saving_file_url: string | null
@@ -55,6 +56,11 @@ export default function PODetailPage() {
   const [newThNo, setNewThNo] = useState('')
   const [savingNames, setSavingNames] = useState(false)
 
+  // Exchange rate
+  const [editingRate, setEditingRate] = useState(false)
+  const [newRate, setNewRate] = useState('')
+  const [savingRate, setSavingRate] = useState(false)
+
   // Cost saving
   const [editCost, setEditCost] = useState(false)
   const [costInput, setCostInput] = useState('')
@@ -80,6 +86,7 @@ export default function PODetailPage() {
     setNewDate(d.po_date ?? '')
     setNewChNo(d.po_rbs_ch_no ?? '')
     setNewThNo(d.po_rbs_th_no ?? '')
+    setNewRate(d.exchange_rate != null ? String(d.exchange_rate) : '')
     setLoading(false)
   }
 
@@ -120,6 +127,16 @@ export default function PODetailPage() {
     setPO(p => p ? { ...p, po_rbs_ch_no: newChNo.trim() || null, po_rbs_th_no: newThNo.trim() || null } : p)
     setEditingNames(false)
     setSavingNames(false)
+  }
+
+  async function saveExchangeRate() {
+    if (!po) return
+    const rate = newRate === '' ? null : parseFloat(newRate.replace(/,/g, ''))
+    setSavingRate(true)
+    await supabase.from('po_uploads').update({ exchange_rate: rate, updated_at: new Date().toISOString() }).eq('id', po.id)
+    setPO(p => p ? { ...p, exchange_rate: rate } : p)
+    setEditingRate(false)
+    setSavingRate(false)
   }
 
   async function saveCostSaving() {
@@ -266,7 +283,7 @@ export default function PODetailPage() {
           </div>
 
           {/* Stats row + Cost Saving */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 pt-4 border-t border-gray-100">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-4 pt-4 border-t border-gray-100">
             <div>
               <p className="text-xs text-gray-400 mb-0.5">วันที่เปิด PO</p>
               {editingDate ? (
@@ -296,6 +313,30 @@ export default function PODetailPage() {
             <div>
               <p className="text-xs text-gray-400 mb-0.5">ยอดรวม</p>
               <p className="text-sm font-bold text-gray-900">{fmt(po.total_amount)} {po.currency}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 mb-0.5">Exchange Rate (THB/{po.currency})</p>
+              {editingRate ? (
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <input type="number" step="0.01" value={newRate} onChange={e => setNewRate(e.target.value)}
+                    placeholder="เช่น 4.85"
+                    className="border border-blue-300 rounded px-2 py-1 text-sm outline-none focus:border-blue-500 w-24" autoFocus />
+                  <button onClick={saveExchangeRate} disabled={savingRate} className="text-xs text-blue-600 hover:text-blue-800 font-medium">{savingRate ? '...' : 'บันทึก'}</button>
+                  <button onClick={() => { setEditingRate(false); setNewRate(po.exchange_rate != null ? String(po.exchange_rate) : '') }} className="text-xs text-gray-400 hover:text-gray-600">ยกเลิก</button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium text-gray-800">
+                    {po.exchange_rate != null
+                      ? <>{po.exchange_rate} <span className="text-xs text-gray-400 font-normal">THB/{po.currency}</span></>
+                      : <span className="text-gray-400 text-xs">ยังไม่ได้ใส่ (ใช้ค่า est.)</span>}
+                  </p>
+                  <button onClick={() => requireUnlock(() => setEditingRate(true))} className="text-xs text-gray-400 hover:text-blue-500">แก้ไข</button>
+                </div>
+              )}
+              {po.exchange_rate != null && (
+                <p className="text-xs text-green-600 mt-0.5">FOB THB ≈ {fmt(po.total_amount * po.exchange_rate)} THB</p>
+              )}
             </div>
 
             {/* Cost Saving inline */}

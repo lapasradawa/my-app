@@ -19,6 +19,7 @@ interface PoRecord {
   po_rbs_ch_no: string | null
   po_rbs_th_no: string | null
   total_amount: number
+  exchange_rate: number | null
   cost_saving: number | null
   cost_saving_pct: number | null
   created_at: string
@@ -76,7 +77,7 @@ export default function PoInsightsPage() {
     setLoadingList(true)
     const { data } = await supabase
       .from('po_uploads')
-      .select('id, supplier, project, currency, filename, po_date, po_rbs_ch_no, po_rbs_th_no, total_amount, cost_saving, cost_saving_pct, created_at')
+      .select('id, supplier, project, currency, filename, po_date, po_rbs_ch_no, po_rbs_th_no, total_amount, exchange_rate, cost_saving, cost_saving_pct, created_at')
       .order('created_at', { ascending: false })
     setRecords((data ?? []) as PoRecord[])
     setLoadingList(false)
@@ -496,8 +497,9 @@ export default function PoInsightsPage() {
                       {fmt(rec.total_amount)} <span className="text-gray-400 text-xs">{rec.currency}</span>
                     </td>
                     <td className="px-4 py-3 text-right font-medium text-gray-800">
-                      {fmt(rec.total_amount * (rec.currency === 'USD' ? usdRate : cnyRate))}
+                      {fmt(rec.total_amount * (rec.exchange_rate ?? (rec.currency === 'USD' ? usdRate : cnyRate)))}
                       <span className="text-gray-400 text-xs ml-1">THB</span>
+                      {!rec.exchange_rate && <span className="block text-xs text-amber-500">est.</span>}
                     </td>
                     <td className="px-4 py-3 text-right text-gray-700 text-xs">
                       {rec.cost_saving != null ? fmt(rec.cost_saving) : <span className="text-gray-400">—</span>}
