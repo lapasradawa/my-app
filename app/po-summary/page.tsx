@@ -110,13 +110,19 @@ export default function POSummaryPage() {
     return map
   }, [uploads])
 
+  // Supplier+project keys that actually have PO uploads — filter out Cost Compare-only entries
+  const poKeys = useMemo(() => new Set(uploads.map(u => `${u.supplier}|${u.project}`)), [uploads])
+
+  // po_items filtered to only suppliers/projects that have actual po_uploads
+  const poOnlyItems = useMemo(() => items.filter(i => poKeys.has(`${i.supplier}|${i.project}`)), [items, poKeys])
+
   const allProjects = useMemo(() =>
-    [...new Set(items.map(i => i.project))].filter(Boolean).sort()
-  , [items])
+    [...new Set(uploads.map(u => u.project))].filter(Boolean).sort()
+  , [uploads])
 
   const filteredItems = useMemo(() =>
-    selectedProject === 'all' ? items : items.filter(i => i.project === selectedProject)
-  , [items, selectedProject])
+    selectedProject === 'all' ? poOnlyItems : poOnlyItems.filter(i => i.project === selectedProject)
+  , [poOnlyItems, selectedProject])
 
   const filteredUploads = useMemo(() =>
     selectedProject === 'all' ? uploads : uploads.filter(u => u.project === selectedProject)
