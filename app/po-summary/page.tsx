@@ -818,34 +818,40 @@ export default function POSummaryPage() {
                           <table className="w-full text-xs">
                             <thead>
                               <tr style={{ color: '#9a8a7a', borderBottom: '1px solid #ede8df' }}>
-                                <th className="text-left py-2 pr-3">Item Code</th>
-                                <th className="text-left py-2 pr-3">Description</th>
-                                <th className="text-left py-2">Suppliers (QTY × Unit Price)</th>
-                                <th className="text-right py-2 pl-3">FOB THB รวม</th>
+                                <th className="text-left py-2 pr-4 font-semibold">Item Code</th>
+                                <th className="text-left py-2 pr-4 font-semibold">Description</th>
+                                <th className="text-left py-2 pr-3 font-semibold">PO</th>
+                                <th className="text-left py-2 pr-4 font-semibold">Supplier</th>
+                                <th className="text-right py-2 pr-3 font-semibold">QTY</th>
+                                <th className="text-right py-2 pr-3 font-semibold">Unit Price</th>
+                                <th className="text-right py-2 pr-3 font-semibold">THB/unit</th>
+                                <th className="text-right py-2 font-semibold">FOB THB รวม</th>
                               </tr>
                             </thead>
                             <tbody>
                               {g.sortedItems.map((item) => (
-                                <tr key={item.item_code} className="border-t align-top" style={{ borderColor: '#f5f0e8' }}>
-                                  <td className="py-2 pr-3 font-mono font-medium text-xs" style={{ color: '#3a2a1a' }}>{item.item_code}</td>
-                                  <td className="py-2 pr-3 text-xs max-w-xs" style={{ color: '#5a5a5a' }}>{item.description || '—'}</td>
-                                  <td className="py-2 text-xs">
-                                    <div className="flex flex-col gap-0.5">
-                                      {item.supplierEntries.map((e, i) => (
-                                        <div key={e.supplier} className="flex items-center gap-1.5 flex-wrap">
-                                          <Link href={`/po-builder/${e.poId}`} className="hover:underline font-mono text-xs" style={{ color: '#d4962a' }}>{e.poLabel}</Link>
-                                          <span className="font-semibold" style={{ color: '#3d8b82' }}>{e.supplier}</span>
-                                          <span style={{ color: '#8a7a6a' }}>×{fmt(e.qty)}</span>
-                                          <span style={{ color: '#5a5a5a' }}>@{e.currency === 'USD' ? '$' : '¥'}{fmt(e.unit_price, 2)}</span>
-                                          <span className="text-xs px-1 rounded" style={{ background: '#f0ebe0', color: '#6a5a4a' }}>{fmt(e.unit_thb, 0)} THB/unit</span>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </td>
-                                  <td className="py-2 pl-3 text-right font-semibold text-xs" style={{ color: '#3d8b82' }}>
-                                    {fmt(item.total_thb, 0)}
-                                  </td>
-                                </tr>
+                                item.supplierEntries.map((e, ei) => (
+                                  <tr key={`${item.item_code}-${e.supplier}`}
+                                    className="border-t"
+                                    style={{ borderColor: ei === 0 ? '#ddd8ce' : '#f5f0e8' }}>
+                                    {ei === 0 ? (
+                                      <>
+                                        <td className="py-2 pr-4 font-mono font-semibold text-xs align-top" rowSpan={item.supplierEntries.length} style={{ color: '#3a2a1a' }}>{item.item_code}</td>
+                                        <td className="py-2 pr-4 text-xs align-top" rowSpan={item.supplierEntries.length} style={{ color: '#5a5a5a', maxWidth: '220px' }}>{item.description || '—'}</td>
+                                      </>
+                                    ) : null}
+                                    <td className="py-1.5 pr-3 text-xs">
+                                      <Link href={`/po-builder/${e.poId}`} className="hover:underline font-mono" style={{ color: '#d4962a' }}>{e.poLabel}</Link>
+                                    </td>
+                                    <td className="py-1.5 pr-4 text-xs font-semibold" style={{ color: '#3d8b82' }}>{e.supplier}</td>
+                                    <td className="py-1.5 pr-3 text-right text-xs tabular-nums" style={{ color: '#3a2a1a' }}>{fmt(e.qty)}</td>
+                                    <td className="py-1.5 pr-3 text-right text-xs tabular-nums" style={{ color: '#5a5a5a' }}>{e.currency === 'USD' ? '$' : '¥'}{fmt(e.unit_price, 2)}</td>
+                                    <td className="py-1.5 pr-3 text-right text-xs tabular-nums" style={{ color: '#6a5a4a' }}>{fmt(e.unit_thb, 0)}</td>
+                                    {ei === 0 ? (
+                                      <td className="py-2 text-right text-xs font-bold tabular-nums align-top" rowSpan={item.supplierEntries.length} style={{ color: '#3d8b82' }}>{fmt(item.total_thb, 0)}</td>
+                                    ) : null}
+                                  </tr>
+                                ))
                               ))}
                             </tbody>
                           </table>
