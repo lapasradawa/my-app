@@ -771,8 +771,8 @@ export default function POSummaryPage() {
                     <div className="flex flex-col lg:flex-row gap-4 pt-4 items-start">
                       <div className="shrink-0">
                         <DonutChart
-                          slices={g.suppliers.map(s => ({ label: s.supplier, value: s.count, color: s.color }))}
-                          total={g.itemCount} size={100}
+                          slices={g.suppliers.map(s => ({ label: s.supplier, value: s.suppFob, color: s.color }))}
+                          total={g.fobThb} size={100}
                           centerLabel={String(g.itemCount)} centerSub="item code"
                         />
                       </div>
