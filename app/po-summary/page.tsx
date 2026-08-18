@@ -206,36 +206,53 @@ export default function POSummaryPage() {
     filteredUploads.reduce((s, u) => s + u.total_amount * rateFor(u), 0)
   , [filteredUploads, cnyRate, usdRate])
 
-  // Allocate each PO's total_amount×rate to its items proportionally by fob_price.
-  // When row-level totals exist, use those directly; remaining budget split by weight.
-  // This ensures sum(itemFobThbMap) === grandPoThb.
-  const itemFobThbMap = useMemo(() => {
-    const map = new Map<string, number>()
+  // Allocate every PO's total_amount×rate to product groups.
+  // Priority: (1) po_uploads.rows item totals, (2) po_items matched by supplier+project,
+  // (3) po_items matched by supplier only (catches project field mismatch), (4) 'Unknown'.
+  // Guarantees sum(groupFobAlloc) === grandPoThb.
+  const groupFobAlloc = useMemo(() => {
+    const byGroup = new Map<string, number>()
+    const bySuppGroup = new Map<string, Map<string, number>>() // group → supplier → thb
+
+    const add = (group: string, supplier: string, thb: number) => {
+      byGroup.set(group, (byGroup.get(group) || 0) + thb)
+      if (!bySuppGroup.has(group)) bySuppGroup.set(group, new Map())
+      const sm = bySuppGroup.get(group)!
+      sm.set(supplier, (sm.get(supplier) || 0) + thb)
+    }
+
     for (const u of filteredUploads) {
       const rate = rateFor(u)
       const totalThb = u.total_amount * rate
-      const poItems = filteredItems.filter(i => i.supplier === u.supplier && i.project === u.project)
-      if (poItems.length === 0) continue
 
-      const withRows = poItems.filter(i => rowLookup.has(`${u.supplier}|${u.project}|${i.item_code}`))
-      let rowsThb = 0
-      for (const item of withRows) {
-        const rd = rowLookup.get(`${u.supplier}|${u.project}|${item.item_code}`)!
-        const v = rd.total * rate
-        map.set(`${u.supplier}|${u.project}|${item.item_code}`, v)
-        rowsThb += v
-      }
-      const rest = poItems.filter(i => !rowLookup.has(`${u.supplier}|${u.project}|${i.item_code}`))
-      if (rest.length > 0) {
-        const remaining = Math.max(0, totalThb - rowsThb)
-        const wSum = rest.reduce((s, i) => s + (i.fob_price || 1), 0) || 1
-        for (const item of rest) {
-          map.set(`${u.supplier}|${u.project}|${item.item_code}`, remaining * ((item.fob_price || 1) / wSum))
+      // 1. Use row-level totals when available
+      if (u.rows && u.rows.length > 0) {
+        const rowsSum = u.rows.reduce((s, r) => s + (r.total || 0), 0) || 1
+        for (const row of u.rows) {
+          add(extractGroup(row.description, row.item_code), u.supplier, (row.total / rowsSum) * totalThb)
         }
+        continue
+      }
+
+      // 2. po_items: supplier + project exact match
+      let matched = items.filter(i => i.supplier === u.supplier && i.project === u.project)
+
+      // 3. Fallback: supplier only (handles project field mismatch)
+      if (matched.length === 0) matched = items.filter(i => i.supplier === u.supplier)
+
+      if (matched.length > 0) {
+        const wSum = matched.reduce((s, i) => s + (i.fob_price || 1), 0) || 1
+        for (const item of matched) {
+          add(extractGroup(item.description, item.item_code), u.supplier, totalThb * ((item.fob_price || 1) / wSum))
+        }
+      } else {
+        // 4. No item data at all → Unknown
+        add('Unknown', u.supplier, totalThb)
       }
     }
-    return map
-  }, [filteredUploads, filteredItems, rowLookup, cnyRate, usdRate])
+
+    return { byGroup, bySuppGroup }
+  }, [filteredUploads, items, rowLookup, cnyRate, usdRate])
 
   // Group items by product category
   const groupData = useMemo(() => {
@@ -251,16 +268,19 @@ export default function POSummaryPage() {
         const itemCount = gItems.length
         const pct = filteredItems.length > 0 ? (itemCount / filteredItems.length) * 100 : 0
 
-        // FOB THB for this group — from pre-computed allocation map
-        const fobThb = gItems.reduce((sum, item) =>
-          sum + (itemFobThbMap.get(`${item.supplier}|${item.project}|${item.item_code}`) ?? 0), 0)
+        // FOB THB for this group — from allocation map keyed by group name
+        const fobThb = groupFobAlloc.byGroup.get(group) ?? 0
+        const suppFobMap = groupFobAlloc.bySuppGroup.get(group) ?? new Map<string, number>()
 
         // Supplier breakdown by item count AND FOB THB
         const suppMap = new Map<string, { count: number; fobThb: number }>()
         for (const item of gItems) {
-          const itemFob = itemFobThbMap.get(`${item.supplier}|${item.project}|${item.item_code}`) ?? 0
           const cur = suppMap.get(item.supplier) ?? { count: 0, fobThb: 0 }
-          suppMap.set(item.supplier, { count: cur.count + 1, fobThb: cur.fobThb + itemFob })
+          suppMap.set(item.supplier, { count: cur.count + 1, fobThb: suppFobMap.get(item.supplier) ?? 0 })
+        }
+        // Also include any suppliers in suppFobMap not in gItems (e.g. from rows fallback)
+        for (const [supp, fob] of suppFobMap) {
+          if (!suppMap.has(supp)) suppMap.set(supp, { count: 0, fobThb: fob })
         }
         const suppliers = Array.from(suppMap.entries())
           .map(([supplier, { count, fobThb: suppFob }], si) => ({
@@ -278,7 +298,7 @@ export default function POSummaryPage() {
         return { group, itemCount, pct, fobThb, suppliers, suppSet, sortedItems, color: PALETTE[gi % PALETTE.length] }
       })
       .sort((a, b) => b.itemCount - a.itemCount)
-  }, [filteredItems, itemFobThbMap])
+  }, [filteredItems, groupFobAlloc])
 
   const grandGroupFobThb = useMemo(() => groupData.reduce((s, g) => s + g.fobThb, 0), [groupData])
 
@@ -488,7 +508,7 @@ export default function POSummaryPage() {
                   <DonutChart
                     slices={groupData.map(g => ({ label: g.group, value: g.fobThb, color: g.color }))}
                     total={grandGroupFobThb} size={150}
-                    centerLabel={grandGroupFobThb >= 1000000 ? `${(grandGroupFobThb/1000000).toFixed(1)}M` : `${(grandGroupFobThb/1000).toFixed(0)}k`}
+                    centerLabel={grandPoThb >= 1000000 ? `${(grandPoThb/1000000).toFixed(1)}M` : `${(grandPoThb/1000).toFixed(0)}k`}
                     centerSub="FOB THB" />
                   <span className="text-xs font-semibold mt-1" style={{ color: '#8a7a6a' }}>by FOB THB</span>
                 </div>
@@ -507,7 +527,7 @@ export default function POSummaryPage() {
                   </thead>
                   <tbody>
                     {groupData.map(g => {
-                      const fobPct = grandGroupFobThb > 0 ? (g.fobThb / grandGroupFobThb) * 100 : 0
+                      const fobPct = grandPoThb > 0 ? (g.fobThb / grandPoThb) * 100 : 0
                       return (
                         <tr key={g.group} className="border-b hover:bg-amber-50/50 cursor-pointer transition-colors"
                           style={{ borderColor: '#ede8df' }}
@@ -549,17 +569,10 @@ export default function POSummaryPage() {
                       <td className="py-2.5 pr-2 text-right font-bold" style={{ color: '#3d8b82' }}>{fmt(grandItemCount)}</td>
                       <td />
                       <td className="py-2.5 pr-2 text-right font-bold" style={{ color: '#3d8b82' }}>
-                        {grandGroupFobThb >= 1000000 ? `${(grandGroupFobThb/1000000).toFixed(1)}M` : fmt(grandGroupFobThb, 0)}
+                        {grandPoThb >= 1000000 ? `${(grandPoThb/1000000).toFixed(1)}M` : fmt(grandPoThb, 0)}
                       </td>
                       <td colSpan={2} />
                     </tr>
-                    {grandPoThb > grandGroupFobThb && (
-                      <tr>
-                        <td colSpan={6} className="py-2 text-xs" style={{ color: '#b0a090' }}>
-                          * ครอบคลุม {((grandGroupFobThb / grandPoThb) * 100).toFixed(1)}% ของมูลค่า PO ทั้งหมด ({grandPoThb >= 1000000 ? `${(grandPoThb/1000000).toFixed(1)}M` : fmt(grandPoThb, 0)} THB) — PO ที่ไม่มี item record ใน po_items ไม่สามารถแบ่งกลุ่มได้
-                        </td>
-                      </tr>
-                    )}
                   </tbody>
                 </table>
               </div>
@@ -627,9 +640,9 @@ export default function POSummaryPage() {
                       <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: g.color + '22', color: g.color }}>
                         {g.pct.toFixed(1)}% (items)
                       </span>
-                      {grandGroupFobThb > 0 && (
+                      {grandPoThb > 0 && (
                         <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: g.color + '15', color: g.color, opacity: 0.85 }}>
-                          {((g.fobThb / grandGroupFobThb) * 100).toFixed(1)}% (FOB)
+                          {((g.fobThb / grandPoThb) * 100).toFixed(1)}% (FOB)
                         </span>
                       )}
                       <span className="text-xs" style={{ color: '#8a7a6a' }}>{fmt(g.itemCount)} item codes · {g.suppSet.size} supplier{g.suppSet.size > 1 ? 's' : ''}</span>
