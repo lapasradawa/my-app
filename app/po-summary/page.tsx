@@ -218,6 +218,8 @@ export default function POSummaryPage() {
     selectedProject === 'all' ? periodFilteredUploads : periodFilteredUploads.filter(u => u.project === selectedProject)
   , [periodFilteredUploads, selectedProject])
 
+  const rateFor = (u: POUpload) => u.exchange_rate ?? (u.currency === 'USD' ? usdRate : cnyRate)
+
   // Unique item_codes from PO rows — dedup by item_code only (1 item = 1 SKU regardless of supplier)
   const rowItems = useMemo((): POItem[] => {
     const seen = new Map<string, POItem>()
@@ -273,8 +275,6 @@ export default function POSummaryPage() {
     }
     return map
   }, [filteredUploads, cnyRate, usdRate])
-
-  const rateFor = (u: POUpload) => u.exchange_rate ?? (u.currency === 'USD' ? usdRate : cnyRate)
 
   const grandPoThb = useMemo(() =>
     filteredUploads.reduce((s, u) => s + u.total_amount * rateFor(u), 0)
