@@ -200,6 +200,29 @@ export default function POSummaryPage() {
     selectedProject === 'all' ? periodFilteredUploads : periodFilteredUploads.filter(u => u.project === selectedProject)
   , [periodFilteredUploads, selectedProject])
 
+  // Items derived from PO Insights rows — unique item_code per supplier (source of truth for group counts)
+  const rowItems = useMemo((): POItem[] => {
+    const seen = new Map<string, POItem>()
+    for (const u of filteredUploads) {
+      if (!u.rows) continue
+      for (const row of u.rows) {
+        if (!row.item_code) continue
+        const key = `${u.supplier}|${row.item_code}`
+        if (!seen.has(key)) {
+          seen.set(key, {
+            project: u.project,
+            supplier: u.supplier,
+            item_code: row.item_code,
+            description: row.description || null,
+            fob_price: row.unit_price,
+            currency: u.currency,
+          })
+        }
+      }
+    }
+    return Array.from(seen.values())
+  }, [filteredUploads])
+
   const rateFor = (u: POUpload) => u.exchange_rate ?? (u.currency === 'USD' ? usdRate : cnyRate)
 
   const grandPoThb = useMemo(() =>
@@ -260,15 +283,15 @@ export default function POSummaryPage() {
     return { byGroup, bySuppGroup }
   }, [filteredUploads, filteredItems, items, cnyRate, usdRate])
 
-  // Group items by product category
+  // Group items by product category — using rowItems (from PO Insights rows), not po_items catalog
   const groupData = useMemo(() => {
     const map = new Map<string, { items: POItem[] }>()
-    for (const item of filteredItems) {
+    for (const item of rowItems) {
       const g = extractGroup(item.description, item.item_code)
       if (!map.has(g)) map.set(g, { items: [] })
       map.get(g)!.items.push(item)
     }
-    // Include any groups from FOB allocation (rows step) that have no items in filteredItems
+    // Include any groups from FOB allocation that have no items in rowItems
     for (const [group] of groupFobAlloc.byGroup) {
       if (!map.has(group)) map.set(group, { items: [] })
     }
@@ -276,7 +299,7 @@ export default function POSummaryPage() {
     return Array.from(map.entries())
       .map(([group, { items: gItems }], gi) => {
         const itemCount = gItems.length
-        const pct = filteredItems.length > 0 ? (itemCount / filteredItems.length) * 100 : 0
+        const pct = rowItems.length > 0 ? (itemCount / rowItems.length) * 100 : 0
 
         // FOB THB for this group — from allocation map keyed by group name
         const fobThb = groupFobAlloc.byGroup.get(group) ?? 0
@@ -308,7 +331,7 @@ export default function POSummaryPage() {
         return { group, itemCount, pct, fobThb, suppliers, suppSet, sortedItems, color: PALETTE[gi % PALETTE.length] }
       })
       .sort((a, b) => b.itemCount - a.itemCount)
-  }, [filteredItems, groupFobAlloc])
+  }, [rowItems, groupFobAlloc])
 
   // Sum all allocated groups (includes Unknown) — equals grandPoThb when allocation is complete
   const grandGroupFobThb = useMemo(
@@ -323,7 +346,7 @@ export default function POSummaryPage() {
     return Array.from(map.entries()).map(([s, v]) => ({ supplier: s, thb: v })).sort((a, b) => b.thb - a.thb)
   }, [filteredUploads, cnyRate, usdRate])
 
-  const grandItemCount = filteredItems.length
+  const grandItemCount = rowItems.length
   const overviewSlices = groupData.map(g => ({ label: g.group, value: g.itemCount, color: g.color }))
 
   // FOB donut slices — all groups are now in groupData (including rows-only groups with itemCount=0)
