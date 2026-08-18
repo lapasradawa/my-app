@@ -269,17 +269,9 @@ export default function POSummaryPage() {
       map.get(g)!.items.push(item)
     }
     // Include any groups from FOB allocation (rows step) that have no items in filteredItems
-    const extraGroups: Array<{group: string, thb: number}> = []
-    for (const [group, thb] of groupFobAlloc.byGroup) {
-      if (!map.has(group)) {
-        map.set(group, { items: [] })
-        extraGroups.push({ group, thb })
-      }
+    for (const [group] of groupFobAlloc.byGroup) {
+      if (!map.has(group)) map.set(group, { items: [] })
     }
-    console.warn('[PO Summary] extra groups (itemCount=0):', extraGroups)
-    const allocTotal = Array.from(groupFobAlloc.byGroup.values()).reduce((s, v) => s + v, 0)
-    const mapTotal = Array.from(map.entries()).filter(([g]) => groupFobAlloc.byGroup.has(g)).reduce((s, [g]) => s + (groupFobAlloc.byGroup.get(g) ?? 0), 0)
-    console.warn('[PO Summary] allocTotal (grandGroupFobThb):', allocTotal.toFixed(0), '| mapTotal (sum in map):', mapTotal.toFixed(0), '| groups in alloc:', [...groupFobAlloc.byGroup.keys()])
 
     return Array.from(map.entries())
       .map(([group, { items: gItems }], gi) => {

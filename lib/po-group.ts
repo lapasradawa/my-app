@@ -21,6 +21,7 @@ const FIRST_WORD_RENAMES: Record<string, string> = {
   extension:  'Extension Leg',
   extention:  'Extension Leg',
   back:       'Back Panel',
+  data:       'Data Strip',
 }
 
 export function extractGroup(description: string | null, itemCode: string): string {
