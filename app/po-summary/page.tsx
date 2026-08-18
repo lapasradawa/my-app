@@ -268,6 +268,18 @@ export default function POSummaryPage() {
       if (!map.has(g)) map.set(g, { items: [] })
       map.get(g)!.items.push(item)
     }
+    // Include any groups from FOB allocation (rows step) that have no items in filteredItems
+    const extraGroups: Array<{group: string, thb: number}> = []
+    for (const [group, thb] of groupFobAlloc.byGroup) {
+      if (!map.has(group)) {
+        map.set(group, { items: [] })
+        extraGroups.push({ group, thb })
+      }
+    }
+    console.warn('[PO Summary] extra groups (itemCount=0):', extraGroups)
+    const allocTotal = Array.from(groupFobAlloc.byGroup.values()).reduce((s, v) => s + v, 0)
+    const mapTotal = Array.from(map.entries()).filter(([g]) => groupFobAlloc.byGroup.has(g)).reduce((s, [g]) => s + (groupFobAlloc.byGroup.get(g) ?? 0), 0)
+    console.warn('[PO Summary] allocTotal (grandGroupFobThb):', allocTotal.toFixed(0), '| mapTotal (sum in map):', mapTotal.toFixed(0), '| groups in alloc:', [...groupFobAlloc.byGroup.keys()])
 
     return Array.from(map.entries())
       .map(([group, { items: gItems }], gi) => {
@@ -322,18 +334,11 @@ export default function POSummaryPage() {
   const grandItemCount = filteredItems.length
   const overviewSlices = groupData.map(g => ({ label: g.group, value: g.itemCount, color: g.color }))
 
-  // FOB donut slices — any allocated value not in groupData (different group name from rows/fallback)
-  // is collected into "Other" so the ring is always a full circle
-  const fobDonutSlices = useMemo(() => {
-    const knownGroups = new Set(groupData.map(g => g.group))
-    const slices = groupData.map(g => ({ label: g.group, value: g.fobThb, color: g.color }))
-    let extraThb = 0
-    for (const [group, thb] of groupFobAlloc.byGroup) {
-      if (!knownGroups.has(group)) extraThb += thb
-    }
-    if (extraThb > 0) slices.push({ label: 'Other', value: extraThb, color: '#c8bfb4' })
-    return slices
-  }, [groupData, groupFobAlloc])
+  // FOB donut slices — all groups are now in groupData (including rows-only groups with itemCount=0)
+  const fobDonutSlices = useMemo(
+    () => groupData.map(g => ({ label: g.group, value: g.fobThb, color: g.color })),
+    [groupData]
+  )
 
   // ── Export Excel ────────────────────────────────────────────────────────────
   async function exportExcel() {
