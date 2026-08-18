@@ -527,7 +527,7 @@ export default function POSummaryPage() {
               { label: 'Item Code', value: fmt(grandItemCount), color: '#3d8b82' },
               { label: 'กลุ่มสินค้า', value: fmt(groupData.length), color: '#d4962a' },
               { label: 'Suppliers', value: fmt(new Set(filteredItems.map(i => i.supplier)).size), color: '#6b5ea8' },
-              { label: 'FOB THB รวม', value: grandPoThb > 0 ? `${(grandPoThb / 1000000).toFixed(1)}M` : '—', color: '#c85a3a' },
+              { label: 'FOB THB รวม', value: grandPoThb > 0 ? grandPoThb.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—', color: '#c85a3a' },
             ].map(s => (
               <div key={s.label} className="bg-white rounded-xl border border-amber-100 shadow-sm px-4 py-3">
                 <p className="text-xs" style={{ color: '#8a7a6a' }}>{s.label}</p>
