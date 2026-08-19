@@ -97,35 +97,41 @@ function SupplierRow({ sup, isActive, poUploads, showPoSelector, onToggleActive,
           </button>
           {showPoSelector && (
             <div className="absolute left-0 top-full mt-1 z-50 bg-white border border-gray-200 rounded-xl shadow-xl w-80 max-h-60 overflow-y-auto">
-              <div className="sticky top-0 bg-gray-50 px-3 py-2 text-xs text-gray-500 border-b font-semibold">Select POs</div>
-              {poUploads.length === 0
-                ? <div className="p-3 text-xs text-gray-400">No POs available</div>
-                : poUploads.map(po => (
-                  <label key={po.id} className="flex items-center gap-2 px-3 py-2 hover:bg-blue-50 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={sup.po_ids.includes(po.id)}
-                      onChange={e => onUpdate({ po_ids: e.target.checked ? [...sup.po_ids, po.id] : sup.po_ids.filter(id => id !== po.id) })}
-                    />
-                    <span className="text-xs leading-tight">
-                      <span className="font-mono font-semibold">{po.po_rbs_ch_no || po.filename?.replace(/\.xlsx?$/i, '') || po.id.slice(0, 8)}</span>
-                      <span className="text-gray-400 ml-1">· {po.supplier}</span>
-                    </span>
-                  </label>
-                ))}
+              <div className="sticky top-0 bg-gray-50 px-3 py-2 text-xs text-gray-500 border-b font-semibold">
+                {sup.name ? `POs ของ ${sup.name}` : 'Select POs'}
+              </div>
+              {(() => {
+                const filtered = sup.name.trim()
+                  ? poUploads.filter(po => po.supplier.toLowerCase().includes(sup.name.trim().toLowerCase()))
+                  : poUploads
+                return filtered.length === 0
+                  ? <div className="p-3 text-xs text-gray-400">{sup.name ? `ไม่พบ PO ของ "${sup.name}"` : 'No POs available'}</div>
+                  : filtered.map(po => (
+                    <label key={po.id} className="flex items-center gap-2 px-3 py-2 hover:bg-blue-50 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={sup.po_ids.includes(po.id)}
+                        onChange={e => onUpdate({ po_ids: e.target.checked ? [...sup.po_ids, po.id] : sup.po_ids.filter(id => id !== po.id) })}
+                      />
+                      <span className="text-xs leading-tight">
+                        <span className="font-mono font-semibold">{po.po_rbs_ch_no || po.filename?.replace(/\.xlsx?$/i, '') || po.id.slice(0, 8)}</span>
+                        <span className="text-gray-400 ml-1">· {po.supplier}</span>
+                      </span>
+                    </label>
+                  ))
+              })()}
             </div>
           )}
         </div>
 
-        {/* Container QTY upload */}
+        {/* Container QTY upload — optional */}
         <button
           onClick={() => fileRef.current?.click()}
-          title="Excel: A = item_code · B = container qty"
+          title="Excel: A = item_code · B = container qty (optional)"
           className="px-2 py-1.5 border border-gray-300 rounded-lg text-xs text-gray-700 hover:bg-gray-50 bg-white font-medium"
         >
-          {containerCount > 0 ? `Container QTY (${containerCount})` : 'Upload Container QTY'}
+          {containerCount > 0 ? `Container QTY (${containerCount})` : 'Container QTY (optional)'}
         </button>
-        <span className="text-[10px] text-gray-400 font-mono">A: item_code · B: qty/container</span>
         <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden"
           onChange={e => { const f = e.target.files?.[0]; if (f) onUploadContainerQty(f); e.target.value = '' }} />
 
