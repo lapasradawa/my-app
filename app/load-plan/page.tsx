@@ -324,7 +324,7 @@ export default function LoadPlanPage() {
         <NavBar onUnlock={() => setUnlocked(true)} onLock={() => setUnlocked(false)} />
         <main className="p-6 max-w-3xl mx-auto">
           <div className="flex items-center justify-between mb-6">
-            <h1 className="text-2xl font-bold text-gray-900">Load Plan</h1>
+            <h1 className="text-2xl font-bold text-gray-900">Branch Load</h1>
             <button
               onClick={() => { setPlan(mkPlan()); setActiveSupIdx(null) }}
               className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700"
