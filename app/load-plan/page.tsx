@@ -290,14 +290,35 @@ export default function LoadPlanPage() {
         }
       }
 
+      // Helper: parse a cell value as number, handling comma-formatted strings like "1,216"
+      function parseQty(v: unknown): number {
+        if (v === null || v === undefined || v === '' || v === '-') return 0
+        if (typeof v === 'number') return isNaN(v) ? 0 : v
+        const s = String(v).trim().replace(/,/g, '')
+        return s === '' || s === '-' ? 0 : (Number(s) || 0)
+      }
+
+      // Verify qtyCol: if first several data rows all give 0, search nearby columns for non-zero numeric values
+      {
+        const firstDataRows = rows.slice(headerRow + 1, headerRow + 6) as unknown[][]
+        const nonZeroAt = (col: number) => firstDataRows.some(r => parseQty(r[col]) > 0)
+        if (!nonZeroAt(qtyCol)) {
+          for (const delta of [-1, 1, -2, 2, -3, 3]) {
+            const tryCol = qtyCol + delta
+            if (tryCol >= 0 && tryCol !== itemCol && tryCol !== descCol && nonZeroAt(tryCol)) {
+              qtyCol = tryCol
+              break
+            }
+          }
+        }
+      }
+
       const parsed = new Map<string, { description: string; qty: number }>()
       for (let i = headerRow + 1; i < rows.length; i++) {
         const r = rows[i] as unknown[]
         const item_code = String(r[itemCol] ?? '').trim()
         if (!item_code) continue
-        const rawQty = r[qtyCol]
-        const raw = rawQty === null || rawQty === undefined ? '' : String(rawQty).trim()
-        const qty = raw === '-' || raw === '' ? 0 : (typeof rawQty === 'number' ? rawQty : Number(raw)) || 0
+        const qty = parseQty(r[qtyCol])
         parsed.set(item_code, { description: String(r[descCol] ?? '').trim(), qty })
       }
 
