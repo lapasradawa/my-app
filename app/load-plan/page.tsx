@@ -247,25 +247,49 @@ export default function LoadPlanPage() {
     refreshPlans()
   }, [plan, refreshPlans])
 
-  // Parse template file: col A=NO (skip), col B=item_code, col C=description, col D=qty
-  // Updates only qty_1 or qty_2 depending on typeNum, merges with existing items
+  // Parse template file — auto-detects item_code / description / qty columns from header row
   function handleTemplateUpload(file: File, typeNum: 1 | 2) {
     file.arrayBuffer().then(buf => {
       const wb = XLSX.read(buf, { type: 'array' })
       const ws = wb.Sheets[wb.SheetNames[0]]
       const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1 }) as unknown[][]
-      const parsed = new Map<string, { description: string; qty: number }>()
-      for (let i = 1; i < rows.length; i++) {
-        const r = rows[i] as unknown[]
-        const item_code = String(r[1] ?? '').trim()
-        if (!item_code) continue
-        const raw = String(r[3] ?? '').trim()
-        const qty = raw === '-' || raw === '' ? 0 : Number(raw) || 0
-        parsed.set(item_code, { description: String(r[2] ?? '').trim(), qty })
+
+      // Scan first 3 rows for a header row with recognisable column names
+      let headerRow = 0
+      let itemCol = 1   // fallback: col B
+      let descCol = 2   // fallback: col C
+      let qtyCol  = 3   // fallback: col D
+
+      outer: for (let ri = 0; ri < Math.min(3, rows.length); ri++) {
+        const r = rows[ri] as unknown[]
+        let fi = -1, di = -1, qi = -1
+        for (let ci = 0; ci < r.length; ci++) {
+          const h = String(r[ci] ?? '').toLowerCase().replace(/[\s_\-]/g, '')
+          if (fi < 0 && (h.includes('itemno') || h.includes('itemcode') || h === 'item')) fi = ci
+          if (di < 0 && (h.includes('desc') || h.includes('name') || h.includes('สินค้า'))) di = ci
+          if (qi < 0 && (h.includes('qty') || h.includes('assumed') || h.includes('จำนวน'))) qi = ci
+        }
+        if (fi >= 0 || qi >= 0) {
+          headerRow = ri
+          if (fi >= 0) itemCol = fi
+          if (di >= 0) descCol = di
+          if (qi >= 0) qtyCol  = qi
+          break outer
+        }
       }
+
+      const parsed = new Map<string, { description: string; qty: number }>()
+      for (let i = headerRow + 1; i < rows.length; i++) {
+        const r = rows[i] as unknown[]
+        const item_code = String(r[itemCol] ?? '').trim()
+        if (!item_code) continue
+        const raw = String(r[qtyCol] ?? '').trim()
+        const qty = raw === '-' || raw === '' ? 0 : Number(raw) || 0
+        parsed.set(item_code, { description: String(r[descCol] ?? '').trim(), qty })
+      }
+
       setPlan(p => {
         if (!p) return p
-        // Merge with existing items
         const existingMap = new Map(p.items.map(it => [it.item_code, it]))
         for (const [ic, { description, qty }] of parsed) {
           const ex = existingMap.get(ic)
@@ -410,7 +434,7 @@ export default function LoadPlanPage() {
           {/* Item template */}
           <div className="bg-white border border-gray-200 rounded-xl p-4">
             <h2 className="text-sm font-semibold text-gray-700 mb-1">Item Template</h2>
-            <p className="text-[11px] text-gray-400 font-mono mb-3">A: NO (skip) · B: item_code · C: description · D: qty per branch · "-" = 0</p>
+            <p className="text-[11px] text-gray-400 mb-3">หา header อัตโนมัติ — ต้องมีคอลัมน์ <span className="font-mono">Item_No / Item Code</span> · <span className="font-mono">Description</span> · <span className="font-mono">Qty / Assumed Qty</span> (ลำดับคอลัมน์ไม่ตายตัว · "-" = 0)</p>
             <div className="flex flex-col gap-2">
               <div className="flex items-center gap-2">
                 <button
