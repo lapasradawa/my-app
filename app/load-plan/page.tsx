@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback, Fragment } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from '@/lib/supabase'
 import NavBar from '@/components/NavBar'
@@ -62,12 +62,10 @@ function fmtDate(d: string) {
 }
 
 // ── Supplier row component ──
-function SupplierRow({ sup, isActive, poUploads, showPoSelector, onToggleActive, onUpdate, onUploadContainerQty, onTogglePoSelector, onRemove }: {
+function SupplierRow({ sup, poUploads, showPoSelector, onUpdate, onUploadContainerQty, onTogglePoSelector, onRemove }: {
   sup: LoadSupplier
-  isActive: boolean
   poUploads: POUpload[]
   showPoSelector: boolean
-  onToggleActive: () => void
   onUpdate: (upd: Partial<LoadSupplier>) => void
   onUploadContainerQty: (f: File) => void
   onTogglePoSelector: () => void
@@ -78,7 +76,7 @@ function SupplierRow({ sup, isActive, poUploads, showPoSelector, onToggleActive,
   const containerCount = Object.keys(sup.container_qtys).length
 
   return (
-    <div className={`rounded-xl border p-3 transition-colors ${isActive ? 'border-blue-400 bg-blue-50' : 'border-gray-200 bg-white'}`}>
+    <div className="rounded-xl border border-gray-200 bg-white p-3">
       <div className="flex items-center gap-2 flex-wrap">
         <input
           value={sup.name}
@@ -150,13 +148,7 @@ function SupplierRow({ sup, isActive, poUploads, showPoSelector, onToggleActive,
           + Date
         </button>
 
-        <button
-          onClick={onToggleActive}
-          className={`px-3 py-1.5 text-xs rounded-lg font-semibold ml-auto transition-colors ${isActive ? 'bg-blue-600 text-white shadow-sm' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}
-        >
-          {isActive ? '▼ Working' : '▶ Work'}
-        </button>
-        <button onClick={onRemove} className="text-gray-400 hover:text-red-500 text-lg leading-none px-1">×</button>
+        <button onClick={onRemove} className="text-gray-400 hover:text-red-500 text-lg leading-none px-1 ml-auto">×</button>
       </div>
 
       {sup.load_dates.length > 0 && (
@@ -185,26 +177,28 @@ export default function LoadPlanPage() {
   const [saved, setSaved] = useState(false)
   const [parseInfo, setParseInfo] = useState<{ type: 1 | 2; label: string } | null>(null)
   const [uploadedFiles, setUploadedFiles] = useState<{ type1?: string; type2?: string }>({})
-  const [activeSupIdx, setActiveSupIdx] = useState<number | null>(null)
+  const [expandedSupIds, setExpandedSupIds] = useState<Set<string>>(new Set())
   const [poUploads, setPoUploads] = useState<POUpload[]>([])
   const [showPoSelector, setShowPoSelector] = useState<string | null>(null)
   const templateRef1 = useRef<HTMLInputElement>(null)
   const templateRef2 = useRef<HTMLInputElement>(null)
 
-  const activeSup = (plan && activeSupIdx !== null) ? (plan.suppliers[activeSupIdx] ?? null) : null
-
-  const poQtyMap = useMemo(() => {
-    const map = new Map<string, number>()
-    if (!activeSup) return map
-    for (const poId of activeSup.po_ids) {
-      const po = poUploads.find(p => p.id === poId)
-      if (!po?.rows) continue
-      for (const r of po.rows) {
-        if (r.item_code) map.set(r.item_code, (map.get(r.item_code) ?? 0) + (r.qty ?? 0))
+  const allPoQtyMaps = useMemo(() => {
+    const result = new Map<string, Map<string, number>>()
+    if (!plan) return result
+    for (const sup of plan.suppliers) {
+      const m = new Map<string, number>()
+      for (const poId of sup.po_ids) {
+        const po = poUploads.find(p => p.id === poId)
+        if (!po?.rows) continue
+        for (const r of po.rows) {
+          if (r.item_code) m.set(r.item_code, (m.get(r.item_code) ?? 0) + (r.qty ?? 0))
+        }
       }
+      result.set(sup.id, m)
     }
-    return map
-  }, [activeSup, poUploads])
+    return result
+  }, [plan, poUploads])
 
   const totalLoadsMap = useMemo(() => {
     const map = new Map<string, number>()
@@ -351,6 +345,15 @@ export default function LoadPlanPage() {
     setPlan(p => p ? { ...p, suppliers: p.suppliers.map(s => s.id === id ? { ...s, ...upd } : s) } : p)
   }
 
+  function toggleExpanded(supId: string) {
+    setExpandedSupIds(prev => {
+      const next = new Set(prev)
+      if (next.has(supId)) next.delete(supId)
+      else next.add(supId)
+      return next
+    })
+  }
+
   function updateLoadQty(suppId: string, date: string, itemCode: string, qty: number) {
     setPlan(p => {
       if (!p) return p
@@ -378,7 +381,7 @@ export default function LoadPlanPage() {
           <div className="flex items-center justify-between mb-6">
             <h1 className="text-2xl font-bold text-gray-900">Branch Load</h1>
             <button
-              onClick={() => { setPlan(mkPlan()); setActiveSupIdx(null) }}
+              onClick={() => { setPlan(mkPlan()); setExpandedSupIds(new Set()) }}
               className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700"
             >
               + New Plan
@@ -393,7 +396,7 @@ export default function LoadPlanPage() {
           ) : (
             <div className="space-y-2">
               {plans.map(p => (
-                <div key={p.id} onClick={() => { setPlan(p); setActiveSupIdx(null) }}
+                <div key={p.id} onClick={() => { setPlan(p); setExpandedSupIds(new Set()) }}
                   className="border border-gray-200 rounded-xl p-4 cursor-pointer hover:border-blue-400 hover:shadow-sm transition-all bg-white">
                   <div className="font-semibold text-gray-900">{p.name}</div>
                   <div className="text-xs text-gray-500 mt-1 flex flex-wrap gap-4">
@@ -530,18 +533,12 @@ export default function LoadPlanPage() {
                   <SupplierRow
                     key={sup.id}
                     sup={sup}
-                    isActive={activeSupIdx === si}
                     poUploads={poUploads}
                     showPoSelector={showPoSelector === sup.id}
-                    onToggleActive={() => { setActiveSupIdx(v => v === si ? null : si); setShowPoSelector(null) }}
                     onUpdate={upd => updateSup(sup.id, upd)}
                     onUploadContainerQty={f => handleContainerQtyUpload(f, sup.id)}
                     onTogglePoSelector={() => setShowPoSelector(v => v === sup.id ? null : sup.id)}
-                    onRemove={() => {
-                      setPlan(p => p ? { ...p, suppliers: p.suppliers.filter((_, i) => i !== si) } : p)
-                      if (activeSupIdx === si) setActiveSupIdx(null)
-                      else if (activeSupIdx !== null && activeSupIdx > si) setActiveSupIdx(v => v !== null ? v - 1 : null)
-                    }}
+                    onRemove={() => setPlan(p => p ? { ...p, suppliers: p.suppliers.filter((_, i) => i !== si) } : p)}
                   />
                 ))}
               </div>
@@ -555,31 +552,55 @@ export default function LoadPlanPage() {
               <table className="w-full text-xs border-collapse min-w-max">
                 <thead>
                   <tr className="bg-slate-800 text-white">
-                    <th className="text-left px-3 py-3 font-semibold whitespace-nowrap">Item Code</th>
+                    <th className="text-left px-3 py-3 font-semibold whitespace-nowrap sticky left-0 bg-slate-800 z-10">Item Code</th>
                     <th className="text-left px-3 py-3 font-semibold whitespace-nowrap">Description</th>
                     <th className="text-right px-3 py-3 font-semibold whitespace-nowrap">
-                      Assumed Qty<br /><span className="font-normal opacity-70 text-[10px]">{plan.type_1_name} branch type</span>
+                      Assumed Qty<br /><span className="font-normal opacity-70 text-[10px]">{plan.type_1_name}</span>
                     </th>
-                    <th className="text-right px-3 py-3 font-semibold whitespace-nowrap">
-                      Assumed Qty<br /><span className="font-normal opacity-70 text-[10px]">{plan.type_2_name} branch type</span>
-                    </th>
-                    <th className="text-right px-3 py-3 font-semibold whitespace-nowrap">Sum Assumed<br />Qty</th>
-                    {activeSup && (
-                      <>
-                        <th className="text-right px-3 py-3 font-semibold whitespace-nowrap bg-blue-900 border-l-2 border-blue-500">
-                          Full Container<br />QTY
-                        </th>
-                        <th className="text-right px-3 py-3 font-semibold whitespace-nowrap bg-blue-900">
-                          PO QTY
-                        </th>
-                        {activeSup.load_dates.map(d => (
-                          <th key={d} className="text-right px-3 py-3 font-semibold whitespace-nowrap bg-indigo-900">
-                            Load<br />{fmtDate(d)}
-                          </th>
-                        ))}
-                      </>
+                    {plan.forecast_2 > 0 && (
+                      <th className="text-right px-3 py-3 font-semibold whitespace-nowrap">
+                        Assumed Qty<br /><span className="font-normal opacity-70 text-[10px]">{plan.type_2_name}</span>
+                      </th>
                     )}
-                    <th className="text-right px-3 py-3 font-semibold whitespace-nowrap bg-rose-900">LEFT</th>
+                    <th className="text-right px-3 py-3 font-semibold whitespace-nowrap">Sum Assumed<br />Qty</th>
+                    {/* Per-supplier columns */}
+                    {plan.suppliers.map(sup => {
+                      const isExp = expandedSupIds.has(sup.id)
+                      const hasCQ = Object.keys(sup.container_qtys).length > 0
+                      if (!isExp) {
+                        return (
+                          <th key={sup.id}
+                            onClick={() => toggleExpanded(sup.id)}
+                            className="text-right px-3 py-3 font-semibold whitespace-nowrap bg-blue-900 hover:bg-blue-800 cursor-pointer border-l border-slate-600 select-none"
+                            title={`คลิกเพื่อขยาย ${sup.name || 'Supplier'}`}
+                          >
+                            PO QTY<br /><span className="font-normal text-[10px] opacity-70">{sup.name || '—'} ▸</span>
+                          </th>
+                        )
+                      }
+                      return (
+                        <Fragment key={sup.id}>
+                          {hasCQ && (
+                            <th className="text-right px-3 py-3 font-semibold whitespace-nowrap bg-blue-950 border-l-2 border-blue-500">
+                              Full Ctn QTY<br /><span className="font-normal text-[10px] opacity-70">{sup.name || '—'}</span>
+                            </th>
+                          )}
+                          <th
+                            onClick={() => toggleExpanded(sup.id)}
+                            className="text-right px-3 py-3 font-semibold whitespace-nowrap bg-blue-900 hover:bg-blue-800 cursor-pointer border-l border-blue-700 select-none"
+                            title={`คลิกเพื่อซ่อน ${sup.name || 'Supplier'}`}
+                          >
+                            PO QTY<br /><span className="font-normal text-[10px] opacity-70">{sup.name || '—'} ▾</span>
+                          </th>
+                          {sup.load_dates.map(d => (
+                            <th key={d} className="text-right px-3 py-3 font-semibold whitespace-nowrap bg-indigo-900 border-l border-indigo-700">
+                              Load<br /><span className="font-normal text-[10px] opacity-70">{fmtDate(d)}</span>
+                            </th>
+                          ))}
+                        </Fragment>
+                      )
+                    })}
+                    <th className="text-right px-3 py-3 font-semibold whitespace-nowrap bg-rose-900 border-l-2 border-rose-700">LEFT</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -592,36 +613,54 @@ export default function LoadPlanPage() {
                     const base = ii % 2 === 0 ? 'bg-white' : 'bg-gray-50'
                     return (
                       <tr key={item.item_code} className={`border-t border-gray-100 ${base}`}>
-                        <td className={`px-3 py-2 font-mono font-semibold text-gray-900`}>{item.item_code}</td>
+                        <td className="px-3 py-2 font-mono font-semibold text-gray-900 sticky left-0 z-10" style={{ background: 'inherit' }}>{item.item_code}</td>
                         <td className="px-3 py-2 text-gray-600 max-w-[280px] truncate">{item.description || '—'}</td>
-                        <td className="px-3 py-2 text-right tabular-nums text-gray-700">{a1.toLocaleString()}</td>
-                        <td className="px-3 py-2 text-right tabular-nums text-gray-700">{item.qty_2 > 0 ? a2.toLocaleString() : '—'}</td>
-                        <td className="px-3 py-2 text-right tabular-nums font-semibold text-gray-900">{sumA.toLocaleString()}</td>
-                        {activeSup && (
-                          <>
-                            <td className="px-3 py-2 text-right tabular-nums text-blue-900 bg-blue-50 border-l-2 border-blue-200">
-                              {activeSup.container_qtys[item.item_code]?.toLocaleString() ?? '—'}
-                            </td>
-                            <td className="px-3 py-2 text-right tabular-nums text-blue-900 bg-blue-50">
-                              {(poQtyMap.get(item.item_code) ?? 0) > 0 ? (poQtyMap.get(item.item_code) ?? 0).toLocaleString() : '—'}
-                            </td>
-                            {activeSup.load_dates.map(d => {
-                              const entry = activeSup.loads.find(l => l.date === d && l.item_code === item.item_code)
-                              return (
-                                <td key={d} className="px-1.5 py-1 bg-indigo-50">
-                                  <input
-                                    type="number" min="0"
-                                    value={entry?.qty ?? ''}
-                                    placeholder="0"
-                                    onChange={e => updateLoadQty(activeSup.id, d, item.item_code, Number(e.target.value))}
-                                    className="w-20 text-right px-2 py-0.5 border border-indigo-200 rounded focus:outline-none focus:border-indigo-500 tabular-nums bg-white text-xs"
-                                  />
-                                </td>
-                              )
-                            })}
-                          </>
+                        <td className="px-3 py-2 text-right tabular-nums text-gray-700">{a1 > 0 ? a1.toLocaleString() : '—'}</td>
+                        {plan.forecast_2 > 0 && (
+                          <td className="px-3 py-2 text-right tabular-nums text-gray-700">{a2 > 0 ? a2.toLocaleString() : '—'}</td>
                         )}
-                        <td className={`px-3 py-2 text-right tabular-nums font-bold ${left < 0 ? 'text-red-600 bg-red-50' : left === 0 ? 'text-green-700 bg-green-50' : 'text-gray-900'}`}>
+                        <td className="px-3 py-2 text-right tabular-nums font-semibold text-gray-900">{sumA > 0 ? sumA.toLocaleString() : '0'}</td>
+                        {/* Per-supplier cells */}
+                        {plan.suppliers.map(sup => {
+                          const supPoMap = allPoQtyMaps.get(sup.id) ?? new Map<string, number>()
+                          const isExp = expandedSupIds.has(sup.id)
+                          const hasCQ = Object.keys(sup.container_qtys).length > 0
+                          const poQty = supPoMap.get(item.item_code) ?? 0
+                          if (!isExp) {
+                            return (
+                              <td key={sup.id} className="px-3 py-2 text-right tabular-nums text-blue-900 bg-blue-50 border-l border-blue-100">
+                                {poQty > 0 ? poQty.toLocaleString() : '—'}
+                              </td>
+                            )
+                          }
+                          return (
+                            <Fragment key={sup.id}>
+                              {hasCQ && (
+                                <td className="px-3 py-2 text-right tabular-nums text-blue-900 bg-blue-50/70 border-l-2 border-blue-200">
+                                  {sup.container_qtys[item.item_code]?.toLocaleString() ?? '—'}
+                                </td>
+                              )}
+                              <td className="px-3 py-2 text-right tabular-nums text-blue-900 bg-blue-50 border-l border-blue-100">
+                                {poQty > 0 ? poQty.toLocaleString() : '—'}
+                              </td>
+                              {sup.load_dates.map(d => {
+                                const entry = sup.loads.find(l => l.date === d && l.item_code === item.item_code)
+                                return (
+                                  <td key={d} className="px-1.5 py-1 bg-indigo-50 border-l border-indigo-100">
+                                    <input
+                                      type="number" min="0"
+                                      value={entry?.qty ?? ''}
+                                      placeholder="0"
+                                      onChange={e => updateLoadQty(sup.id, d, item.item_code, Number(e.target.value))}
+                                      className="w-20 text-right px-2 py-0.5 border border-indigo-200 rounded focus:outline-none focus:border-indigo-500 tabular-nums bg-white text-xs"
+                                    />
+                                  </td>
+                                )
+                              })}
+                            </Fragment>
+                          )
+                        })}
+                        <td className={`px-3 py-2 text-right tabular-nums font-bold border-l-2 ${left < 0 ? 'text-red-600 bg-red-50 border-red-200' : left === 0 ? 'text-green-700 bg-green-50 border-green-200' : 'text-gray-900 border-rose-200'}`}>
                           {left.toLocaleString()}
                         </td>
                       </tr>
