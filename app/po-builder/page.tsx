@@ -480,7 +480,8 @@ export default function PoInsightsPage() {
               ) : (
                 <div>
                   <p className="text-gray-500 text-sm">ลากไฟล์มาวาง หรือคลิกเพื่อเลือกไฟล์ Excel</p>
-                  <p className="text-gray-400 text-xs mt-1">คอลัมน์ต้องมี Item Code, Description, QTY, Unit Price</p>
+                  <p className="text-gray-400 text-xs mt-1 font-mono">header อัตโนมัติ: Item Code · Description · QTY · Unit Price (CNY/PC หรือ USD/PC)</p>
+                  <p className="text-gray-400 text-xs mt-0.5">ไม่ต้องอยู่คอลัมน์ตายตัว — ระบบหา header เอง</p>
                 </div>
               )}
               <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleFileSelect(f) }} />

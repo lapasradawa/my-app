@@ -1083,7 +1083,8 @@ export default function OrderPlanPage() {
                 </select>
               </div>
               <div>
-                <label className="text-sm text-gray-600 font-medium block mb-1.5">Template Item Code</label>
+                <label className="text-sm text-gray-600 font-medium block mb-0.5">Template Item Code</label>
+                <p className="text-[11px] text-gray-400 font-mono mb-1.5">B: item_code — หา header อัตโนมัติ</p>
                 <div className="flex items-center gap-2 flex-wrap">
                   {templateInfo ? (
                     <>
@@ -1102,7 +1103,8 @@ export default function OrderPlanPage() {
                 </div>
               </div>
               <div>
-                <label className="text-sm text-gray-600 font-medium block mb-1.5">Usage (ย้อนหลัง 3 เดือน)</label>
+                <label className="text-sm text-gray-600 font-medium block mb-0.5">Usage (ย้อนหลัง 3 เดือน)</label>
+                <p className="text-[11px] text-gray-400 font-mono mb-1.5">B: item_code · cols ถัดไป: qty ย้อนหลัง 3 เดือน (Jan Feb Mar ...)</p>
                 <div className="flex items-center gap-2 flex-wrap">
                   {usageData ? (
                     <>
@@ -1135,7 +1137,8 @@ export default function OrderPlanPage() {
                 </div>
               </div>
               <div>
-                <label className="text-sm text-gray-600 font-medium block mb-1.5">stock_dashboard Excel</label>
+                <label className="text-sm text-gray-600 font-medium block mb-0.5">stock_dashboard Excel</label>
+                <p className="text-[11px] text-gray-400 font-mono mb-1.5">B: item_code · C: desc · D: stock_thai · G: po_thai · M: lonsua · N–Q: week1–4/next</p>
                 <div className="flex items-center gap-2">
                   <button onClick={() => fileRef.current?.click()} className="px-4 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors">เลือกไฟล์</button>
                   {fileName && <span className="text-sm text-gray-500 truncate max-w-[200px]">{fileName}</span>}
@@ -1145,7 +1148,8 @@ export default function OrderPlanPage() {
             </div>
 
             <div className="flex-1 min-w-[280px]">
-              <label className="text-sm text-gray-600 font-medium block mb-1.5">Stock ที่ Supplier</label>
+              <label className="text-sm text-gray-600 font-medium block mb-0.5">Stock ที่ Supplier</label>
+              <p className="text-[11px] text-gray-400 font-mono mb-1.5">A: PO No · B: item_code · D: total · E: not produced · F: in production · G: finished · H: on board</p>
               <div className="space-y-2">
                 {supplierStocks.map(ss => (
                   <div key={ss.supplierName} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2">

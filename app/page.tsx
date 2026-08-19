@@ -279,6 +279,7 @@ export default function Home() {
               <p className="text-gray-700 font-medium">ลากไฟล์มาวางที่นี่ หรือคลิกเพื่อเลือกไฟล์</p>
               <p className="text-gray-400 text-sm mt-1">รองรับไฟล์ .xlsx และ .xls</p>
               <p className="text-gray-400 text-xs mt-2">ไฟล์ต้องมีชีท CI และชีทตู้ (เช่น UETU2248127)</p>
+              <p className="text-gray-400 text-xs mt-1 font-mono">ชีท CI: Fixture/Item Code · QTY · PO/Marks · Description — หา header อัตโนมัติ</p>
               <input ref={inputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={onFileChange} />
             </div>
           )}

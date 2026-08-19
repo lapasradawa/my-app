@@ -120,10 +120,12 @@ function SupplierRow({ sup, isActive, poUploads, showPoSelector, onToggleActive,
         {/* Container QTY upload */}
         <button
           onClick={() => fileRef.current?.click()}
+          title="Excel: A = item_code · B = container qty"
           className="px-2 py-1.5 border border-gray-300 rounded-lg text-xs text-gray-700 hover:bg-gray-50 bg-white font-medium"
         >
           {containerCount > 0 ? `Container QTY (${containerCount})` : 'Upload Container QTY'}
         </button>
+        <span className="text-[10px] text-gray-400 font-mono">A: item_code · B: qty/container</span>
         <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden"
           onChange={e => { const f = e.target.files?.[0]; if (f) onUploadContainerQty(f); e.target.value = '' }} />
 
@@ -408,9 +410,7 @@ export default function LoadPlanPage() {
           {/* Item template */}
           <div className="bg-white border border-gray-200 rounded-xl p-4">
             <h2 className="text-sm font-semibold text-gray-700 mb-1">Item Template</h2>
-            <p className="text-xs text-gray-400 mb-3">
-              Excel: A = NO · B = item_code · C = description · D = qty per branch
-            </p>
+            <p className="text-[11px] text-gray-400 font-mono mb-3">A: NO (skip) · B: item_code · C: description · D: qty per branch · "-" = 0</p>
             <div className="flex flex-col gap-2">
               <div className="flex items-center gap-2">
                 <button
