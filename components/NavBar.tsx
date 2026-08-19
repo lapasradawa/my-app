@@ -50,6 +50,9 @@ export default function NavBar({ onUnlock, onLock }: Props) {
       {canAccess('order-plan') && (
         <Link href="/order-plan" className={cls('/order-plan')}>Order Plan</Link>
       )}
+      {canAccess('load-plan') && (
+        <Link href="/load-plan" className={cls('/load-plan')}>Load Plan</Link>
+      )}
 
       {showSummaryDropdown && (
         <div className="relative group">
