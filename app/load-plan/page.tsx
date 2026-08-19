@@ -184,6 +184,7 @@ export default function LoadPlanPage() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [parseInfo, setParseInfo] = useState<{ type: 1 | 2; label: string } | null>(null)
+  const [uploadedFiles, setUploadedFiles] = useState<{ type1?: string; type2?: string }>({})
   const [activeSupIdx, setActiveSupIdx] = useState<number | null>(null)
   const [poUploads, setPoUploads] = useState<POUpload[]>([])
   const [showPoSelector, setShowPoSelector] = useState<string | null>(null)
@@ -256,6 +257,7 @@ export default function LoadPlanPage() {
 
   // Parse template file — auto-detects item_code / description / qty columns from header row
   function handleTemplateUpload(file: File, typeNum: 1 | 2) {
+    setUploadedFiles(prev => ({ ...prev, [typeNum === 1 ? 'type1' : 'type2']: file.name }))
     file.arrayBuffer().then(buf => {
       const wb = XLSX.read(buf, { type: 'array' })
       const ws = wb.Sheets[wb.SheetNames[0]]
@@ -446,9 +448,14 @@ export default function LoadPlanPage() {
                   />
                   <span className="text-xs text-gray-400">Forecast</span>
                   <input
-                    type="number" min="0"
-                    value={n === 1 ? plan.forecast_1 : plan.forecast_2}
-                    onChange={e => setPlan(p => p ? { ...p, [`forecast_${n}`]: Number(e.target.value) || 0 } : p)}
+                    type="text" inputMode="numeric" pattern="[0-9]*"
+                    value={n === 1 ? (plan.forecast_1 || '') : (plan.forecast_2 || '')}
+                    onFocus={e => e.target.select()}
+                    onChange={e => {
+                      const v = e.target.value.replace(/[^0-9]/g, '')
+                      setPlan(p => p ? { ...p, [`forecast_${n}`]: v === '' ? 0 : parseInt(v, 10) } : p)
+                    }}
+                    placeholder="0"
                     className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm w-24 focus:outline-none focus:border-blue-400"
                   />
                   <span className="text-xs text-gray-400">branches</span>
@@ -462,7 +469,7 @@ export default function LoadPlanPage() {
             <h2 className="text-sm font-semibold text-gray-700 mb-1">Item Template</h2>
             <p className="text-[11px] text-gray-400 mb-3">หา header อัตโนมัติ — ต้องมีคอลัมน์ <span className="font-mono">Item_No / Item Code</span> · <span className="font-mono">Description</span> · <span className="font-mono">Qty / Assumed Qty</span> (ลำดับคอลัมน์ไม่ตายตัว · "-" = 0)</p>
             <div className="flex flex-col gap-2">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <button
                   onClick={() => templateRef1.current?.click()}
                   className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 font-medium"
@@ -471,8 +478,13 @@ export default function LoadPlanPage() {
                 </button>
                 <input ref={templateRef1} type="file" accept=".xlsx,.xls" className="hidden"
                   onChange={e => { const f = e.target.files?.[0]; if (f) handleTemplateUpload(f, 1); e.target.value = '' }} />
+                {uploadedFiles.type1 && (
+                  <span className="text-[11px] text-green-600 font-mono truncate max-w-[220px]" title={uploadedFiles.type1}>
+                    ✓ {uploadedFiles.type1}
+                  </span>
+                )}
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <button
                   onClick={() => templateRef2.current?.click()}
                   className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 font-medium"
@@ -481,6 +493,11 @@ export default function LoadPlanPage() {
                 </button>
                 <input ref={templateRef2} type="file" accept=".xlsx,.xls" className="hidden"
                   onChange={e => { const f = e.target.files?.[0]; if (f) handleTemplateUpload(f, 2); e.target.value = '' }} />
+                {uploadedFiles.type2 && (
+                  <span className="text-[11px] text-green-600 font-mono truncate max-w-[220px]" title={uploadedFiles.type2}>
+                    ✓ {uploadedFiles.type2}
+                  </span>
+                )}
               </div>
               {plan.items.length > 0 && (
                 <span className="text-sm text-green-600 font-semibold">{plan.items.length} items loaded</span>
