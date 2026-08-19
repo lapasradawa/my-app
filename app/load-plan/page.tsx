@@ -178,7 +178,8 @@ export default function LoadPlanPage() {
   const [activeSupIdx, setActiveSupIdx] = useState<number | null>(null)
   const [poUploads, setPoUploads] = useState<POUpload[]>([])
   const [showPoSelector, setShowPoSelector] = useState<string | null>(null)
-  const templateRef = useRef<HTMLInputElement>(null)
+  const templateRef1 = useRef<HTMLInputElement>(null)
+  const templateRef2 = useRef<HTMLInputElement>(null)
 
   const activeSup = (plan && activeSupIdx !== null) ? (plan.suppliers[activeSupIdx] ?? null) : null
 
@@ -244,19 +245,36 @@ export default function LoadPlanPage() {
     refreshPlans()
   }, [plan, refreshPlans])
 
-  function handleTemplateUpload(file: File) {
+  // Parse template file: col A=NO (skip), col B=item_code, col C=description, col D=qty
+  // Updates only qty_1 or qty_2 depending on typeNum, merges with existing items
+  function handleTemplateUpload(file: File, typeNum: 1 | 2) {
     file.arrayBuffer().then(buf => {
       const wb = XLSX.read(buf, { type: 'array' })
       const ws = wb.Sheets[wb.SheetNames[0]]
       const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1 }) as unknown[][]
-      const items: LoadItem[] = []
+      const parsed = new Map<string, { description: string; qty: number }>()
       for (let i = 1; i < rows.length; i++) {
         const r = rows[i] as unknown[]
-        const item_code = String(r[0] ?? '').trim()
+        const item_code = String(r[1] ?? '').trim()
         if (!item_code) continue
-        items.push({ item_code, description: String(r[1] ?? '').trim(), qty_1: Number(r[2]) || 0, qty_2: Number(r[3]) || 0 })
+        const raw = String(r[3] ?? '').trim()
+        const qty = raw === '-' || raw === '' ? 0 : Number(raw) || 0
+        parsed.set(item_code, { description: String(r[2] ?? '').trim(), qty })
       }
-      setPlan(p => p ? { ...p, items } : p)
+      setPlan(p => {
+        if (!p) return p
+        // Merge with existing items
+        const existingMap = new Map(p.items.map(it => [it.item_code, it]))
+        for (const [ic, { description, qty }] of parsed) {
+          const ex = existingMap.get(ic)
+          if (ex) {
+            existingMap.set(ic, { ...ex, description: description || ex.description, [`qty_${typeNum}`]: qty } as LoadItem)
+          } else {
+            existingMap.set(ic, { item_code: ic, description, qty_1: typeNum === 1 ? qty : 0, qty_2: typeNum === 2 ? qty : 0 })
+          }
+        }
+        return { ...p, items: Array.from(existingMap.values()) }
+      })
     })
   }
 
@@ -391,17 +409,29 @@ export default function LoadPlanPage() {
           <div className="bg-white border border-gray-200 rounded-xl p-4">
             <h2 className="text-sm font-semibold text-gray-700 mb-1">Item Template</h2>
             <p className="text-xs text-gray-400 mb-3">
-              Excel: A = item_code · B = description · C = qty/{plan.type_1_name} · D = qty/{plan.type_2_name}
+              Excel: A = NO · B = item_code · C = description · D = qty per branch
             </p>
-            <div className="flex items-center gap-3 flex-wrap">
-              <button
-                onClick={() => templateRef.current?.click()}
-                className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 font-medium"
-              >
-                Upload Template
-              </button>
-              <input ref={templateRef} type="file" accept=".xlsx,.xls" className="hidden"
-                onChange={e => { const f = e.target.files?.[0]; if (f) handleTemplateUpload(f); e.target.value = '' }} />
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => templateRef1.current?.click()}
+                  className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 font-medium"
+                >
+                  Upload {plan.type_1_name} Template
+                </button>
+                <input ref={templateRef1} type="file" accept=".xlsx,.xls" className="hidden"
+                  onChange={e => { const f = e.target.files?.[0]; if (f) handleTemplateUpload(f, 1); e.target.value = '' }} />
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => templateRef2.current?.click()}
+                  className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 font-medium"
+                >
+                  Upload {plan.type_2_name} Template
+                </button>
+                <input ref={templateRef2} type="file" accept=".xlsx,.xls" className="hidden"
+                  onChange={e => { const f = e.target.files?.[0]; if (f) handleTemplateUpload(f, 2); e.target.value = '' }} />
+              </div>
               {plan.items.length > 0 && (
                 <span className="text-sm text-green-600 font-semibold">{plan.items.length} items loaded</span>
               )}
