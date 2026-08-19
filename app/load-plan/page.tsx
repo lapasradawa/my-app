@@ -183,6 +183,7 @@ export default function LoadPlanPage() {
   const [plan, setPlan] = useState<LoadPlan | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [parseInfo, setParseInfo] = useState<{ type: 1 | 2; label: string } | null>(null)
   const [activeSupIdx, setActiveSupIdx] = useState<number | null>(null)
   const [poUploads, setPoUploads] = useState<POUpload[]>([])
   const [showPoSelector, setShowPoSelector] = useState<string | null>(null)
@@ -260,27 +261,36 @@ export default function LoadPlanPage() {
       const ws = wb.Sheets[wb.SheetNames[0]]
       const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1 }) as unknown[][]
 
-      // Scan first 3 rows for a header row with recognisable column names
+      // Scan first 5 rows. Prioritise rows that have item_code column (fi >= 0).
+      // A row with only qty keyword (e.g. a merged title "Assumed Qty…") is kept as
+      // a fallback but the scan continues until a proper header row is found.
       let headerRow = 0
       let itemCol = 1   // fallback: col B
       let descCol = 2   // fallback: col C
       let qtyCol  = 3   // fallback: col D
 
-      outer: for (let ri = 0; ri < Math.min(3, rows.length); ri++) {
-        const r = rows[ri] as unknown[]
-        let fi = -1, di = -1, qi = -1
-        for (let ci = 0; ci < r.length; ci++) {
-          const h = String(r[ci] ?? '').toLowerCase().replace(/[\s_\-]/g, '')
-          if (fi < 0 && (h.includes('itemno') || h.includes('itemcode') || h === 'item')) fi = ci
-          if (di < 0 && (h.includes('desc') || h.includes('name') || h.includes('สินค้า'))) di = ci
-          if (qi < 0 && (h.includes('qty') || h.includes('assumed') || h.includes('จำนวน'))) qi = ci
+      {
+        let bestRow = -1, bestFi = -1, bestDi = -1, bestQi = -1, foundItem = false
+        for (let ri = 0; ri < Math.min(5, rows.length) && !foundItem; ri++) {
+          const r = rows[ri] as unknown[]
+          let fi = -1, di = -1, qi = -1
+          for (let ci = 0; ci < r.length; ci++) {
+            const h = String(r[ci] ?? '').toLowerCase().replace(/[\s_\-]/g, '')
+            if (fi < 0 && (h.includes('itemno') || h.includes('itemcode') || h === 'item')) fi = ci
+            if (di < 0 && (h.includes('desc') || h.includes('name') || h.includes('สินค้า'))) di = ci
+            if (qi < 0 && (h.includes('qty') || h.includes('assumed') || h.includes('จำนวน'))) qi = ci
+          }
+          if (fi >= 0) {
+            bestRow = ri; bestFi = fi; bestDi = di; bestQi = qi; foundItem = true
+          } else if (qi >= 0 && bestRow < 0) {
+            bestRow = ri; bestFi = fi; bestDi = di; bestQi = qi
+          }
         }
-        if (fi >= 0 || qi >= 0) {
-          headerRow = ri
-          if (fi >= 0) itemCol = fi
-          if (di >= 0) descCol = di
-          if (qi >= 0) qtyCol  = qi
-          break outer
+        if (bestRow >= 0) {
+          headerRow = bestRow
+          if (bestFi >= 0) itemCol = bestFi
+          if (bestDi >= 0) descCol = bestDi
+          if (bestQi >= 0) qtyCol = bestQi
         }
       }
 
@@ -289,10 +299,20 @@ export default function LoadPlanPage() {
         const r = rows[i] as unknown[]
         const item_code = String(r[itemCol] ?? '').trim()
         if (!item_code) continue
-        const raw = String(r[qtyCol] ?? '').trim()
-        const qty = raw === '-' || raw === '' ? 0 : Number(raw) || 0
+        const rawQty = r[qtyCol]
+        const raw = rawQty === null || rawQty === undefined ? '' : String(rawQty).trim()
+        const qty = raw === '-' || raw === '' ? 0 : (typeof rawQty === 'number' ? rawQty : Number(raw)) || 0
         parsed.set(item_code, { description: String(r[descCol] ?? '').trim(), qty })
       }
+
+      // Show diagnostic: what columns were detected, first item's qty
+      const firstEntry = parsed.size > 0 ? parsed.entries().next().value : null
+      const colLetters = (n: number) => String.fromCharCode(65 + n)
+      setParseInfo({
+        type: typeNum,
+        label: `col ${colLetters(itemCol)}=item · col ${colLetters(descCol)}=desc · col ${colLetters(qtyCol)}=qty` +
+          (firstEntry ? ` | "${firstEntry[0]}" qty=${firstEntry[1].qty}` : ` | 0 items`)
+      })
 
       setPlan(p => {
         if (!p) return p
@@ -464,6 +484,11 @@ export default function LoadPlanPage() {
               </div>
               {plan.items.length > 0 && (
                 <span className="text-sm text-green-600 font-semibold">{plan.items.length} items loaded</span>
+              )}
+              {parseInfo && (
+                <span className="text-[10px] font-mono text-gray-400 leading-tight">
+                  [{parseInfo.type === 1 ? plan.type_1_name : plan.type_2_name}] {parseInfo.label}
+                </span>
               )}
             </div>
           </div>
