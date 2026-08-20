@@ -1170,7 +1170,8 @@ export default function LoadPlanPage() {
                     const a2 = Math.round(item.qty_2 * plan.forecast_2 * ratio)
                     const sumA = a1 + a2
                     const loaded = totalLoadsMap.get(item.item_code) ?? 0
-                    const left = sumA - loaded
+                    const totalPo = totalPoQtyMap.get(item.item_code) ?? 0
+                    const left = totalPo - loaded
                     const base = ii % 2 === 0 ? 'bg-white' : 'bg-gray-50'
                     const isHi = isHiItem
                     return (
@@ -1236,7 +1237,6 @@ export default function LoadPlanPage() {
                         >{sumA > 0 ? sumA.toLocaleString() : '0'}</td>
                         {/* PO Coverage: sum all PO qty − sumA */}
                         {(() => {
-                          const totalPo = totalPoQtyMap.get(item.item_code) ?? 0
                           const cov = totalPo - sumA
                           return (
                             <td
@@ -1363,12 +1363,12 @@ export default function LoadPlanPage() {
                           className={`px-3 py-2 text-right tabular-nums font-bold border-l-2 cursor-pointer ${left < 0 ? 'text-red-600 bg-red-50 border-red-200 hover:bg-red-100' : left === 0 ? 'text-green-700 bg-green-50 border-green-200 hover:bg-green-100' : 'text-gray-900 border-rose-200 hover:bg-gray-100'}`}
                           onClick={() => setFormulaPopup({
                             itemCode: item.item_code, description: item.description,
-                            colName: 'ยังต้องโหลด',
-                            formulaStr: 'Sum Assumed Qty − รวมโหลดทั้งหมด',
+                            colName: 'LEFT (PO คงเหลือ)',
+                            formulaStr: 'Sum PO QTY (ทุกซัพ) − รวมโหลดแล้ว',
                             lines: [
-                              { op: '', label: 'Sum Assumed Qty', val: sumA },
+                              { op: '', label: 'Sum PO QTY (ทุกซัพ)', val: totalPo },
                               { op: '−', label: 'รวมโหลดแล้ว', val: loaded },
-                              { op: '=', label: left < 0 ? 'โหลดเกิน' : left === 0 ? 'ครบแล้ว' : 'ยังขาด', val: left, isResult: true },
+                              { op: '=', label: left < 0 ? 'โหลดเกิน PO' : left === 0 ? 'โหลดครบ PO' : 'PO ที่ยังโหลดได้', val: left, isResult: true },
                             ]
                           })}
                         >
