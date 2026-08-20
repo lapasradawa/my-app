@@ -1182,9 +1182,9 @@ export default function LoadPlanPage() {
                           onClick={() => setFormulaPopup({
                             itemCode: item.item_code, description: item.description,
                             colName: `Assumed Qty (${plan.type_1_name})`,
-                            formulaStr: `qty_1 × Forecast ${plan.type_1_name} × Ratio`,
+                            formulaStr: `Assumed Qty/branch × Forecast ${plan.type_1_name} × Ratio`,
                             lines: [
-                              { op: '', label: `qty_1 / branch`, val: item.qty_1 },
+                              { op: '', label: `Assumed Qty / branch`, val: item.qty_1 },
                               { op: '×', label: `Forecast (${plan.type_1_name})`, val: plan.forecast_1 },
                               { op: '×', label: `Ratio (${isHi ? 'High' : 'Standard'})`, val: `${isHi ? rateHigh : rateDefault}%` },
                               { op: '=', label: 'Assumed Qty', val: a1, isResult: true },
@@ -1197,9 +1197,9 @@ export default function LoadPlanPage() {
                             onClick={() => setFormulaPopup({
                               itemCode: item.item_code, description: item.description,
                               colName: `Assumed Qty (${plan.type_2_name})`,
-                              formulaStr: `qty_2 × Forecast ${plan.type_2_name} × Ratio`,
+                              formulaStr: `Assumed Qty/branch × Forecast ${plan.type_2_name} × Ratio`,
                               lines: [
-                                { op: '', label: `qty_2 / branch`, val: item.qty_2 },
+                                { op: '', label: `Assumed Qty / branch`, val: item.qty_2 },
                                 { op: '×', label: `Forecast (${plan.type_2_name})`, val: plan.forecast_2 },
                                 { op: '×', label: `Ratio (${isHi ? 'High' : 'Standard'})`, val: `${isHi ? rateHigh : rateDefault}%` },
                                 { op: '=', label: 'Assumed Qty', val: a2, isResult: true },
