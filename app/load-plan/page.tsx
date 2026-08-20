@@ -1021,12 +1021,6 @@ export default function LoadPlanPage() {
                           </th>
                         )
                       }
-                      // Build per-PO columns
-                      const poColumns: Array<{ poId: string; label: string; dates: string[] }> = []
-                      for (const poId of sup.po_ids) {
-                        const po = poUploads.find(p => p.id === poId)
-                        poColumns.push({ poId, label: poLabel(po, poId), dates: sup.po_load_dates?.[poId] ?? [] })
-                      }
                       return (
                         <Fragment key={sup.id}>
                           {hasCQ && (
@@ -1034,21 +1028,30 @@ export default function LoadPlanPage() {
                               Full Ctn QTY<br /><span className="font-normal text-[10px] opacity-70">{sup.name || '—'}</span>
                             </th>
                           )}
-                          <th
-                            onClick={() => toggleExpanded(sup.id)}
-                            className="text-right px-3 py-3 font-semibold whitespace-nowrap bg-blue-900 hover:bg-blue-800 cursor-pointer border-l border-blue-700 select-none"
-                            title={`คลิกเพื่อซ่อน ${sup.name || 'Supplier'}`}
-                          >
-                            PO QTY<br /><span className="font-normal text-[10px] opacity-70">{sup.name || '—'} ▾</span>
-                          </th>
-                          {poColumns.map(({ poId, label, dates }) =>
-                            dates.map(d => (
-                              <th key={`${poId}-${d}`} className="text-right px-3 py-3 font-semibold whitespace-nowrap bg-indigo-900 border-l border-indigo-700">
-                                <span className="font-mono text-[9px] opacity-60 block">{label}</span>
-                                <span className="font-normal text-[10px] opacity-70">{fmtDate(d)}</span>
-                              </th>
-                            ))
-                          )}
+                          {/* Per-PO: each PO gets its own QTY column + date columns */}
+                          {sup.po_ids.map((poId, pi) => {
+                            const po = poUploads.find(p => p.id === poId)
+                            const label = poLabel(po, poId)
+                            const dates = sup.po_load_dates?.[poId] ?? []
+                            return (
+                              <Fragment key={poId}>
+                                <th
+                                  onClick={pi === 0 ? () => toggleExpanded(sup.id) : undefined}
+                                  className={`text-right px-3 py-3 font-semibold whitespace-nowrap bg-blue-900 border-l-2 border-blue-600 select-none ${pi === 0 ? 'hover:bg-blue-800 cursor-pointer' : ''}`}
+                                  title={pi === 0 ? `คลิกเพื่อซ่อน ${sup.name || 'Supplier'}` : undefined}
+                                >
+                                  <span className="font-mono text-[9px] opacity-60 block">{label}{pi === 0 ? ' ▾' : ''}</span>
+                                  PO QTY
+                                </th>
+                                {dates.map(d => (
+                                  <th key={`${poId}-${d}`} className="text-right px-3 py-3 font-semibold whitespace-nowrap bg-indigo-900 border-l border-indigo-700">
+                                    <span className="font-mono text-[9px] opacity-60 block">{label}</span>
+                                    <span className="font-normal text-[10px] opacity-70">{fmtDate(d)}</span>
+                                  </th>
+                                ))}
+                              </Fragment>
+                            )
+                          })}
                           {/* Legacy supplier-level dates */}
                           {sup.load_dates.map(d => (
                             <th key={`legacy-${d}`} className="text-right px-3 py-3 font-semibold whitespace-nowrap bg-indigo-800 border-l border-indigo-600">
@@ -1126,9 +1129,6 @@ export default function LoadPlanPage() {
                               </td>
                             )
                           }
-                          const poColumns: Array<{ poId: string; dates: string[] }> = sup.po_ids.map(poId => ({
-                            poId, dates: sup.po_load_dates?.[poId] ?? []
-                          }))
                           return (
                             <Fragment key={sup.id}>
                               {hasCQ && (
@@ -1136,26 +1136,35 @@ export default function LoadPlanPage() {
                                   {sup.container_qtys[item.item_code]?.toLocaleString() ?? '—'}
                                 </td>
                               )}
-                              <td className="px-3 py-2 text-right tabular-nums text-blue-900 bg-blue-50 border-l border-blue-100">
-                                {poQty > 0 ? poQty.toLocaleString() : '—'}
-                              </td>
-                              {poColumns.map(({ poId, dates }) =>
-                                dates.map(d => {
-                                  const entry = sup.loads.find(l => l.po_id === poId && l.date === d && l.item_code === item.item_code)
-                                  return (
-                                    <td key={`${poId}-${d}`} className="px-1.5 py-1 bg-indigo-50 border-l border-indigo-100">
-                                      <input
-                                        type="number" min="0"
-                                        value={entry?.qty ?? ''}
-                                        placeholder="0"
-                                        disabled={!unlocked}
-                                        onChange={e => updateLoadQty(sup.id, poId, d, item.item_code, Number(e.target.value))}
-                                        className="w-20 text-right px-2 py-0.5 border border-indigo-200 rounded focus:outline-none focus:border-indigo-500 tabular-nums bg-white text-xs disabled:bg-gray-50 disabled:opacity-60"
-                                      />
+                              {/* Per-PO: individual PO qty + its load dates */}
+                              {sup.po_ids.map(poId => {
+                                const po = poUploads.find(p => p.id === poId)
+                                const thisPo = po?.rows ?? []
+                                const thisPoQty = thisPo.filter(r => r.item_code === item.item_code).reduce((s, r) => s + (r.qty ?? 0), 0)
+                                const dates = sup.po_load_dates?.[poId] ?? []
+                                return (
+                                  <Fragment key={poId}>
+                                    <td className="px-3 py-2 text-right tabular-nums text-blue-900 bg-blue-50 border-l-2 border-blue-300 font-semibold">
+                                      {thisPoQty > 0 ? thisPoQty.toLocaleString() : '—'}
                                     </td>
-                                  )
-                                })
-                              )}
+                                    {dates.map(d => {
+                                      const entry = sup.loads.find(l => l.po_id === poId && l.date === d && l.item_code === item.item_code)
+                                      return (
+                                        <td key={`${poId}-${d}`} className="px-1.5 py-1 bg-indigo-50 border-l border-indigo-100">
+                                          <input
+                                            type="number" min="0"
+                                            value={entry?.qty ?? ''}
+                                            placeholder="0"
+                                            disabled={!unlocked}
+                                            onChange={e => updateLoadQty(sup.id, poId, d, item.item_code, Number(e.target.value))}
+                                            className="w-20 text-right px-2 py-0.5 border border-indigo-200 rounded focus:outline-none focus:border-indigo-500 tabular-nums bg-white text-xs disabled:bg-gray-50 disabled:opacity-60"
+                                          />
+                                        </td>
+                                      )
+                                    })}
+                                  </Fragment>
+                                )
+                              })}
                               {/* Legacy supplier-level dates */}
                               {sup.load_dates.map(d => {
                                 const entry = sup.loads.find(l => !l.po_id && l.date === d && l.item_code === item.item_code)
