@@ -17,6 +17,7 @@ interface LoadEntry {
   date: string
   item_code: string
   qty: number
+  po_id?: string  // which PO this load date belongs to (undefined = legacy supplier-level)
 }
 
 interface LoadSupplier {
@@ -25,7 +26,8 @@ interface LoadSupplier {
   po_ids: string[]
   container_qtys: Record<string, number>
   loads: LoadEntry[]
-  load_dates: string[]
+  load_dates: string[]           // legacy — kept for backward compat
+  po_load_dates: Record<string, string[]>  // po_id -> sorted dates (new)
 }
 
 interface LoadPlan {
@@ -37,6 +39,7 @@ interface LoadPlan {
   forecast_2: number
   items: LoadItem[]
   suppliers: LoadSupplier[]
+  high_ratio_items?: string[]  // items that use 90% multiplier (default 70%)
   updated_at?: string
 }
 
@@ -51,15 +54,20 @@ interface POUpload {
 }
 
 function mkPlan(): LoadPlan {
-  return { name: 'Untitled Plan', type_1_name: 'Existing', type_2_name: 'New', forecast_1: 0, forecast_2: 0, items: [], suppliers: [] }
+  return { name: 'Untitled Plan', type_1_name: 'Existing', type_2_name: 'New', forecast_1: 0, forecast_2: 0, items: [], suppliers: [], high_ratio_items: [] }
 }
 
 function mkSupplier(): LoadSupplier {
-  return { id: crypto.randomUUID(), name: '', po_ids: [], container_qtys: {}, loads: [], load_dates: [] }
+  return { id: crypto.randomUUID(), name: '', po_ids: [], container_qtys: {}, loads: [], load_dates: [], po_load_dates: {} }
 }
 
 function fmtDate(d: string) {
   return new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
+function poLabel(po: POUpload | undefined, fallback: string): string {
+  if (!po) return fallback.slice(0, 8)
+  return po.po_rbs_ch_no || po.filename?.replace(/\.xlsx?$/i, '') || po.id.slice(0, 8)
 }
 
 // ── Supplier row component ──
@@ -75,9 +83,29 @@ function SupplierRow({ sup, editable, poUploads, showPoSelector, onUpdate, onUpl
 }) {
   const fileRef = useRef<HTMLInputElement>(null)
   const [newDate, setNewDate] = useState('')
+  const [newDatePoId, setNewDatePoId] = useState('')
   const containerCount = Object.keys(sup.container_qtys).length
-
   const dis = !editable
+
+  const selectedPos = sup.po_ids
+    .map(pid => poUploads.find(p => p.id === pid))
+    .filter(Boolean) as POUpload[]
+
+  function addDate() {
+    if (!newDate || !newDatePoId) return
+    const existing = sup.po_load_dates?.[newDatePoId] ?? []
+    if (existing.includes(newDate)) return
+    const newDates = [...existing, newDate].sort()
+    onUpdate({ po_load_dates: { ...(sup.po_load_dates ?? {}), [newDatePoId]: newDates } })
+    setNewDate('')
+  }
+
+  function removePoDate(poId: string, date: string) {
+    const existing = sup.po_load_dates?.[poId] ?? []
+    const newPoLoadDates = { ...(sup.po_load_dates ?? {}), [poId]: existing.filter(d => d !== date) }
+    const newLoads = sup.loads.filter(l => !(l.po_id === poId && l.date === date))
+    onUpdate({ po_load_dates: newPoLoadDates, loads: newLoads })
+  }
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-3">
@@ -140,32 +168,70 @@ function SupplierRow({ sup, editable, poUploads, showPoSelector, onUpdate, onUpl
         <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden"
           onChange={e => { const f = e.target.files?.[0]; if (f) onUploadContainerQty(f); e.target.value = '' }} />
 
-        {/* Add load date */}
-        <input type="date" value={newDate} onChange={e => setNewDate(e.target.value)}
-          disabled={dis}
-          className="border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-blue-400 bg-white disabled:bg-gray-50 disabled:opacity-40" />
-        <button
-          onClick={() => {
-            if (!newDate || sup.load_dates.includes(newDate)) return
-            onUpdate({ load_dates: [...sup.load_dates, newDate].sort() })
-            setNewDate('')
-          }}
-          disabled={dis || !newDate}
-          className="px-2 py-1.5 bg-gray-100 hover:bg-gray-200 text-xs rounded-lg font-medium disabled:opacity-40"
-        >
-          + Date
-        </button>
+        {/* Add load date per PO */}
+        {selectedPos.length > 0 ? (
+          <>
+            <select
+              value={newDatePoId}
+              onChange={e => setNewDatePoId(e.target.value)}
+              disabled={dis}
+              className="border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none bg-white disabled:bg-gray-50 disabled:opacity-40 max-w-[140px]"
+            >
+              <option value="">เลือก PO</option>
+              {selectedPos.map(po => (
+                <option key={po.id} value={po.id}>
+                  {poLabel(po, po.id)}
+                </option>
+              ))}
+            </select>
+            <input type="date" value={newDate} onChange={e => setNewDate(e.target.value)}
+              disabled={dis}
+              className="border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none bg-white disabled:bg-gray-50 disabled:opacity-40" />
+            <button
+              onClick={addDate}
+              disabled={dis || !newDate || !newDatePoId}
+              className="px-2 py-1.5 bg-gray-100 hover:bg-gray-200 text-xs rounded-lg font-medium disabled:opacity-40"
+            >
+              + Date
+            </button>
+          </>
+        ) : (
+          <span className="text-xs text-gray-400 italic">เลือก PO ก่อนเพื่อเพิ่มวันโหลด</span>
+        )}
 
         <button onClick={dis ? undefined : onRemove} disabled={dis} className="text-gray-400 hover:text-red-500 text-lg leading-none px-1 ml-auto disabled:opacity-30">×</button>
       </div>
 
+      {/* Dates grouped by PO */}
+      {selectedPos.some(po => (sup.po_load_dates?.[po.id] ?? []).length > 0) && (
+        <div className="mt-2 space-y-1.5">
+          {selectedPos.map(po => {
+            const dates = sup.po_load_dates?.[po.id] ?? []
+            if (dates.length === 0) return null
+            const label = poLabel(po, po.id)
+            return (
+              <div key={po.id} className="flex items-start gap-1.5 flex-wrap">
+                <span className="text-[10px] font-mono font-semibold text-blue-600 mt-0.5 shrink-0">{label}:</span>
+                {dates.map(d => (
+                  <span key={d} className="inline-flex items-center gap-1 bg-white border border-blue-200 rounded-full px-2.5 py-0.5 text-xs text-gray-700">
+                    {fmtDate(d)}
+                    {!dis && <button onClick={() => removePoDate(po.id, d)} className="text-gray-400 hover:text-red-500 ml-0.5">×</button>}
+                  </span>
+                ))}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Legacy supplier-level dates (backward compat) */}
       {sup.load_dates.length > 0 && (
         <div className="flex gap-1.5 flex-wrap mt-2">
           {sup.load_dates.map(d => (
-            <span key={d} className="inline-flex items-center gap-1 bg-white border border-gray-200 rounded-full px-2.5 py-0.5 text-xs text-gray-700">
+            <span key={d} className="inline-flex items-center gap-1 bg-gray-100 border border-gray-200 rounded-full px-2.5 py-0.5 text-xs text-gray-500">
               {fmtDate(d)}
               {!dis && <button
-                onClick={() => onUpdate({ load_dates: sup.load_dates.filter(x => x !== d), loads: sup.loads.filter(l => l.date !== d) })}
+                onClick={() => onUpdate({ load_dates: sup.load_dates.filter(x => x !== d), loads: sup.loads.filter(l => l.date !== d && !l.po_id) })}
                 className="text-gray-400 hover:text-red-500 ml-0.5"
               >×</button>}
             </span>
@@ -192,6 +258,7 @@ export default function LoadPlanPage() {
   const templateRef1 = useRef<HTMLInputElement>(null)
   const templateRef2 = useRef<HTMLInputElement>(null)
 
+  // Aggregate PO qty per supplier (sum all POs)
   const allPoQtyMaps = useMemo(() => {
     const result = new Map<string, Map<string, number>>()
     if (!plan) return result
@@ -257,6 +324,7 @@ export default function LoadPlanPage() {
       forecast_2: plan.forecast_2,
       items: plan.items,
       suppliers: plan.suppliers,
+      high_ratio_items: plan.high_ratio_items ?? [],
       updated_at: new Date().toISOString(),
     }
     if ((plan as LoadPlan & { id?: string }).id) {
@@ -279,13 +347,10 @@ export default function LoadPlanPage() {
       const ws = wb.Sheets[wb.SheetNames[0]]
       const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1 }) as unknown[][]
 
-      // Scan first 5 rows. Prioritise rows that have item_code column (fi >= 0).
-      // A row with only qty keyword (e.g. a merged title "Assumed Qty…") is kept as
-      // a fallback but the scan continues until a proper header row is found.
       let headerRow = 0
-      let itemCol = 1   // fallback: col B
-      let descCol = 2   // fallback: col C
-      let qtyCol  = 3   // fallback: col D
+      let itemCol = 1
+      let descCol = 2
+      let qtyCol  = 3
 
       {
         let bestRow = -1, bestFi = -1, bestDi = -1, bestQi = -1, foundItem = false
@@ -312,7 +377,6 @@ export default function LoadPlanPage() {
         }
       }
 
-      // Helper: parse a cell value as number, handling comma-formatted strings like "1,216"
       function parseQty(v: unknown): number {
         if (v === null || v === undefined || v === '' || v === '-') return 0
         if (typeof v === 'number') return isNaN(v) ? 0 : v
@@ -320,7 +384,6 @@ export default function LoadPlanPage() {
         return s === '' || s === '-' ? 0 : (Number(s) || 0)
       }
 
-      // Verify qtyCol: if first several data rows all give 0, search nearby columns for non-zero numeric values
       {
         const firstDataRows = rows.slice(headerRow + 1, headerRow + 6) as unknown[][]
         const nonZeroAt = (col: number) => firstDataRows.some(r => parseQty(r[col]) > 0)
@@ -344,7 +407,6 @@ export default function LoadPlanPage() {
         parsed.set(item_code, { description: String(r[descCol] ?? '').trim(), qty })
       }
 
-      // Show diagnostic: what columns were detected, first item's qty
       const firstEntry = parsed.size > 0 ? parsed.entries().next().value : null
       const colLetters = (n: number) => String.fromCharCode(65 + n)
       setParseInfo({
@@ -397,19 +459,29 @@ export default function LoadPlanPage() {
     })
   }
 
-  function updateLoadQty(suppId: string, date: string, itemCode: string, qty: number) {
+  function toggleHighRatio(itemCode: string) {
+    if (!unlocked) return
+    setPlan(p => {
+      if (!p) return p
+      const hi = p.high_ratio_items ?? []
+      const newHi = hi.includes(itemCode) ? hi.filter(c => c !== itemCode) : [...hi, itemCode]
+      return { ...p, high_ratio_items: newHi }
+    })
+  }
+
+  function updateLoadQty(suppId: string, poId: string, date: string, itemCode: string, qty: number) {
     setPlan(p => {
       if (!p) return p
       const sup = p.suppliers.find(s => s.id === suppId)
       if (!sup) return p
-      const idx = sup.loads.findIndex(l => l.date === date && l.item_code === itemCode)
+      const idx = sup.loads.findIndex(l => l.po_id === poId && l.date === date && l.item_code === itemCode)
       let newLoads: LoadEntry[]
       if (qty <= 0) {
-        newLoads = sup.loads.filter(l => !(l.date === date && l.item_code === itemCode))
+        newLoads = sup.loads.filter(l => !(l.po_id === poId && l.date === date && l.item_code === itemCode))
       } else if (idx >= 0) {
         newLoads = sup.loads.map((l, i) => i === idx ? { ...l, qty } : l)
       } else {
-        newLoads = [...sup.loads, { date, item_code: itemCode, qty }]
+        newLoads = [...sup.loads, { po_id: poId, date, item_code: itemCode, qty }]
       }
       return { ...p, suppliers: p.suppliers.map(s => s.id === suppId ? { ...s, loads: newLoads } : s) }
     })
@@ -418,8 +490,8 @@ export default function LoadPlanPage() {
   function exportToExcel() {
     if (!plan) return
     const wb = XLSX.utils.book_new()
+    const hiItems = plan.high_ratio_items ?? []
 
-    // Meta rows
     const meta = [
       [`Plan: ${plan.name || 'Untitled Plan'}`],
       [`${plan.type_1_name}: ${plan.forecast_1} branches   ${plan.type_2_name}: ${plan.forecast_2} branches`],
@@ -427,26 +499,38 @@ export default function LoadPlanPage() {
       [],
     ]
 
-    // Column headers
-    const headers: string[] = ['Item Code', 'Description', `Assumed Qty (${plan.type_1_name})`, `Assumed Qty (${plan.type_2_name})`, 'Sum Assumed Qty']
+    const headers: string[] = ['Item Code', 'Description', `Assumed Qty (${plan.type_1_name})`, `Assumed Qty (${plan.type_2_name})`, 'Rate', 'Sum Assumed Qty']
     for (const sup of plan.suppliers) {
       headers.push(`PO QTY (${sup.name})`)
+      for (const poId of sup.po_ids) {
+        const po = poUploads.find(p => p.id === poId)
+        const label = poLabel(po, poId)
+        for (const d of (sup.po_load_dates?.[poId] ?? [])) {
+          headers.push(`Load ${d} [${label}] (${sup.name})`)
+        }
+      }
       for (const d of sup.load_dates) headers.push(`Load ${d} (${sup.name})`)
     }
     headers.push('LEFT')
 
-    // Data rows
     const dataRows = plan.items.map(item => {
-      const a1 = item.qty_1 * plan.forecast_1
-      const a2 = item.qty_2 * plan.forecast_2
+      const ratio = hiItems.includes(item.item_code) ? 0.9 : 0.7
+      const a1 = Math.round(item.qty_1 * plan.forecast_1 * ratio)
+      const a2 = Math.round(item.qty_2 * plan.forecast_2 * ratio)
       const sumA = a1 + a2
       const loaded = totalLoadsMap.get(item.item_code) ?? 0
-      const row: (string | number)[] = [item.item_code, item.description, a1 || 0, a2 || 0, sumA]
+      const row: (string | number)[] = [item.item_code, item.description, a1 || 0, a2 || 0, ratio === 0.9 ? '90%' : '70%', sumA]
       for (const sup of plan.suppliers) {
         const m = allPoQtyMaps.get(sup.id) ?? new Map<string, number>()
         row.push(m.get(item.item_code) ?? 0)
+        for (const poId of sup.po_ids) {
+          for (const d of (sup.po_load_dates?.[poId] ?? [])) {
+            const e = sup.loads.find(l => l.po_id === poId && l.date === d && l.item_code === item.item_code)
+            row.push(e?.qty ?? 0)
+          }
+        }
         for (const d of sup.load_dates) {
-          const e = sup.loads.find(l => l.date === d && l.item_code === item.item_code)
+          const e = sup.loads.find(l => !l.po_id && l.date === d && l.item_code === item.item_code)
           row.push(e?.qty ?? 0)
         }
       }
@@ -499,13 +583,11 @@ export default function LoadPlanPage() {
                 const supCount = (p.suppliers ?? []).length
                 return (
                   <div key={p.id} className="bg-white border border-gray-200 rounded-2xl shadow-sm hover:shadow-md hover:border-blue-300 transition-all flex flex-col">
-                    {/* Card header */}
                     <div
                       onClick={() => { setPlan(p); setExpandedSupIds(new Set()) }}
                       className="p-5 cursor-pointer flex-1"
                     >
                       <div className="font-bold text-gray-900 text-base leading-snug mb-3">{p.name || 'Untitled Plan'}</div>
-                      {/* Branch stats */}
                       <div className="flex gap-3 mb-3">
                         <div className="flex-1 bg-blue-50 rounded-xl px-3 py-2 text-center">
                           <div className="text-lg font-bold text-blue-700 tabular-nums">{(p.forecast_1 ?? 0).toLocaleString()}</div>
@@ -520,17 +602,13 @@ export default function LoadPlanPage() {
                           <div className="text-[10px] text-gray-400 font-medium leading-tight mt-0.5">รวม<br />สาขา</div>
                         </div>
                       </div>
-                      {/* Meta */}
                       <div className="flex flex-wrap gap-2 text-xs text-gray-500">
                         <span className="bg-gray-100 rounded-full px-2 py-0.5">{itemCount} items</span>
                         <span className="bg-gray-100 rounded-full px-2 py-0.5">{supCount} suppliers</span>
                       </div>
                     </div>
-                    {/* Card footer */}
                     <div className="border-t border-gray-100 px-4 py-3 flex items-center justify-between gap-2">
-                      <div>
-                        <span className="text-[11px] text-gray-400">แก้ไขล่าสุด {updAt}</span>
-                      </div>
+                      <span className="text-[11px] text-gray-400">แก้ไขล่าสุด {updAt}</span>
                       <button
                         onClick={() => { setPlan(p); setExpandedSupIds(new Set()) }}
                         className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg transition-colors shrink-0"
@@ -554,6 +632,8 @@ export default function LoadPlanPage() {
       </>
     )
   }
+
+  const hiItems = plan.high_ratio_items ?? []
 
   // ── Plan editor view ──
   return (
@@ -716,6 +796,16 @@ export default function LoadPlanPage() {
         {/* Main table */}
         {plan.items.length > 0 ? (
           <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+            {unlocked && hiItems.length > 0 && (
+              <div className="px-4 py-2 bg-orange-50 border-b border-orange-100 text-xs text-orange-700">
+                <span className="font-semibold">{hiItems.length} items</span> ใช้ rate 90% — คลิกที่ badge ใน Rate column เพื่อเปลี่ยน
+              </div>
+            )}
+            {unlocked && hiItems.length === 0 && (
+              <div className="px-4 py-2 bg-gray-50 border-b border-gray-100 text-xs text-gray-400">
+                ทุก item ใช้ rate 70% — คลิกที่ badge ใน Rate column เพื่อเปลี่ยนรายการที่ต้องการเป็น 90%
+              </div>
+            )}
             <div className="overflow-x-auto">
               <table className="w-full text-xs border-collapse min-w-max">
                 <thead>
@@ -730,6 +820,9 @@ export default function LoadPlanPage() {
                         Assumed Qty<br /><span className="font-normal opacity-70 text-[10px]">{plan.type_2_name}</span>
                       </th>
                     )}
+                    <th className="text-center px-2 py-3 font-semibold whitespace-nowrap bg-amber-800 text-[10px]">
+                      Rate<br /><span className="font-normal opacity-70">×%</span>
+                    </th>
                     <th className="text-right px-3 py-3 font-semibold whitespace-nowrap">Sum Assumed<br />Qty</th>
                     {/* Per-supplier columns */}
                     {plan.suppliers.map(sup => {
@@ -746,6 +839,12 @@ export default function LoadPlanPage() {
                           </th>
                         )
                       }
+                      // Build per-PO columns
+                      const poColumns: Array<{ poId: string; label: string; dates: string[] }> = []
+                      for (const poId of sup.po_ids) {
+                        const po = poUploads.find(p => p.id === poId)
+                        poColumns.push({ poId, label: poLabel(po, poId), dates: sup.po_load_dates?.[poId] ?? [] })
+                      }
                       return (
                         <Fragment key={sup.id}>
                           {hasCQ && (
@@ -760,8 +859,17 @@ export default function LoadPlanPage() {
                           >
                             PO QTY<br /><span className="font-normal text-[10px] opacity-70">{sup.name || '—'} ▾</span>
                           </th>
+                          {poColumns.map(({ poId, label, dates }) =>
+                            dates.map(d => (
+                              <th key={`${poId}-${d}`} className="text-right px-3 py-3 font-semibold whitespace-nowrap bg-indigo-900 border-l border-indigo-700">
+                                <span className="font-mono text-[9px] opacity-60 block">{label}</span>
+                                <span className="font-normal text-[10px] opacity-70">{fmtDate(d)}</span>
+                              </th>
+                            ))
+                          )}
+                          {/* Legacy supplier-level dates */}
                           {sup.load_dates.map(d => (
-                            <th key={d} className="text-right px-3 py-3 font-semibold whitespace-nowrap bg-indigo-900 border-l border-indigo-700">
+                            <th key={`legacy-${d}`} className="text-right px-3 py-3 font-semibold whitespace-nowrap bg-indigo-800 border-l border-indigo-600">
                               Load<br /><span className="font-normal text-[10px] opacity-70">{fmtDate(d)}</span>
                             </th>
                           ))}
@@ -773,12 +881,14 @@ export default function LoadPlanPage() {
                 </thead>
                 <tbody>
                   {plan.items.map((item, ii) => {
-                    const a1 = item.qty_1 * plan.forecast_1
-                    const a2 = item.qty_2 * plan.forecast_2
+                    const ratio = hiItems.includes(item.item_code) ? 0.9 : 0.7
+                    const a1 = Math.round(item.qty_1 * plan.forecast_1 * ratio)
+                    const a2 = Math.round(item.qty_2 * plan.forecast_2 * ratio)
                     const sumA = a1 + a2
                     const loaded = totalLoadsMap.get(item.item_code) ?? 0
                     const left = sumA - loaded
                     const base = ii % 2 === 0 ? 'bg-white' : 'bg-gray-50'
+                    const isHi = hiItems.includes(item.item_code)
                     return (
                       <tr key={item.item_code} className={`border-t border-gray-100 ${base}`}>
                         <td className="px-3 py-2 font-mono font-semibold text-gray-900 sticky left-0 z-10" style={{ background: 'inherit' }}>{item.item_code}</td>
@@ -787,6 +897,20 @@ export default function LoadPlanPage() {
                         {plan.forecast_2 > 0 && (
                           <td className="px-3 py-2 text-right tabular-nums text-gray-700">{a2 > 0 ? a2.toLocaleString() : '—'}</td>
                         )}
+                        {/* Rate toggle */}
+                        <td className="px-2 py-1 text-center bg-amber-50/50">
+                          <button
+                            onClick={() => toggleHighRatio(item.item_code)}
+                            title={unlocked ? (isHi ? 'คลิกเพื่อเปลี่ยนเป็น 70%' : 'คลิกเพื่อเปลี่ยนเป็น 90%') : undefined}
+                            className={`text-[10px] font-bold px-1.5 py-0.5 rounded border transition-colors ${
+                              isHi
+                                ? 'bg-orange-100 text-orange-700 border-orange-300'
+                                : 'bg-gray-100 text-gray-500 border-gray-200'
+                            } ${unlocked ? 'cursor-pointer hover:opacity-70' : 'cursor-default'}`}
+                          >
+                            {isHi ? '90%' : '70%'}
+                          </button>
+                        </td>
                         <td className="px-3 py-2 text-right tabular-nums font-semibold text-gray-900">{sumA > 0 ? sumA.toLocaleString() : '0'}</td>
                         {/* Per-supplier cells */}
                         {plan.suppliers.map(sup => {
@@ -801,6 +925,9 @@ export default function LoadPlanPage() {
                               </td>
                             )
                           }
+                          const poColumns: Array<{ poId: string; dates: string[] }> = sup.po_ids.map(poId => ({
+                            poId, dates: sup.po_load_dates?.[poId] ?? []
+                          }))
                           return (
                             <Fragment key={sup.id}>
                               {hasCQ && (
@@ -811,16 +938,34 @@ export default function LoadPlanPage() {
                               <td className="px-3 py-2 text-right tabular-nums text-blue-900 bg-blue-50 border-l border-blue-100">
                                 {poQty > 0 ? poQty.toLocaleString() : '—'}
                               </td>
+                              {poColumns.map(({ poId, dates }) =>
+                                dates.map(d => {
+                                  const entry = sup.loads.find(l => l.po_id === poId && l.date === d && l.item_code === item.item_code)
+                                  return (
+                                    <td key={`${poId}-${d}`} className="px-1.5 py-1 bg-indigo-50 border-l border-indigo-100">
+                                      <input
+                                        type="number" min="0"
+                                        value={entry?.qty ?? ''}
+                                        placeholder="0"
+                                        disabled={!unlocked}
+                                        onChange={e => updateLoadQty(sup.id, poId, d, item.item_code, Number(e.target.value))}
+                                        className="w-20 text-right px-2 py-0.5 border border-indigo-200 rounded focus:outline-none focus:border-indigo-500 tabular-nums bg-white text-xs disabled:bg-gray-50 disabled:opacity-60"
+                                      />
+                                    </td>
+                                  )
+                                })
+                              )}
+                              {/* Legacy supplier-level dates */}
                               {sup.load_dates.map(d => {
-                                const entry = sup.loads.find(l => l.date === d && l.item_code === item.item_code)
+                                const entry = sup.loads.find(l => !l.po_id && l.date === d && l.item_code === item.item_code)
                                 return (
-                                  <td key={d} className="px-1.5 py-1 bg-indigo-50 border-l border-indigo-100">
+                                  <td key={`legacy-${d}`} className="px-1.5 py-1 bg-indigo-50/70 border-l border-indigo-100">
                                     <input
                                       type="number" min="0"
                                       value={entry?.qty ?? ''}
                                       placeholder="0"
                                       disabled={!unlocked}
-                                      onChange={e => updateLoadQty(sup.id, d, item.item_code, Number(e.target.value))}
+                                      onChange={e => updateLoadQty(sup.id, '', d, item.item_code, Number(e.target.value))}
                                       className="w-20 text-right px-2 py-0.5 border border-indigo-200 rounded focus:outline-none focus:border-indigo-500 tabular-nums bg-white text-xs disabled:bg-gray-50 disabled:opacity-60"
                                     />
                                   </td>
