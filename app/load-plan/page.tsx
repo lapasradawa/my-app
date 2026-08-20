@@ -257,6 +257,7 @@ export default function LoadPlanPage() {
   const [expandedSupIds, setExpandedSupIds] = useState<Set<string>>(new Set())
   const [poUploads, setPoUploads] = useState<POUpload[]>([])
   const [showPoSelector, setShowPoSelector] = useState<string | null>(null)
+  const [rateFilter, setRateFilter] = useState('')
   const templateRef1 = useRef<HTMLInputElement>(null)
   const templateRef2 = useRef<HTMLInputElement>(null)
 
@@ -742,6 +743,74 @@ export default function LoadPlanPage() {
                   </div>
                 ))}
               </div>
+              {/* Bulk assign by keyword */}
+              {unlocked && plan.items.length > 0 && (() => {
+                const kw = rateFilter.trim().toLowerCase()
+                const matched = kw
+                  ? plan.items.filter(it =>
+                      it.item_code.toLowerCase().includes(kw) ||
+                      it.description.toLowerCase().includes(kw)
+                    )
+                  : []
+                return (
+                  <div className="border-t border-gray-100 pt-2.5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs text-gray-500 font-medium shrink-0">Bulk Rate</span>
+                      <input
+                        type="text"
+                        value={rateFilter}
+                        onChange={e => setRateFilter(e.target.value)}
+                        placeholder="พิมพ์ keyword เช่น pole, shelf..."
+                        className="border border-gray-200 rounded-lg px-2 py-1 text-xs flex-1 min-w-[140px] focus:outline-none focus:border-blue-400"
+                      />
+                      {kw && (
+                        <span className="text-xs text-gray-400 shrink-0">{matched.length} items</span>
+                      )}
+                      <button
+                        onClick={() => {
+                          if (!matched.length) return
+                          const codes = matched.map(it => it.item_code)
+                          setPlan(p => {
+                            if (!p) return p
+                            const hi = new Set(p.high_ratio_items ?? [])
+                            codes.forEach(c => hi.add(c))
+                            return { ...p, high_ratio_items: Array.from(hi) }
+                          })
+                        }}
+                        disabled={!matched.length}
+                        className="px-2.5 py-1 text-xs rounded-lg bg-orange-100 text-orange-700 border border-orange-200 font-semibold hover:bg-orange-200 disabled:opacity-30"
+                      >
+                        → High {rateHigh}%
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (!matched.length) return
+                          const codes = new Set(matched.map(it => it.item_code))
+                          setPlan(p => {
+                            if (!p) return p
+                            return { ...p, high_ratio_items: (p.high_ratio_items ?? []).filter(c => !codes.has(c)) }
+                          })
+                        }}
+                        disabled={!matched.length}
+                        className="px-2.5 py-1 text-xs rounded-lg bg-gray-100 text-gray-600 border border-gray-200 font-semibold hover:bg-gray-200 disabled:opacity-30"
+                      >
+                        → Standard {rateDefault}%
+                      </button>
+                    </div>
+                    {kw && matched.length > 0 && (
+                      <div className="mt-1.5 flex flex-wrap gap-1">
+                        {matched.slice(0, 6).map(it => (
+                          <span key={it.item_code} className="text-[10px] font-mono bg-orange-50 border border-orange-100 rounded px-1.5 py-0.5 text-orange-700">{it.item_code}</span>
+                        ))}
+                        {matched.length > 6 && <span className="text-[10px] text-gray-400">+{matched.length - 6} more</span>}
+                      </div>
+                    )}
+                    {kw && matched.length === 0 && (
+                      <p className="text-[11px] text-gray-400 mt-1">ไม่พบ item ที่ตรงกับ "{rateFilter}"</p>
+                    )}
+                  </div>
+                )
+              })()}
             </div>
           </div>
 
