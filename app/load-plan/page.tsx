@@ -63,8 +63,9 @@ function fmtDate(d: string) {
 }
 
 // ── Supplier row component ──
-function SupplierRow({ sup, poUploads, showPoSelector, onUpdate, onUploadContainerQty, onTogglePoSelector, onRemove }: {
+function SupplierRow({ sup, editable, poUploads, showPoSelector, onUpdate, onUploadContainerQty, onTogglePoSelector, onRemove }: {
   sup: LoadSupplier
+  editable: boolean
   poUploads: POUpload[]
   showPoSelector: boolean
   onUpdate: (upd: Partial<LoadSupplier>) => void
@@ -76,6 +77,8 @@ function SupplierRow({ sup, poUploads, showPoSelector, onUpdate, onUploadContain
   const [newDate, setNewDate] = useState('')
   const containerCount = Object.keys(sup.container_qtys).length
 
+  const dis = !editable
+
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-3">
       <div className="flex items-center gap-2 flex-wrap">
@@ -83,18 +86,20 @@ function SupplierRow({ sup, poUploads, showPoSelector, onUpdate, onUploadContain
           value={sup.name}
           onChange={e => onUpdate({ name: e.target.value })}
           placeholder="Supplier name"
-          className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-36 focus:outline-none focus:border-blue-400 bg-white"
+          disabled={dis}
+          className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-36 focus:outline-none focus:border-blue-400 bg-white disabled:bg-gray-50 disabled:text-gray-400"
         />
 
         {/* PO selector */}
         <div className="relative">
           <button
-            onClick={onTogglePoSelector}
-            className="px-2 py-1.5 border border-gray-300 rounded-lg text-xs text-gray-700 hover:bg-gray-50 bg-white font-medium"
+            onClick={dis ? undefined : onTogglePoSelector}
+            disabled={dis}
+            className="px-2 py-1.5 border border-gray-300 rounded-lg text-xs text-gray-700 hover:bg-gray-50 bg-white font-medium disabled:opacity-40"
           >
             POs ({sup.po_ids.length}) ▾
           </button>
-          {showPoSelector && (
+          {showPoSelector && !dis && (
             <div className="absolute left-0 top-full mt-1 z-50 bg-white border border-gray-200 rounded-xl shadow-xl w-80 max-h-60 overflow-y-auto">
               <div className="sticky top-0 bg-gray-50 px-3 py-2 text-xs text-gray-500 border-b font-semibold">
                 {sup.name ? `POs ของ ${sup.name}` : 'Select POs'}
@@ -125,9 +130,10 @@ function SupplierRow({ sup, poUploads, showPoSelector, onUpdate, onUploadContain
 
         {/* Container QTY upload — optional */}
         <button
-          onClick={() => fileRef.current?.click()}
+          onClick={() => !dis && fileRef.current?.click()}
+          disabled={dis}
           title="Excel: A = item_code · B = container qty (optional)"
-          className="px-2 py-1.5 border border-gray-300 rounded-lg text-xs text-gray-700 hover:bg-gray-50 bg-white font-medium"
+          className="px-2 py-1.5 border border-gray-300 rounded-lg text-xs text-gray-700 hover:bg-gray-50 bg-white font-medium disabled:opacity-40"
         >
           {containerCount > 0 ? `Container QTY (${containerCount})` : 'Container QTY (optional)'}
         </button>
@@ -136,20 +142,21 @@ function SupplierRow({ sup, poUploads, showPoSelector, onUpdate, onUploadContain
 
         {/* Add load date */}
         <input type="date" value={newDate} onChange={e => setNewDate(e.target.value)}
-          className="border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-blue-400 bg-white" />
+          disabled={dis}
+          className="border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-blue-400 bg-white disabled:bg-gray-50 disabled:opacity-40" />
         <button
           onClick={() => {
             if (!newDate || sup.load_dates.includes(newDate)) return
             onUpdate({ load_dates: [...sup.load_dates, newDate].sort() })
             setNewDate('')
           }}
-          disabled={!newDate}
+          disabled={dis || !newDate}
           className="px-2 py-1.5 bg-gray-100 hover:bg-gray-200 text-xs rounded-lg font-medium disabled:opacity-40"
         >
           + Date
         </button>
 
-        <button onClick={onRemove} className="text-gray-400 hover:text-red-500 text-lg leading-none px-1 ml-auto">×</button>
+        <button onClick={dis ? undefined : onRemove} disabled={dis} className="text-gray-400 hover:text-red-500 text-lg leading-none px-1 ml-auto disabled:opacity-30">×</button>
       </div>
 
       {sup.load_dates.length > 0 && (
@@ -157,10 +164,10 @@ function SupplierRow({ sup, poUploads, showPoSelector, onUpdate, onUploadContain
           {sup.load_dates.map(d => (
             <span key={d} className="inline-flex items-center gap-1 bg-white border border-gray-200 rounded-full px-2.5 py-0.5 text-xs text-gray-700">
               {fmtDate(d)}
-              <button
+              {!dis && <button
                 onClick={() => onUpdate({ load_dates: sup.load_dates.filter(x => x !== d), loads: sup.loads.filter(l => l.date !== d) })}
                 className="text-gray-400 hover:text-red-500 ml-0.5"
-              >×</button>
+              >×</button>}
             </span>
           ))}
         </div>
@@ -558,13 +565,21 @@ export default function LoadPlanPage() {
         </div>
       )}
       <main className="p-6 min-h-screen">
+        {/* Lock banner */}
+        {!unlocked && (
+          <div className="mb-4 flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 text-sm text-amber-800">
+            <span>🔒</span>
+            <span>โหมดดูข้อมูล — ปลดล็อคที่มุมขวาบนเพื่อแก้ไข</span>
+          </div>
+        )}
         {/* Top bar */}
         <div className="flex items-center gap-3 mb-6 flex-wrap">
           <button onClick={() => setPlan(null)} className="text-sm text-gray-500 hover:text-gray-800">← Plans</button>
           <input
             value={plan.name}
+            readOnly={!unlocked}
             onChange={e => setPlan(p => p ? { ...p, name: e.target.value } : p)}
-            className="text-xl font-bold text-gray-900 border-b-2 border-transparent hover:border-gray-300 focus:border-blue-500 focus:outline-none bg-transparent flex-1 min-w-48"
+            className={`text-xl font-bold text-gray-900 border-b-2 border-transparent focus:outline-none bg-transparent flex-1 min-w-48 ${unlocked ? 'hover:border-gray-300 focus:border-blue-500' : 'cursor-default'}`}
           />
           <button
             onClick={exportToExcel}
@@ -591,21 +606,24 @@ export default function LoadPlanPage() {
                 <div key={n} className="flex items-center gap-2 flex-wrap">
                   <input
                     value={n === 1 ? plan.type_1_name : plan.type_2_name}
+                    readOnly={!unlocked}
                     onChange={e => setPlan(p => p ? { ...p, [`type_${n}_name`]: e.target.value } : p)}
                     placeholder={`Type ${n} name`}
-                    className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm w-32 focus:outline-none focus:border-blue-400"
+                    className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm w-32 focus:outline-none focus:border-blue-400 disabled:bg-gray-50 read-only:bg-gray-50"
                   />
                   <span className="text-xs text-gray-400">Forecast</span>
                   <input
                     type="text" inputMode="numeric" pattern="[0-9]*"
                     value={n === 1 ? (plan.forecast_1 || '') : (plan.forecast_2 || '')}
-                    onFocus={e => e.target.select()}
+                    readOnly={!unlocked}
+                    onFocus={e => { if (unlocked) e.target.select() }}
                     onChange={e => {
+                      if (!unlocked) return
                       const v = e.target.value.replace(/[^0-9]/g, '')
                       setPlan(p => p ? { ...p, [`forecast_${n}`]: v === '' ? 0 : parseInt(v, 10) } : p)
                     }}
                     placeholder="0"
-                    className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm w-24 focus:outline-none focus:border-blue-400"
+                    className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm w-24 focus:outline-none focus:border-blue-400 read-only:bg-gray-50"
                   />
                   <span className="text-xs text-gray-400">branches</span>
                 </div>
@@ -620,8 +638,9 @@ export default function LoadPlanPage() {
             <div className="flex flex-col gap-2">
               <div className="flex items-center gap-2 flex-wrap">
                 <button
-                  onClick={() => templateRef1.current?.click()}
-                  className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 font-medium"
+                  onClick={() => unlocked && templateRef1.current?.click()}
+                  disabled={!unlocked}
+                  className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 font-medium disabled:opacity-40"
                 >
                   Upload {plan.type_1_name} Template
                 </button>
@@ -635,8 +654,9 @@ export default function LoadPlanPage() {
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <button
-                  onClick={() => templateRef2.current?.click()}
-                  className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 font-medium"
+                  onClick={() => unlocked && templateRef2.current?.click()}
+                  disabled={!unlocked}
+                  className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 font-medium disabled:opacity-40"
                 >
                   Upload {plan.type_2_name} Template
                 </button>
@@ -665,8 +685,9 @@ export default function LoadPlanPage() {
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold text-gray-700">Suppliers</h2>
             <button
-              onClick={() => setPlan(p => p ? { ...p, suppliers: [...p.suppliers, mkSupplier()] } : p)}
-              className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-sm font-semibold rounded-lg border border-blue-200"
+              onClick={() => unlocked && setPlan(p => p ? { ...p, suppliers: [...p.suppliers, mkSupplier()] } : p)}
+              disabled={!unlocked}
+              className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-sm font-semibold rounded-lg border border-blue-200 disabled:opacity-40"
             >
               + Add Supplier
             </button>
@@ -679,6 +700,7 @@ export default function LoadPlanPage() {
                   <SupplierRow
                     key={sup.id}
                     sup={sup}
+                    editable={unlocked}
                     poUploads={poUploads}
                     showPoSelector={showPoSelector === sup.id}
                     onUpdate={upd => updateSup(sup.id, upd)}
@@ -797,8 +819,9 @@ export default function LoadPlanPage() {
                                       type="number" min="0"
                                       value={entry?.qty ?? ''}
                                       placeholder="0"
+                                      disabled={!unlocked}
                                       onChange={e => updateLoadQty(sup.id, d, item.item_code, Number(e.target.value))}
-                                      className="w-20 text-right px-2 py-0.5 border border-indigo-200 rounded focus:outline-none focus:border-indigo-500 tabular-nums bg-white text-xs"
+                                      className="w-20 text-right px-2 py-0.5 border border-indigo-200 rounded focus:outline-none focus:border-indigo-500 tabular-nums bg-white text-xs disabled:bg-gray-50 disabled:opacity-60"
                                     />
                                   </td>
                                 )
