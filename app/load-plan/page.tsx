@@ -17,7 +17,8 @@ interface LoadEntry {
   date: string
   item_code: string
   qty: number
-  po_id?: string  // which PO this load date belongs to (undefined = legacy supplier-level)
+  po_id?: string   // which PO this belongs to (undefined = legacy supplier-level)
+  is_auto?: boolean  // true = system-suggested; false/undefined = manually entered
 }
 
 interface LoadSupplier {
@@ -79,6 +80,25 @@ function mkSupplier(): LoadSupplier {
   return { id: crypto.randomUUID(), name: '', po_ids: [], container_qtys: {}, loads: [], load_dates: [], po_load_dates: {} }
 }
 
+// Ensure all optional fields are initialized when loading from Supabase
+function normalizePlan<T extends LoadPlan>(raw: T): T {
+  return {
+    ...raw,
+    high_ratio_items: raw.high_ratio_items ?? [],
+    rate_rules: raw.rate_rules ?? [],
+    rate_default: raw.rate_default ?? 70,
+    rate_high: raw.rate_high ?? 90,
+    suppliers: (raw.suppliers ?? []).map(s => ({
+      ...s,
+      po_load_dates: (s as any).po_load_dates ?? {},
+      load_dates: s.load_dates ?? [],
+      loads: s.loads ?? [],
+      po_ids: s.po_ids ?? [],
+      container_qtys: s.container_qtys ?? {},
+    })),
+  }
+}
+
 function fmtDate(d: string) {
   return new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 }
@@ -89,7 +109,7 @@ function poLabel(po: POUpload | undefined, fallback: string): string {
 }
 
 // ── Supplier row component ──
-function SupplierRow({ sup, editable, poUploads, showPoSelector, onUpdate, onUploadContainerQty, onTogglePoSelector, onRemove }: {
+function SupplierRow({ sup, editable, poUploads, showPoSelector, onUpdate, onUploadContainerQty, onTogglePoSelector, onRemove, onAddPoDate, onRemovePoDate }: {
   sup: LoadSupplier
   editable: boolean
   poUploads: POUpload[]
@@ -98,6 +118,8 @@ function SupplierRow({ sup, editable, poUploads, showPoSelector, onUpdate, onUpl
   onUploadContainerQty: (f: File) => void
   onTogglePoSelector: () => void
   onRemove: () => void
+  onAddPoDate: (poId: string, date: string) => void
+  onRemovePoDate: (poId: string, date: string) => void
 }) {
   const fileRef = useRef<HTMLInputElement>(null)
   const [newDate, setNewDate] = useState('')
@@ -109,21 +131,8 @@ function SupplierRow({ sup, editable, poUploads, showPoSelector, onUpdate, onUpl
     .map(pid => poUploads.find(p => p.id === pid))
     .filter(Boolean) as POUpload[]
 
-  function addDate() {
-    if (!newDate || !newDatePoId) return
-    const existing = sup.po_load_dates?.[newDatePoId] ?? []
-    if (existing.includes(newDate)) return
-    const newDates = [...existing, newDate].sort()
-    onUpdate({ po_load_dates: { ...(sup.po_load_dates ?? {}), [newDatePoId]: newDates } })
-    setNewDate('')
-  }
-
-  function removePoDate(poId: string, date: string) {
-    const existing = sup.po_load_dates?.[poId] ?? []
-    const newPoLoadDates = { ...(sup.po_load_dates ?? {}), [poId]: existing.filter(d => d !== date) }
-    const newLoads = sup.loads.filter(l => !(l.po_id === poId && l.date === date))
-    onUpdate({ po_load_dates: newPoLoadDates, loads: newLoads })
-  }
+  // All PO-date entries regardless of whether PO is loaded (prevents display loss)
+  const poDateEntries = Object.entries(sup.po_load_dates ?? {}).filter(([, dates]) => dates.length > 0)
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-3">
@@ -206,7 +215,7 @@ function SupplierRow({ sup, editable, poUploads, showPoSelector, onUpdate, onUpl
               disabled={dis}
               className="border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none bg-white disabled:bg-gray-50 disabled:opacity-40" />
             <button
-              onClick={addDate}
+              onClick={() => { if (newDate && newDatePoId) { onAddPoDate(newDatePoId, newDate); setNewDate('') } }}
               disabled={dis || !newDate || !newDatePoId}
               className="px-2 py-1.5 bg-gray-100 hover:bg-gray-200 text-xs rounded-lg font-medium disabled:opacity-40"
             >
@@ -220,20 +229,19 @@ function SupplierRow({ sup, editable, poUploads, showPoSelector, onUpdate, onUpl
         <button onClick={dis ? undefined : onRemove} disabled={dis} className="text-gray-400 hover:text-red-500 text-lg leading-none px-1 ml-auto disabled:opacity-30">×</button>
       </div>
 
-      {/* Dates grouped by PO */}
-      {selectedPos.some(po => (sup.po_load_dates?.[po.id] ?? []).length > 0) && (
+      {/* Dates grouped by PO — iterated from po_load_dates directly (not via selectedPos) */}
+      {poDateEntries.length > 0 && (
         <div className="mt-2 space-y-1.5">
-          {selectedPos.map(po => {
-            const dates = sup.po_load_dates?.[po.id] ?? []
-            if (dates.length === 0) return null
-            const label = poLabel(po, po.id)
+          {poDateEntries.map(([poId, dates]) => {
+            const po = poUploads.find(p => p.id === poId)
+            const label = po ? poLabel(po, poId) : poId.slice(0, 8)
             return (
-              <div key={po.id} className="flex items-start gap-1.5 flex-wrap">
+              <div key={poId} className="flex items-start gap-1.5 flex-wrap">
                 <span className="text-[10px] font-mono font-semibold text-blue-600 mt-0.5 shrink-0">{label}:</span>
                 {dates.map(d => (
                   <span key={d} className="inline-flex items-center gap-1 bg-white border border-blue-200 rounded-full px-2.5 py-0.5 text-xs text-gray-700">
                     {fmtDate(d)}
-                    {!dis && <button onClick={() => removePoDate(po.id, d)} className="text-gray-400 hover:text-red-500 ml-0.5">×</button>}
+                    {!dis && <button onClick={() => onRemovePoDate(poId, d)} className="text-gray-400 hover:text-red-500 ml-0.5">×</button>}
                   </span>
                 ))}
               </div>
@@ -344,7 +352,7 @@ export default function LoadPlanPage() {
   useEffect(() => {
     setUnlocked(isUnlocked())
     supabase.from('load_plans').select('*').order('created_at', { ascending: false }).then(({ data }) => {
-      if (data) setPlans(data as (LoadPlan & { id: string })[])
+      if (data) setPlans((data as any[]).map(normalizePlan) as (LoadPlan & { id: string })[])
     })
     supabase.from('po_uploads').select('id, supplier, project, po_rbs_ch_no, filename, created_at, rows').then(({ data }) => {
       if (data) setPoUploads(data as POUpload[])
@@ -353,7 +361,7 @@ export default function LoadPlanPage() {
 
   const refreshPlans = useCallback(async () => {
     const { data } = await supabase.from('load_plans').select('*').order('created_at', { ascending: false })
-    if (data) setPlans(data as (LoadPlan & { id: string })[])
+    if (data) setPlans((data as any[]).map(normalizePlan) as (LoadPlan & { id: string })[])
   }, [])
 
   function showLockMsg() {
@@ -528,6 +536,72 @@ export default function LoadPlanPage() {
     })
   }
 
+  // Auto-distribute a PO's item quantities evenly across its dates (rounded to 10s, remainder to first date)
+  function recalcAutoForPo(p: LoadPlan, suppId: string, poId: string): LoadPlan {
+    const sup = p.suppliers.find(s => s.id === suppId)
+    if (!sup) return p
+    const dates = sup.po_load_dates?.[poId] ?? []
+    const po = poUploads.find(x => x.id === poId)
+    if (!po?.rows || !dates.length) return p
+
+    const withoutAuto = sup.loads.filter(l => !(l.po_id === poId && l.is_auto))
+    const newAutoLoads: LoadEntry[] = []
+    const n = dates.length
+
+    for (const row of po.rows) {
+      const { item_code, qty } = row
+      if (!qty) continue
+      // Don't override any manual entry for this item+PO
+      const hasManual = withoutAuto.some(l => l.po_id === poId && l.item_code === item_code)
+      if (hasManual) continue
+      // floor each non-first date to nearest 10, first date gets remainder
+      const base = Math.floor(Math.floor(qty / n) / 10) * 10
+      dates.forEach((d, i) => {
+        const autoQty = i === 0 ? qty - base * (n - 1) : base
+        if (autoQty > 0) newAutoLoads.push({ po_id: poId, date: d, item_code, qty: autoQty, is_auto: true })
+      })
+    }
+    return { ...p, suppliers: p.suppliers.map(s => s.id === suppId ? { ...s, loads: [...withoutAuto, ...newAutoLoads] } : s) }
+  }
+
+  function addPoDate(suppId: string, poId: string, date: string) {
+    setPlan(prev => {
+      if (!prev) return prev
+      const sup = prev.suppliers.find(s => s.id === suppId)
+      if (!sup) return prev
+      const existing = sup.po_load_dates?.[poId] ?? []
+      if (existing.includes(date)) return prev
+      const newDates = [...existing, date].sort()
+      const withDates = {
+        ...prev,
+        suppliers: prev.suppliers.map(s => s.id === suppId
+          ? { ...s, po_load_dates: { ...(s.po_load_dates ?? {}), [poId]: newDates } }
+          : s)
+      }
+      return recalcAutoForPo(withDates, suppId, poId)
+    })
+  }
+
+  function removePoDate(suppId: string, poId: string, date: string) {
+    setPlan(prev => {
+      if (!prev) return prev
+      const sup = prev.suppliers.find(s => s.id === suppId)
+      if (!sup) return prev
+      const newDates = (sup.po_load_dates?.[poId] ?? []).filter(d => d !== date)
+      const withRemoved = {
+        ...prev,
+        suppliers: prev.suppliers.map(s => s.id === suppId
+          ? {
+              ...s,
+              po_load_dates: { ...(s.po_load_dates ?? {}), [poId]: newDates },
+              loads: s.loads.filter(l => !(l.po_id === poId && l.date === date)),
+            }
+          : s)
+      }
+      return recalcAutoForPo(withRemoved, suppId, poId)
+    })
+  }
+
   function updateLoadQty(suppId: string, poId: string, date: string, itemCode: string, qty: number) {
     setPlan(p => {
       if (!p) return p
@@ -538,9 +612,9 @@ export default function LoadPlanPage() {
       if (qty <= 0) {
         newLoads = sup.loads.filter(l => !(l.po_id === poId && l.date === date && l.item_code === itemCode))
       } else if (idx >= 0) {
-        newLoads = sup.loads.map((l, i) => i === idx ? { ...l, qty } : l)
+        newLoads = sup.loads.map((l, i) => i === idx ? { ...l, qty, is_auto: false } : l)
       } else {
-        newLoads = [...sup.loads, { po_id: poId, date, item_code: itemCode, qty }]
+        newLoads = [...sup.loads, { po_id: poId, date, item_code: itemCode, qty, is_auto: false }]
       }
       return { ...p, suppliers: p.suppliers.map(s => s.id === suppId ? { ...s, loads: newLoads } : s) }
     })
@@ -624,7 +698,7 @@ export default function LoadPlanPage() {
               <p className="text-sm text-gray-400 mt-0.5">แผนการโหลดสินค้าตามสาขา</p>
             </div>
             <button
-              onClick={() => { setPlan(mkPlan()); setExpandedSupIds(new Set()) }}
+              onClick={() => { setPlan(normalizePlan(mkPlan())); setExpandedSupIds(new Set()) }}
               className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 shadow-sm"
             >
               + New Plan
@@ -646,7 +720,7 @@ export default function LoadPlanPage() {
                 return (
                   <div key={p.id} className="bg-white border border-gray-200 rounded-2xl shadow-sm hover:shadow-md hover:border-blue-300 transition-all flex flex-col">
                     <div
-                      onClick={() => { setPlan(p); setExpandedSupIds(new Set()) }}
+                      onClick={() => { setPlan(normalizePlan(p)); setExpandedSupIds(new Set()) }}
                       className="p-5 cursor-pointer flex-1"
                     >
                       <div className="font-bold text-gray-900 text-base leading-snug mb-3">{p.name || 'Untitled Plan'}</div>
@@ -672,7 +746,7 @@ export default function LoadPlanPage() {
                     <div className="border-t border-gray-100 px-4 py-3 flex items-center justify-between gap-2">
                       <span className="text-[11px] text-gray-400">แก้ไขล่าสุด {updAt}</span>
                       <button
-                        onClick={() => { setPlan(p); setExpandedSupIds(new Set()) }}
+                        onClick={() => { setPlan(normalizePlan(p)); setExpandedSupIds(new Set()) }}
                         className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg transition-colors shrink-0"
                       >
                         เปิดดู →
@@ -966,6 +1040,8 @@ export default function LoadPlanPage() {
                     onUploadContainerQty={f => handleContainerQtyUpload(f, sup.id)}
                     onTogglePoSelector={() => setShowPoSelector(v => v === sup.id ? null : sup.id)}
                     onRemove={() => setPlan(p => p ? { ...p, suppliers: p.suppliers.filter((_, i) => i !== si) } : p)}
+                    onAddPoDate={(poId, date) => addPoDate(sup.id, poId, date)}
+                    onRemovePoDate={(poId, date) => removePoDate(sup.id, poId, date)}
                   />
                 ))}
               </div>
@@ -1149,6 +1225,7 @@ export default function LoadPlanPage() {
                                     </td>
                                     {dates.map(d => {
                                       const entry = sup.loads.find(l => l.po_id === poId && l.date === d && l.item_code === item.item_code)
+                                      const isAuto = entry?.is_auto === true
                                       return (
                                         <td key={`${poId}-${d}`} className="px-1.5 py-1 bg-indigo-50 border-l border-indigo-100">
                                           <input
@@ -1157,7 +1234,8 @@ export default function LoadPlanPage() {
                                             placeholder="0"
                                             disabled={!unlocked}
                                             onChange={e => updateLoadQty(sup.id, poId, d, item.item_code, Number(e.target.value))}
-                                            className="w-20 text-right px-2 py-0.5 border border-indigo-200 rounded focus:outline-none focus:border-indigo-500 tabular-nums bg-white text-xs disabled:bg-gray-50 disabled:opacity-60"
+                                            className={`w-20 text-right px-2 py-0.5 border rounded focus:outline-none focus:border-indigo-500 tabular-nums text-xs disabled:bg-gray-50 disabled:opacity-60 ${isAuto ? 'bg-sky-100 border-sky-300 text-sky-800 italic' : 'bg-white border-indigo-200'}`}
+                                            title={isAuto ? 'ค่า auto-suggested — แก้ไขได้' : undefined}
                                           />
                                         </td>
                                       )
