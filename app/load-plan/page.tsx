@@ -408,6 +408,52 @@ export default function LoadPlanPage() {
     })
   }
 
+  function exportToExcel() {
+    if (!plan) return
+    const wb = XLSX.utils.book_new()
+
+    // Meta rows
+    const meta = [
+      [`Plan: ${plan.name || 'Untitled Plan'}`],
+      [`${plan.type_1_name}: ${plan.forecast_1} branches   ${plan.type_2_name}: ${plan.forecast_2} branches`],
+      [`Exported: ${new Date().toLocaleString('en-GB')}`],
+      [],
+    ]
+
+    // Column headers
+    const headers: string[] = ['Item Code', 'Description', `Assumed Qty (${plan.type_1_name})`, `Assumed Qty (${plan.type_2_name})`, 'Sum Assumed Qty']
+    for (const sup of plan.suppliers) {
+      headers.push(`PO QTY (${sup.name})`)
+      for (const d of sup.load_dates) headers.push(`Load ${d} (${sup.name})`)
+    }
+    headers.push('LEFT')
+
+    // Data rows
+    const dataRows = plan.items.map(item => {
+      const a1 = item.qty_1 * plan.forecast_1
+      const a2 = item.qty_2 * plan.forecast_2
+      const sumA = a1 + a2
+      const loaded = totalLoadsMap.get(item.item_code) ?? 0
+      const row: (string | number)[] = [item.item_code, item.description, a1 || 0, a2 || 0, sumA]
+      for (const sup of plan.suppliers) {
+        const m = allPoQtyMaps.get(sup.id) ?? new Map<string, number>()
+        row.push(m.get(item.item_code) ?? 0)
+        for (const d of sup.load_dates) {
+          const e = sup.loads.find(l => l.date === d && l.item_code === item.item_code)
+          row.push(e?.qty ?? 0)
+        }
+      }
+      row.push(sumA - loaded)
+      return row
+    })
+
+    const wsData: unknown[][] = [...meta, headers, ...dataRows]
+    const ws = XLSX.utils.aoa_to_sheet(wsData)
+    ws['!cols'] = [{ wch: 26 }, { wch: 40 }, ...Array(headers.length - 2).fill({ wch: 14 })]
+    XLSX.utils.book_append_sheet(wb, ws, 'Load Plan')
+    XLSX.writeFile(wb, `${plan.name || 'Load Plan'}.xlsx`)
+  }
+
   // ── Plan list / dashboard view ──
   if (!plan) {
     return (
@@ -482,7 +528,7 @@ export default function LoadPlanPage() {
                         onClick={() => { setPlan(p); setExpandedSupIds(new Set()) }}
                         className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg transition-colors shrink-0"
                       >
-                        เปิดแก้ไข →
+                        เปิดดู →
                       </button>
                       <button
                         onClick={e => { e.stopPropagation(); if (window.confirm(`ลบ "${p.name || 'Untitled Plan'}" ?`)) deletePlan(p.id) }}
@@ -521,9 +567,16 @@ export default function LoadPlanPage() {
             className="text-xl font-bold text-gray-900 border-b-2 border-transparent hover:border-gray-300 focus:border-blue-500 focus:outline-none bg-transparent flex-1 min-w-48"
           />
           <button
+            onClick={exportToExcel}
+            className="px-4 py-2 text-sm font-semibold rounded-xl border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
+            title="Export เป็น Excel"
+          >
+            Export Excel
+          </button>
+          <button
             onClick={savePlan}
             disabled={saving}
-            className={`ml-auto px-5 py-2 text-sm font-semibold rounded-xl transition-colors disabled:opacity-50 ${saved ? 'bg-green-600 text-white' : unlocked ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-gray-200 text-gray-500'}`}
+            className={`px-5 py-2 text-sm font-semibold rounded-xl transition-colors disabled:opacity-50 ${saved ? 'bg-green-600 text-white' : unlocked ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-gray-200 text-gray-500'}`}
           >
             {saving ? 'Saving…' : saved ? 'Saved ✓' : unlocked ? 'Save' : '🔒 Save'}
           </button>
