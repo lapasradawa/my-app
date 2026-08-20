@@ -1159,7 +1159,7 @@ export default function LoadPlanPage() {
                         รวมโหลด<br /><span className="font-normal text-[10px] opacity-70">{fmtDate(d)}</span>
                       </th>
                     ))}
-                    <th className="text-right px-3 py-3 font-semibold whitespace-nowrap bg-rose-900 border-l-2 border-rose-700">LEFT</th>
+                    <th className="text-right px-3 py-3 font-semibold whitespace-nowrap bg-rose-900 border-l-2 border-rose-700">PO LEFT</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1363,7 +1363,7 @@ export default function LoadPlanPage() {
                           className={`px-3 py-2 text-right tabular-nums font-bold border-l-2 cursor-pointer ${left < 0 ? 'text-red-600 bg-red-50 border-red-200 hover:bg-red-100' : left === 0 ? 'text-green-700 bg-green-50 border-green-200 hover:bg-green-100' : 'text-gray-900 border-rose-200 hover:bg-gray-100'}`}
                           onClick={() => setFormulaPopup({
                             itemCode: item.item_code, description: item.description,
-                            colName: 'LEFT (PO คงเหลือ)',
+                            colName: 'PO LEFT',
                             formulaStr: 'Sum PO QTY (ทุกซัพ) − รวมโหลดแล้ว',
                             lines: [
                               { op: '', label: 'Sum PO QTY (ทุกซัพ)', val: totalPo },
