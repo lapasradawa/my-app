@@ -40,8 +40,9 @@ interface LoadPlan {
   items: LoadItem[]
   suppliers: LoadSupplier[]
   high_ratio_items?: string[]
-  rate_default?: number   // % for standard items (default 70)
-  rate_high?: number      // % for high-ratio items (default 90)
+  rate_default?: number
+  rate_high?: number
+  rate_rules?: { keyword: string; rate: 'high' | 'standard' }[]  // saved bulk rules
   updated_at?: string
 }
 
@@ -56,7 +57,22 @@ interface POUpload {
 }
 
 function mkPlan(): LoadPlan {
-  return { name: 'Untitled Plan', type_1_name: 'Existing', type_2_name: 'New', forecast_1: 0, forecast_2: 0, items: [], suppliers: [], high_ratio_items: [], rate_default: 70, rate_high: 90 }
+  return { name: 'Untitled Plan', type_1_name: 'Existing', type_2_name: 'New', forecast_1: 0, forecast_2: 0, items: [], suppliers: [], high_ratio_items: [], rate_default: 70, rate_high: 90, rate_rules: [] }
+}
+
+// Re-derive high_ratio_items by replaying all rules in order
+function applyRateRules(items: LoadItem[], rules: { keyword: string; rate: 'high' | 'standard' }[]): string[] {
+  const hi = new Set<string>()
+  for (const rule of rules) {
+    const kw = rule.keyword.toLowerCase()
+    for (const item of items) {
+      if (item.item_code.toLowerCase().includes(kw) || item.description.toLowerCase().includes(kw)) {
+        if (rule.rate === 'high') hi.add(item.item_code)
+        else hi.delete(item.item_code)
+      }
+    }
+  }
+  return Array.from(hi)
 }
 
 function mkSupplier(): LoadSupplier {
@@ -330,6 +346,7 @@ export default function LoadPlanPage() {
       high_ratio_items: plan.high_ratio_items ?? [],
       rate_default: plan.rate_default ?? 70,
       rate_high: plan.rate_high ?? 90,
+      rate_rules: plan.rate_rules ?? [],
       updated_at: new Date().toISOString(),
     }
     if ((plan as LoadPlan & { id?: string }).id) {
@@ -743,62 +760,84 @@ export default function LoadPlanPage() {
                   </div>
                 ))}
               </div>
-              {/* Bulk assign by keyword */}
+              {/* Rate rules */}
               {unlocked && plan.items.length > 0 && (() => {
+                const curPlan = plan!
                 const kw = rateFilter.trim().toLowerCase()
                 const matched = kw
-                  ? plan.items.filter(it =>
+                  ? curPlan.items.filter(it =>
                       it.item_code.toLowerCase().includes(kw) ||
                       it.description.toLowerCase().includes(kw)
                     )
                   : []
+                const rules = curPlan.rate_rules ?? []
+
+                function addRule(rate: 'high' | 'standard') {
+                  if (!matched.length || !kw) return
+                  const keyword = rateFilter.trim()
+                  // Replace existing rule with same keyword, or append
+                  const existing = rules.findIndex(r => r.keyword.toLowerCase() === keyword.toLowerCase())
+                  const newRules = existing >= 0
+                    ? rules.map((r, i) => i === existing ? { keyword: r.keyword, rate } : r)
+                    : [...rules, { keyword, rate }]
+                  const newHi = applyRateRules(curPlan.items, newRules)
+                  setPlan(p => p ? { ...p, rate_rules: newRules, high_ratio_items: newHi } : p)
+                  setRateFilter('')
+                }
+
+                function removeRule(idx: number) {
+                  const newRules = rules.filter((_, i) => i !== idx)
+                  const newHi = applyRateRules(curPlan.items, newRules)
+                  setPlan(p => p ? { ...p, rate_rules: newRules, high_ratio_items: newHi } : p)
+                }
+
                 return (
-                  <div className="border-t border-gray-100 pt-2.5">
+                  <div className="border-t border-gray-100 pt-2.5 space-y-2">
+                    {/* Saved rule chips */}
+                    {rules.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {rules.map((rule, idx) => (
+                          <span key={idx} className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border ${
+                            rule.rate === 'high'
+                              ? 'bg-orange-50 border-orange-200 text-orange-700'
+                              : 'bg-gray-100 border-gray-200 text-gray-600'
+                          }`}>
+                            {rule.keyword} → {rule.rate === 'high' ? `${rateHigh}%` : `${rateDefault}%`}
+                            <button onClick={() => removeRule(idx)} className="hover:text-red-500 ml-0.5 leading-none">×</button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {/* Input row */}
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-xs text-gray-500 font-medium shrink-0">Bulk Rate</span>
+                      <span className="text-xs text-gray-500 font-medium shrink-0">+ Rule</span>
                       <input
                         type="text"
                         value={rateFilter}
                         onChange={e => setRateFilter(e.target.value)}
-                        placeholder="พิมพ์ keyword เช่น pole, shelf..."
-                        className="border border-gray-200 rounded-lg px-2 py-1 text-xs flex-1 min-w-[140px] focus:outline-none focus:border-blue-400"
+                        onKeyDown={e => { if (e.key === 'Enter' && matched.length) addRule('high') }}
+                        placeholder="keyword เช่น pole, shelf..."
+                        className="border border-gray-200 rounded-lg px-2 py-1 text-xs flex-1 min-w-[140px] focus:outline-none focus:border-orange-400"
                       />
-                      {kw && (
-                        <span className="text-xs text-gray-400 shrink-0">{matched.length} items</span>
-                      )}
+                      {kw && <span className="text-xs text-gray-400 shrink-0">{matched.length} items</span>}
                       <button
-                        onClick={() => {
-                          if (!matched.length) return
-                          const codes = matched.map(it => it.item_code)
-                          setPlan(p => {
-                            if (!p) return p
-                            const hi = new Set(p.high_ratio_items ?? [])
-                            codes.forEach(c => hi.add(c))
-                            return { ...p, high_ratio_items: Array.from(hi) }
-                          })
-                        }}
+                        onClick={() => addRule('high')}
                         disabled={!matched.length}
-                        className="px-2.5 py-1 text-xs rounded-lg bg-orange-100 text-orange-700 border border-orange-200 font-semibold hover:bg-orange-200 disabled:opacity-30"
+                        className="px-2.5 py-1 text-xs rounded-lg bg-orange-100 text-orange-700 border border-orange-200 font-semibold hover:bg-orange-200 disabled:opacity-30 shrink-0"
                       >
                         → High {rateHigh}%
                       </button>
                       <button
-                        onClick={() => {
-                          if (!matched.length) return
-                          const codes = new Set(matched.map(it => it.item_code))
-                          setPlan(p => {
-                            if (!p) return p
-                            return { ...p, high_ratio_items: (p.high_ratio_items ?? []).filter(c => !codes.has(c)) }
-                          })
-                        }}
+                        onClick={() => addRule('standard')}
                         disabled={!matched.length}
-                        className="px-2.5 py-1 text-xs rounded-lg bg-gray-100 text-gray-600 border border-gray-200 font-semibold hover:bg-gray-200 disabled:opacity-30"
+                        className="px-2.5 py-1 text-xs rounded-lg bg-gray-100 text-gray-600 border border-gray-200 font-semibold hover:bg-gray-200 disabled:opacity-30 shrink-0"
                       >
                         → Standard {rateDefault}%
                       </button>
                     </div>
+                    {/* Preview matched items */}
                     {kw && matched.length > 0 && (
-                      <div className="mt-1.5 flex flex-wrap gap-1">
+                      <div className="flex flex-wrap gap-1">
                         {matched.slice(0, 6).map(it => (
                           <span key={it.item_code} className="text-[10px] font-mono bg-orange-50 border border-orange-100 rounded px-1.5 py-0.5 text-orange-700">{it.item_code}</span>
                         ))}
@@ -806,7 +845,7 @@ export default function LoadPlanPage() {
                       </div>
                     )}
                     {kw && matched.length === 0 && (
-                      <p className="text-[11px] text-gray-400 mt-1">ไม่พบ item ที่ตรงกับ "{rateFilter}"</p>
+                      <p className="text-[11px] text-gray-400">ไม่พบ item ที่ตรงกับ "{rateFilter}"</p>
                     )}
                   </div>
                 )
