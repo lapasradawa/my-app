@@ -650,7 +650,7 @@ export default function LoadPlanPage() {
       [],
     ]
 
-    const headers: string[] = ['Item Code', 'Description', `Assumed Qty (${plan.type_1_name})`, `Assumed Qty (${plan.type_2_name})`, 'Rate', 'Sum Assumed Qty']
+    const headers: string[] = ['Item Code', 'Description', `Assumed Qty (${plan.type_1_name})`, `Assumed Qty (${plan.type_2_name})`, 'Ratio', 'Sum Assumed Qty']
     for (const sup of plan.suppliers) {
       headers.push(`PO QTY (${sup.name})`)
       for (const poId of sup.po_ids) {
@@ -864,7 +864,7 @@ export default function LoadPlanPage() {
               ))}
               {/* Assumed Qty rates */}
               <div className="border-t border-gray-100 pt-2.5 flex items-center gap-3 flex-wrap">
-                <span className="text-xs text-gray-500 font-medium">Order Rate</span>
+                <span className="text-xs text-gray-500 font-medium">Order Ratio</span>
                 {[
                   { key: 'rate_default' as const, label: 'Standard', val: plan.rate_default ?? 70, color: 'text-gray-600' },
                   { key: 'rate_high' as const, label: 'High', val: plan.rate_high ?? 90, color: 'text-orange-600' },
@@ -1092,7 +1092,7 @@ export default function LoadPlanPage() {
                       </th>
                     )}
                     <th className="text-center px-2 py-3 font-semibold whitespace-nowrap bg-amber-800 text-[10px]">
-                      Rate<br /><span className="font-normal opacity-70">×%</span>
+                      Ratio<br /><span className="font-normal opacity-70">×%</span>
                     </th>
                     <th className="text-right px-3 py-3 font-semibold whitespace-nowrap">Sum Assumed<br />Qty</th>
                     <th className="text-right px-3 py-3 font-semibold whitespace-nowrap bg-emerald-900 border-l-2 border-emerald-700 text-[10px]">
@@ -1182,11 +1182,11 @@ export default function LoadPlanPage() {
                           onClick={() => setFormulaPopup({
                             itemCode: item.item_code, description: item.description,
                             colName: `Assumed Qty (${plan.type_1_name})`,
-                            formulaStr: `qty_1 × Forecast ${plan.type_1_name} × Rate`,
+                            formulaStr: `qty_1 × Forecast ${plan.type_1_name} × Ratio`,
                             lines: [
                               { op: '', label: `qty_1 / branch`, val: item.qty_1 },
                               { op: '×', label: `Forecast (${plan.type_1_name})`, val: plan.forecast_1 },
-                              { op: '×', label: `Rate (${isHi ? 'High' : 'Standard'})`, val: `${isHi ? rateHigh : rateDefault}%` },
+                              { op: '×', label: `Ratio (${isHi ? 'High' : 'Standard'})`, val: `${isHi ? rateHigh : rateDefault}%` },
                               { op: '=', label: 'Assumed Qty', val: a1, isResult: true },
                             ]
                           })}
@@ -1197,11 +1197,11 @@ export default function LoadPlanPage() {
                             onClick={() => setFormulaPopup({
                               itemCode: item.item_code, description: item.description,
                               colName: `Assumed Qty (${plan.type_2_name})`,
-                              formulaStr: `qty_2 × Forecast ${plan.type_2_name} × Rate`,
+                              formulaStr: `qty_2 × Forecast ${plan.type_2_name} × Ratio`,
                               lines: [
                                 { op: '', label: `qty_2 / branch`, val: item.qty_2 },
                                 { op: '×', label: `Forecast (${plan.type_2_name})`, val: plan.forecast_2 },
-                                { op: '×', label: `Rate (${isHi ? 'High' : 'Standard'})`, val: `${isHi ? rateHigh : rateDefault}%` },
+                                { op: '×', label: `Ratio (${isHi ? 'High' : 'Standard'})`, val: `${isHi ? rateHigh : rateDefault}%` },
                                 { op: '=', label: 'Assumed Qty', val: a2, isResult: true },
                               ]
                             })}
