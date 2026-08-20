@@ -39,7 +39,9 @@ interface LoadPlan {
   forecast_2: number
   items: LoadItem[]
   suppliers: LoadSupplier[]
-  high_ratio_items?: string[]  // items that use 90% multiplier (default 70%)
+  high_ratio_items?: string[]
+  rate_default?: number   // % for standard items (default 70)
+  rate_high?: number      // % for high-ratio items (default 90)
   updated_at?: string
 }
 
@@ -54,7 +56,7 @@ interface POUpload {
 }
 
 function mkPlan(): LoadPlan {
-  return { name: 'Untitled Plan', type_1_name: 'Existing', type_2_name: 'New', forecast_1: 0, forecast_2: 0, items: [], suppliers: [], high_ratio_items: [] }
+  return { name: 'Untitled Plan', type_1_name: 'Existing', type_2_name: 'New', forecast_1: 0, forecast_2: 0, items: [], suppliers: [], high_ratio_items: [], rate_default: 70, rate_high: 90 }
 }
 
 function mkSupplier(): LoadSupplier {
@@ -325,6 +327,8 @@ export default function LoadPlanPage() {
       items: plan.items,
       suppliers: plan.suppliers,
       high_ratio_items: plan.high_ratio_items ?? [],
+      rate_default: plan.rate_default ?? 70,
+      rate_high: plan.rate_high ?? 90,
       updated_at: new Date().toISOString(),
     }
     if ((plan as LoadPlan & { id?: string }).id) {
@@ -491,6 +495,8 @@ export default function LoadPlanPage() {
     if (!plan) return
     const wb = XLSX.utils.book_new()
     const hiItems = plan.high_ratio_items ?? []
+    const rdPct = plan.rate_default ?? 70
+    const rhPct = plan.rate_high ?? 90
 
     const meta = [
       [`Plan: ${plan.name || 'Untitled Plan'}`],
@@ -514,12 +520,13 @@ export default function LoadPlanPage() {
     headers.push('LEFT')
 
     const dataRows = plan.items.map(item => {
-      const ratio = hiItems.includes(item.item_code) ? 0.9 : 0.7
+      const isHi = hiItems.includes(item.item_code)
+      const ratio = (isHi ? rhPct : rdPct) / 100
       const a1 = Math.round(item.qty_1 * plan.forecast_1 * ratio)
       const a2 = Math.round(item.qty_2 * plan.forecast_2 * ratio)
       const sumA = a1 + a2
       const loaded = totalLoadsMap.get(item.item_code) ?? 0
-      const row: (string | number)[] = [item.item_code, item.description, a1 || 0, a2 || 0, ratio === 0.9 ? '90%' : '70%', sumA]
+      const row: (string | number)[] = [item.item_code, item.description, a1 || 0, a2 || 0, `${isHi ? rhPct : rdPct}%`, sumA]
       for (const sup of plan.suppliers) {
         const m = allPoQtyMaps.get(sup.id) ?? new Map<string, number>()
         row.push(m.get(item.item_code) ?? 0)
@@ -634,6 +641,8 @@ export default function LoadPlanPage() {
   }
 
   const hiItems = plan.high_ratio_items ?? []
+  const rateDefault = plan.rate_default ?? 70
+  const rateHigh = plan.rate_high ?? 90
 
   // ── Plan editor view ──
   return (
@@ -708,6 +717,31 @@ export default function LoadPlanPage() {
                   <span className="text-xs text-gray-400">branches</span>
                 </div>
               ))}
+              {/* Assumed Qty rates */}
+              <div className="border-t border-gray-100 pt-2.5 flex items-center gap-3 flex-wrap">
+                <span className="text-xs text-gray-500 font-medium">Order Rate</span>
+                {[
+                  { key: 'rate_default' as const, label: 'Standard', val: plan.rate_default ?? 70, color: 'text-gray-600' },
+                  { key: 'rate_high' as const, label: 'High', val: plan.rate_high ?? 90, color: 'text-orange-600' },
+                ].map(({ key, label, val, color }) => (
+                  <div key={key} className="flex items-center gap-1.5">
+                    <span className={`text-xs ${color}`}>{label}</span>
+                    <input
+                      type="text" inputMode="numeric" pattern="[0-9]*"
+                      value={val || ''}
+                      readOnly={!unlocked}
+                      onFocus={e => { if (unlocked) e.target.select() }}
+                      onChange={e => {
+                        if (!unlocked) return
+                        const v = e.target.value.replace(/[^0-9]/g, '')
+                        setPlan(p => p ? { ...p, [key]: v === '' ? 0 : parseInt(v, 10) } : p)
+                      }}
+                      className={`border border-gray-200 rounded-lg px-2 py-1 text-sm w-14 text-center focus:outline-none focus:border-blue-400 read-only:bg-gray-50 ${color} font-semibold`}
+                    />
+                    <span className="text-xs text-gray-400">%</span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -798,12 +832,12 @@ export default function LoadPlanPage() {
           <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
             {unlocked && hiItems.length > 0 && (
               <div className="px-4 py-2 bg-orange-50 border-b border-orange-100 text-xs text-orange-700">
-                <span className="font-semibold">{hiItems.length} items</span> ใช้ rate 90% — คลิกที่ badge ใน Rate column เพื่อเปลี่ยน
+                <span className="font-semibold">{hiItems.length} items</span> ใช้ rate {rateHigh}% — คลิกที่ badge ใน Rate column เพื่อเปลี่ยน
               </div>
             )}
             {unlocked && hiItems.length === 0 && (
               <div className="px-4 py-2 bg-gray-50 border-b border-gray-100 text-xs text-gray-400">
-                ทุก item ใช้ rate 70% — คลิกที่ badge ใน Rate column เพื่อเปลี่ยนรายการที่ต้องการเป็น 90%
+                ทุก item ใช้ rate {rateDefault}% — คลิกที่ badge ใน Rate column เพื่อเปลี่ยนรายการที่ต้องการเป็น {rateHigh}%
               </div>
             )}
             <div className="overflow-x-auto">
@@ -881,14 +915,15 @@ export default function LoadPlanPage() {
                 </thead>
                 <tbody>
                   {plan.items.map((item, ii) => {
-                    const ratio = hiItems.includes(item.item_code) ? 0.9 : 0.7
+                    const isHiItem = hiItems.includes(item.item_code)
+                    const ratio = (isHiItem ? rateHigh : rateDefault) / 100
                     const a1 = Math.round(item.qty_1 * plan.forecast_1 * ratio)
                     const a2 = Math.round(item.qty_2 * plan.forecast_2 * ratio)
                     const sumA = a1 + a2
                     const loaded = totalLoadsMap.get(item.item_code) ?? 0
                     const left = sumA - loaded
                     const base = ii % 2 === 0 ? 'bg-white' : 'bg-gray-50'
-                    const isHi = hiItems.includes(item.item_code)
+                    const isHi = isHiItem
                     return (
                       <tr key={item.item_code} className={`border-t border-gray-100 ${base}`}>
                         <td className="px-3 py-2 font-mono font-semibold text-gray-900 sticky left-0 z-10" style={{ background: 'inherit' }}>{item.item_code}</td>
@@ -908,7 +943,7 @@ export default function LoadPlanPage() {
                                 : 'bg-gray-100 text-gray-500 border-gray-200'
                             } ${unlocked ? 'cursor-pointer hover:opacity-70' : 'cursor-default'}`}
                           >
-                            {isHi ? '90%' : '70%'}
+                            {isHi ? `${rateHigh}%` : `${rateDefault}%`}
                           </button>
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums font-semibold text-gray-900">{sumA > 0 ? sumA.toLocaleString() : '0'}</td>
