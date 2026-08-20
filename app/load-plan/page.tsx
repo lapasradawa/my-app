@@ -37,6 +37,7 @@ interface LoadPlan {
   forecast_2: number
   items: LoadItem[]
   suppliers: LoadSupplier[]
+  updated_at?: string
 }
 
 interface POUpload {
@@ -170,11 +171,12 @@ function SupplierRow({ sup, poUploads, showPoSelector, onUpdate, onUploadContain
 
 // ── Main page ──
 export default function LoadPlanPage() {
-  const [, setUnlocked] = useState(false)
+  const [unlocked, setUnlocked] = useState(false)
   const [plans, setPlans] = useState<(LoadPlan & { id: string })[]>([])
   const [plan, setPlan] = useState<LoadPlan | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [lockMsg, setLockMsg] = useState(false)
   const [parseInfo, setParseInfo] = useState<{ type: 1 | 2; label: string } | null>(null)
   const [uploadedFiles, setUploadedFiles] = useState<{ type1?: string; type2?: string }>({})
   const [expandedSupIds, setExpandedSupIds] = useState<Set<string>>(new Set())
@@ -224,8 +226,21 @@ export default function LoadPlanPage() {
     if (data) setPlans(data as (LoadPlan & { id: string })[])
   }, [])
 
+  function showLockMsg() {
+    setLockMsg(true)
+    setTimeout(() => setLockMsg(false), 3000)
+  }
+
+  const deletePlan = useCallback(async (id: string) => {
+    if (!isUnlocked()) { showLockMsg(); return }
+    await supabase.from('load_plans').delete().eq('id', id)
+    refreshPlans()
+    if ((plan as any)?.id === id) setPlan(null)
+  }, [plan, refreshPlans])
+
   const savePlan = useCallback(async () => {
     if (!plan) return
+    if (!isUnlocked()) { showLockMsg(); return }
     setSaving(true)
     const payload = {
       name: plan.name,
@@ -393,41 +408,85 @@ export default function LoadPlanPage() {
     })
   }
 
-  // ── Plan list view ──
+  // ── Plan list / dashboard view ──
   if (!plan) {
     return (
       <>
         <NavBar onUnlock={() => setUnlocked(true)} onLock={() => setUnlocked(false)} />
-        <main className="p-6 max-w-3xl mx-auto">
-          <div className="flex items-center justify-between mb-6">
-            <h1 className="text-2xl font-bold text-gray-900">Branch Load</h1>
+        {lockMsg && (
+          <div className="fixed top-16 right-4 z-50 bg-amber-50 border border-amber-300 text-amber-800 text-sm px-4 py-2.5 rounded-xl shadow-lg font-medium">
+            🔒 กรุณาปลดล็อคก่อน (คลิกกุญแจมุมขวาบน)
+          </div>
+        )}
+        <main className="p-6 max-w-5xl mx-auto">
+          <div className="flex items-center justify-between mb-8">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">Branch Load Plans</h1>
+              <p className="text-sm text-gray-400 mt-0.5">แผนการโหลดสินค้าตามสาขา</p>
+            </div>
             <button
               onClick={() => { setPlan(mkPlan()); setExpandedSupIds(new Set()) }}
-              className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700"
+              className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 shadow-sm"
             >
               + New Plan
             </button>
           </div>
           {plans.length === 0 ? (
-            <div className="text-center py-20 text-gray-400">
-              <p className="text-4xl mb-3">📦</p>
-              <p className="text-lg font-medium">No plans yet</p>
-              <p className="text-sm mt-1">Create a new plan to get started</p>
+            <div className="text-center py-24 text-gray-400">
+              <div className="text-5xl mb-4">📦</div>
+              <p className="text-lg font-medium text-gray-500">ยังไม่มีแผนการโหลด</p>
+              <p className="text-sm mt-1">สร้าง New Plan เพื่อเริ่มต้น</p>
             </div>
           ) : (
-            <div className="space-y-2">
-              {plans.map(p => (
-                <div key={p.id} onClick={() => { setPlan(p); setExpandedSupIds(new Set()) }}
-                  className="border border-gray-200 rounded-xl p-4 cursor-pointer hover:border-blue-400 hover:shadow-sm transition-all bg-white">
-                  <div className="font-semibold text-gray-900">{p.name}</div>
-                  <div className="text-xs text-gray-500 mt-1 flex flex-wrap gap-4">
-                    <span>{p.type_1_name}: {(p.forecast_1 ?? 0).toLocaleString()} branches</span>
-                    <span>{p.type_2_name}: {(p.forecast_2 ?? 0).toLocaleString()} branches</span>
-                    <span>{(p.items ?? []).length} items</span>
-                    <span>{(p.suppliers ?? []).length} suppliers</span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {plans.map(p => {
+                const updAt = p.updated_at ? new Date(p.updated_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'
+                const totalBranches = (p.forecast_1 ?? 0) + (p.forecast_2 ?? 0)
+                const itemCount = (p.items ?? []).length
+                const supCount = (p.suppliers ?? []).length
+                return (
+                  <div key={p.id} className="bg-white border border-gray-200 rounded-2xl shadow-sm hover:shadow-md hover:border-blue-300 transition-all flex flex-col">
+                    {/* Card header */}
+                    <div
+                      onClick={() => { setPlan(p); setExpandedSupIds(new Set()) }}
+                      className="p-5 cursor-pointer flex-1"
+                    >
+                      <div className="font-bold text-gray-900 text-base leading-snug mb-3">{p.name || 'Untitled Plan'}</div>
+                      {/* Branch stats */}
+                      <div className="flex gap-3 mb-3">
+                        <div className="flex-1 bg-blue-50 rounded-xl px-3 py-2 text-center">
+                          <div className="text-lg font-bold text-blue-700 tabular-nums">{(p.forecast_1 ?? 0).toLocaleString()}</div>
+                          <div className="text-[10px] text-blue-500 font-medium leading-tight mt-0.5">{p.type_1_name || 'Existing'}<br />branches</div>
+                        </div>
+                        <div className="flex-1 bg-indigo-50 rounded-xl px-3 py-2 text-center">
+                          <div className="text-lg font-bold text-indigo-700 tabular-nums">{(p.forecast_2 ?? 0).toLocaleString()}</div>
+                          <div className="text-[10px] text-indigo-500 font-medium leading-tight mt-0.5">{p.type_2_name || 'New'}<br />branches</div>
+                        </div>
+                        <div className="flex-1 bg-gray-50 rounded-xl px-3 py-2 text-center">
+                          <div className="text-lg font-bold text-gray-700 tabular-nums">{totalBranches.toLocaleString()}</div>
+                          <div className="text-[10px] text-gray-400 font-medium leading-tight mt-0.5">รวม<br />สาขา</div>
+                        </div>
+                      </div>
+                      {/* Meta */}
+                      <div className="flex flex-wrap gap-2 text-xs text-gray-500">
+                        <span className="bg-gray-100 rounded-full px-2 py-0.5">{itemCount} items</span>
+                        <span className="bg-gray-100 rounded-full px-2 py-0.5">{supCount} suppliers</span>
+                      </div>
+                    </div>
+                    {/* Card footer */}
+                    <div className="border-t border-gray-100 px-5 py-3 flex items-center justify-between">
+                      <span className="text-[11px] text-gray-400">แก้ไขล่าสุด {updAt}</span>
+                      <button
+                        onClick={e => { e.stopPropagation(); if (window.confirm(`ลบ "${p.name || 'Untitled Plan'}" ?`)) deletePlan(p.id) }}
+                        className="text-xs text-gray-400 hover:text-red-500 transition-colors px-1.5 py-0.5 rounded"
+                        title="ลบ plan นี้"
+                      >
+                        ลบ
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </main>
@@ -439,6 +498,11 @@ export default function LoadPlanPage() {
   return (
     <>
       <NavBar onUnlock={() => setUnlocked(true)} onLock={() => setUnlocked(false)} />
+      {lockMsg && (
+        <div className="fixed top-16 right-4 z-50 bg-amber-50 border border-amber-300 text-amber-800 text-sm px-4 py-2.5 rounded-xl shadow-lg font-medium">
+          🔒 กรุณาปลดล็อคก่อน (คลิกกุญแจมุมขวาบน)
+        </div>
+      )}
       <main className="p-6 min-h-screen">
         {/* Top bar */}
         <div className="flex items-center gap-3 mb-6 flex-wrap">
@@ -451,9 +515,9 @@ export default function LoadPlanPage() {
           <button
             onClick={savePlan}
             disabled={saving}
-            className={`ml-auto px-5 py-2 text-sm font-semibold rounded-xl transition-colors disabled:opacity-50 ${saved ? 'bg-green-600 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}
+            className={`ml-auto px-5 py-2 text-sm font-semibold rounded-xl transition-colors disabled:opacity-50 ${saved ? 'bg-green-600 text-white' : unlocked ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-gray-200 text-gray-500'}`}
           >
-            {saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save'}
+            {saving ? 'Saving…' : saved ? 'Saved ✓' : unlocked ? 'Save' : '🔒 Save'}
           </button>
         </div>
 
