@@ -304,6 +304,43 @@ export default function LoadPlanPage() {
     return map
   }, [plan])
 
+  // Sum of all PO quantities across every supplier per item
+  const totalPoQtyMap = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const [, m] of allPoQtyMaps) {
+      for (const [ic, qty] of m) map.set(ic, (map.get(ic) ?? 0) + qty)
+    }
+    return map
+  }, [allPoQtyMaps])
+
+  // All unique load dates across all suppliers/POs (sorted)
+  const allUniqueDates = useMemo(() => {
+    if (!plan) return []
+    const s = new Set<string>()
+    for (const sup of plan.suppliers) {
+      for (const poId of sup.po_ids) {
+        for (const d of (sup.po_load_dates?.[poId] ?? [])) s.add(d)
+      }
+      for (const d of sup.load_dates) s.add(d)
+    }
+    return Array.from(s).sort()
+  }, [plan])
+
+  // date -> item_code -> total qty loaded on that date across all suppliers
+  const dailyTotalsMap = useMemo(() => {
+    const map = new Map<string, Map<string, number>>()
+    if (!plan) return map
+    for (const sup of plan.suppliers) {
+      for (const l of sup.loads) {
+        if (!l.date) continue
+        let dm = map.get(l.date)
+        if (!dm) { dm = new Map(); map.set(l.date, dm) }
+        dm.set(l.item_code, (dm.get(l.item_code) ?? 0) + l.qty)
+      }
+    }
+    return map
+  }, [plan])
+
   useEffect(() => {
     setUnlocked(isUnlocked())
     supabase.from('load_plans').select('*').order('created_at', { ascending: false }).then(({ data }) => {
@@ -966,6 +1003,9 @@ export default function LoadPlanPage() {
                       Rate<br /><span className="font-normal opacity-70">×%</span>
                     </th>
                     <th className="text-right px-3 py-3 font-semibold whitespace-nowrap">Sum Assumed<br />Qty</th>
+                    <th className="text-right px-3 py-3 font-semibold whitespace-nowrap bg-emerald-900 border-l-2 border-emerald-700 text-[10px]">
+                      PO Cover<br /><span className="font-normal opacity-70">PO − Assumed</span>
+                    </th>
                     {/* Per-supplier columns */}
                     {plan.suppliers.map(sup => {
                       const isExp = expandedSupIds.has(sup.id)
@@ -1018,6 +1058,12 @@ export default function LoadPlanPage() {
                         </Fragment>
                       )
                     })}
+                    {/* Daily totals per unique date across all suppliers */}
+                    {allUniqueDates.map(d => (
+                      <th key={`dt-${d}`} className="text-right px-3 py-3 font-semibold whitespace-nowrap bg-teal-900 border-l border-teal-700">
+                        รวมโหลด<br /><span className="font-normal text-[10px] opacity-70">{fmtDate(d)}</span>
+                      </th>
+                    ))}
                     <th className="text-right px-3 py-3 font-semibold whitespace-nowrap bg-rose-900 border-l-2 border-rose-700">LEFT</th>
                   </tr>
                 </thead>
@@ -1055,6 +1101,18 @@ export default function LoadPlanPage() {
                           </button>
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums font-semibold text-gray-900">{sumA > 0 ? sumA.toLocaleString() : '0'}</td>
+                        {/* PO Coverage: sum all PO qty − sumA */}
+                        {(() => {
+                          const totalPo = totalPoQtyMap.get(item.item_code) ?? 0
+                          const cov = totalPo - sumA
+                          return (
+                            <td className={`px-3 py-2 text-right tabular-nums font-bold border-l-2 ${
+                              cov >= 0 ? 'text-green-700 bg-green-50 border-emerald-300' : 'text-red-600 bg-red-50 border-red-300'
+                            }`}>
+                              {cov > 0 ? '+' : ''}{cov !== 0 ? cov.toLocaleString() : totalPo === 0 ? '—' : '0'}
+                            </td>
+                          )
+                        })()}
                         {/* Per-supplier cells */}
                         {plan.suppliers.map(sup => {
                           const supPoMap = allPoQtyMaps.get(sup.id) ?? new Map<string, number>()
@@ -1115,6 +1173,15 @@ export default function LoadPlanPage() {
                                 )
                               })}
                             </Fragment>
+                          )
+                        })}
+                        {/* Daily totals per date */}
+                        {allUniqueDates.map(d => {
+                          const total = dailyTotalsMap.get(d)?.get(item.item_code) ?? 0
+                          return (
+                            <td key={`dt-${d}`} className="px-3 py-2 text-right tabular-nums font-semibold text-teal-800 bg-teal-50 border-l border-teal-100">
+                              {total > 0 ? total.toLocaleString() : '—'}
+                            </td>
                           )
                         })}
                         <td className={`px-3 py-2 text-right tabular-nums font-bold border-l-2 ${left < 0 ? 'text-red-600 bg-red-50 border-red-200' : left === 0 ? 'text-green-700 bg-green-50 border-green-200' : 'text-gray-900 border-rose-200'}`}>
