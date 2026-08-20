@@ -13,6 +13,21 @@ interface LoadItem {
   qty_2: number
 }
 
+interface FLine {
+  op: '' | '+' | '−' | '×' | '÷' | '='
+  label: string
+  val: number | string
+  isResult?: boolean
+}
+
+interface FormulaPopup {
+  itemCode: string
+  description: string
+  colName: string
+  formulaStr?: string
+  lines: FLine[]
+}
+
 interface LoadEntry {
   date: string
   item_code: string
@@ -282,6 +297,7 @@ export default function LoadPlanPage() {
   const [poUploads, setPoUploads] = useState<POUpload[]>([])
   const [showPoSelector, setShowPoSelector] = useState<string | null>(null)
   const [rateFilter, setRateFilter] = useState('')
+  const [formulaPopup, setFormulaPopup] = useState<FormulaPopup | null>(null)
   const templateRef1 = useRef<HTMLInputElement>(null)
   const templateRef2 = useRef<HTMLInputElement>(null)
 
@@ -1161,9 +1177,35 @@ export default function LoadPlanPage() {
                       <tr key={item.item_code} className={`border-t border-gray-100 ${base}`}>
                         <td className="px-3 py-2 font-mono font-semibold text-gray-900 sticky left-0 z-10" style={{ background: 'inherit' }}>{item.item_code}</td>
                         <td className="px-3 py-2 text-gray-600 max-w-[280px] truncate">{item.description || '—'}</td>
-                        <td className="px-3 py-2 text-right tabular-nums text-gray-700">{a1 > 0 ? a1.toLocaleString() : '—'}</td>
+                        <td
+                          className="px-3 py-2 text-right tabular-nums text-gray-700 cursor-pointer hover:bg-blue-50 hover:text-blue-700"
+                          onClick={() => setFormulaPopup({
+                            itemCode: item.item_code, description: item.description,
+                            colName: `Assumed Qty (${plan.type_1_name})`,
+                            formulaStr: `qty_1 × Forecast ${plan.type_1_name} × Rate`,
+                            lines: [
+                              { op: '', label: `qty_1 / branch`, val: item.qty_1 },
+                              { op: '×', label: `Forecast (${plan.type_1_name})`, val: plan.forecast_1 },
+                              { op: '×', label: `Rate (${isHi ? 'High' : 'Standard'})`, val: `${isHi ? rateHigh : rateDefault}%` },
+                              { op: '=', label: 'Assumed Qty', val: a1, isResult: true },
+                            ]
+                          })}
+                        >{a1 > 0 ? a1.toLocaleString() : '—'}</td>
                         {plan.forecast_2 > 0 && (
-                          <td className="px-3 py-2 text-right tabular-nums text-gray-700">{a2 > 0 ? a2.toLocaleString() : '—'}</td>
+                          <td
+                            className="px-3 py-2 text-right tabular-nums text-gray-700 cursor-pointer hover:bg-blue-50 hover:text-blue-700"
+                            onClick={() => setFormulaPopup({
+                              itemCode: item.item_code, description: item.description,
+                              colName: `Assumed Qty (${plan.type_2_name})`,
+                              formulaStr: `qty_2 × Forecast ${plan.type_2_name} × Rate`,
+                              lines: [
+                                { op: '', label: `qty_2 / branch`, val: item.qty_2 },
+                                { op: '×', label: `Forecast (${plan.type_2_name})`, val: plan.forecast_2 },
+                                { op: '×', label: `Rate (${isHi ? 'High' : 'Standard'})`, val: `${isHi ? rateHigh : rateDefault}%` },
+                                { op: '=', label: 'Assumed Qty', val: a2, isResult: true },
+                              ]
+                            })}
+                          >{a2 > 0 ? a2.toLocaleString() : '—'}</td>
                         )}
                         {/* Rate toggle */}
                         <td className="px-2 py-1 text-center bg-amber-50/50">
@@ -1179,15 +1221,39 @@ export default function LoadPlanPage() {
                             {isHi ? `${rateHigh}%` : `${rateDefault}%`}
                           </button>
                         </td>
-                        <td className="px-3 py-2 text-right tabular-nums font-semibold text-gray-900">{sumA > 0 ? sumA.toLocaleString() : '0'}</td>
+                        <td
+                          className="px-3 py-2 text-right tabular-nums font-semibold text-gray-900 cursor-pointer hover:bg-blue-50 hover:text-blue-700"
+                          onClick={() => setFormulaPopup({
+                            itemCode: item.item_code, description: item.description,
+                            colName: 'Sum Assumed Qty',
+                            formulaStr: `Assumed (${plan.type_1_name}) + Assumed (${plan.type_2_name})`,
+                            lines: [
+                              { op: '', label: `Assumed (${plan.type_1_name})`, val: a1 },
+                              { op: '+', label: `Assumed (${plan.type_2_name})`, val: a2 },
+                              { op: '=', label: 'Sum Assumed Qty', val: sumA, isResult: true },
+                            ]
+                          })}
+                        >{sumA > 0 ? sumA.toLocaleString() : '0'}</td>
                         {/* PO Coverage: sum all PO qty − sumA */}
                         {(() => {
                           const totalPo = totalPoQtyMap.get(item.item_code) ?? 0
                           const cov = totalPo - sumA
                           return (
-                            <td className={`px-3 py-2 text-right tabular-nums font-bold border-l-2 ${
-                              cov >= 0 ? 'text-green-700 bg-green-50 border-emerald-300' : 'text-red-600 bg-red-50 border-red-300'
-                            }`}>
+                            <td
+                              className={`px-3 py-2 text-right tabular-nums font-bold border-l-2 cursor-pointer ${
+                                cov >= 0 ? 'text-green-700 bg-green-50 border-emerald-300 hover:bg-green-100' : 'text-red-600 bg-red-50 border-red-300 hover:bg-red-100'
+                              }`}
+                              onClick={() => setFormulaPopup({
+                                itemCode: item.item_code, description: item.description,
+                                colName: 'PO Cover',
+                                formulaStr: 'Total PO QTY (ทุกซัพ) − Sum Assumed Qty',
+                                lines: [
+                                  { op: '', label: 'Total PO QTY (ทุกซัพ)', val: totalPo },
+                                  { op: '−', label: 'Sum Assumed Qty', val: sumA },
+                                  { op: '=', label: cov >= 0 ? 'Buffer ที่เหลือ' : 'ขาด (ต้องสั่งเพิ่ม)', val: cov, isResult: true },
+                                ]
+                              })}
+                            >
                               {cov > 0 ? '+' : ''}{cov !== 0 ? cov.toLocaleString() : totalPo === 0 ? '—' : '0'}
                             </td>
                           )
@@ -1266,12 +1332,46 @@ export default function LoadPlanPage() {
                         {allUniqueDates.map(d => {
                           const total = dailyTotalsMap.get(d)?.get(item.item_code) ?? 0
                           return (
-                            <td key={`dt-${d}`} className="px-3 py-2 text-right tabular-nums font-semibold text-teal-800 bg-teal-50 border-l border-teal-100">
+                            <td
+                              key={`dt-${d}`}
+                              className="px-3 py-2 text-right tabular-nums font-semibold text-teal-800 bg-teal-50 border-l border-teal-100 cursor-pointer hover:bg-teal-100"
+                              onClick={() => {
+                                const breakdown = plan.suppliers.flatMap(s =>
+                                  s.loads.filter(l => l.date === d && l.item_code === item.item_code && l.qty > 0)
+                                    .map(l => ({ supName: s.name, qty: l.qty, poId: l.po_id }))
+                                )
+                                setFormulaPopup({
+                                  itemCode: item.item_code, description: item.description,
+                                  colName: `รวมโหลด ${d}`,
+                                  formulaStr: `Σ ทุกซัพที่โหลดวันที่ ${d}`,
+                                  lines: [
+                                    ...breakdown.map((b, i) => ({
+                                      op: (i === 0 ? '' : '+') as FLine['op'],
+                                      label: b.supName + (b.poId ? ` (${b.poId.slice(0, 10)})` : ''),
+                                      val: b.qty,
+                                    })),
+                                    { op: '=', label: 'รวม', val: total, isResult: true },
+                                  ]
+                                })
+                              }}
+                            >
                               {total > 0 ? total.toLocaleString() : '—'}
                             </td>
                           )
                         })}
-                        <td className={`px-3 py-2 text-right tabular-nums font-bold border-l-2 ${left < 0 ? 'text-red-600 bg-red-50 border-red-200' : left === 0 ? 'text-green-700 bg-green-50 border-green-200' : 'text-gray-900 border-rose-200'}`}>
+                        <td
+                          className={`px-3 py-2 text-right tabular-nums font-bold border-l-2 cursor-pointer ${left < 0 ? 'text-red-600 bg-red-50 border-red-200 hover:bg-red-100' : left === 0 ? 'text-green-700 bg-green-50 border-green-200 hover:bg-green-100' : 'text-gray-900 border-rose-200 hover:bg-gray-100'}`}
+                          onClick={() => setFormulaPopup({
+                            itemCode: item.item_code, description: item.description,
+                            colName: 'ยังต้องโหลด',
+                            formulaStr: 'Sum Assumed Qty − รวมโหลดทั้งหมด',
+                            lines: [
+                              { op: '', label: 'Sum Assumed Qty', val: sumA },
+                              { op: '−', label: 'รวมโหลดแล้ว', val: loaded },
+                              { op: '=', label: left < 0 ? 'โหลดเกิน' : left === 0 ? 'ครบแล้ว' : 'ยังขาด', val: left, isResult: true },
+                            ]
+                          })}
+                        >
                           {left.toLocaleString()}
                         </td>
                       </tr>
@@ -1289,6 +1389,39 @@ export default function LoadPlanPage() {
           </div>
         )}
       </main>
+
+      {/* Formula popup */}
+      {formulaPopup && (
+        <div className="fixed inset-0 bg-black/20 z-50 flex items-center justify-center p-4" onClick={() => setFormulaPopup(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-start mb-1">
+              <div>
+                <p className="text-xs text-gray-400 font-mono">{formulaPopup.itemCode}</p>
+                <p className="text-xs text-gray-500 mt-0.5 truncate max-w-[220px]">{formulaPopup.description}</p>
+                <h3 className="text-base font-bold text-gray-900 mt-1">{formulaPopup.colName}</h3>
+              </div>
+              <button onClick={() => setFormulaPopup(null)} className="text-gray-300 hover:text-gray-600 text-lg leading-none mt-1">✕</button>
+            </div>
+            {formulaPopup.formulaStr && (
+              <p className="text-xs text-gray-500 mb-3 font-mono bg-gray-50 rounded-lg px-3 py-1.5 mt-2">{formulaPopup.formulaStr}</p>
+            )}
+            <div className="space-y-1 mt-2">
+              {formulaPopup.lines.map((line, idx) => (
+                <div key={idx}>
+                  {line.isResult && <div className="border-t-2 border-gray-200 my-2" />}
+                  <div className={`flex items-baseline gap-2 px-1 py-0.5 rounded ${line.isResult ? 'bg-gray-50' : ''}`}>
+                    <span className="text-xs w-4 text-right shrink-0 text-gray-400 font-mono">{line.op}</span>
+                    <span className={`flex-1 text-sm ${line.isResult ? 'font-bold text-gray-900' : 'text-gray-600'}`}>{line.label}</span>
+                    <span className={`text-sm font-mono tabular-nums shrink-0 ${line.isResult ? 'font-bold text-gray-900' : 'text-gray-700'} ${typeof line.val === 'number' && line.val < 0 ? 'text-red-600' : ''}`}>
+                      {typeof line.val === 'number' ? line.val.toLocaleString() : line.val}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }
