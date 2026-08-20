@@ -474,8 +474,16 @@ export default function LoadPlanPage() {
                       </div>
                     </div>
                     {/* Card footer */}
-                    <div className="border-t border-gray-100 px-5 py-3 flex items-center justify-between">
-                      <span className="text-[11px] text-gray-400">แก้ไขล่าสุด {updAt}</span>
+                    <div className="border-t border-gray-100 px-4 py-3 flex items-center justify-between gap-2">
+                      <div>
+                        <span className="text-[11px] text-gray-400">แก้ไขล่าสุด {updAt}</span>
+                      </div>
+                      <button
+                        onClick={() => { setPlan(p); setExpandedSupIds(new Set()) }}
+                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg transition-colors shrink-0"
+                      >
+                        เปิดแก้ไข →
+                      </button>
                       <button
                         onClick={e => { e.stopPropagation(); if (window.confirm(`ลบ "${p.name || 'Untitled Plan'}" ?`)) deletePlan(p.id) }}
                         className="text-xs text-gray-400 hover:text-red-500 transition-colors px-1.5 py-0.5 rounded"
