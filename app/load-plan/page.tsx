@@ -650,7 +650,7 @@ export default function LoadPlanPage() {
       [],
     ]
 
-    const headers: string[] = ['Item Code', 'Description', `Assumed Qty (${plan.type_1_name})`, `Assumed Qty (${plan.type_2_name})`, 'Ratio', 'Sum Assumed Qty']
+    const headers: string[] = ['Item Code', 'Description', `Assumed Qty (${plan.type_1_name})`, `Assumed Qty (${plan.type_2_name})`, 'Ratio', 'Sum Assumed Qty', 'PO Cover (PO − Assumed)']
     for (const sup of plan.suppliers) {
       headers.push(`PO QTY (${sup.name})`)
       for (const poId of sup.po_ids) {
@@ -672,7 +672,7 @@ export default function LoadPlanPage() {
       const sumA = a1 + a2
       const loaded = totalLoadsMap.get(item.item_code) ?? 0
       const totalPo = totalPoQtyMap.get(item.item_code) ?? 0
-      const row: (string | number)[] = [item.item_code, item.description, a1 || 0, a2 || 0, `${isHi ? rhPct : rdPct}%`, sumA]
+      const row: (string | number)[] = [item.item_code, item.description, a1 || 0, a2 || 0, `${isHi ? rhPct : rdPct}%`, sumA, totalPo - sumA]
       for (const sup of plan.suppliers) {
         const m = allPoQtyMaps.get(sup.id) ?? new Map<string, number>()
         row.push(m.get(item.item_code) ?? 0)
