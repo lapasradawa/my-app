@@ -671,6 +671,7 @@ export default function LoadPlanPage() {
       const a2 = Math.round(item.qty_2 * plan.forecast_2 * ratio)
       const sumA = a1 + a2
       const loaded = totalLoadsMap.get(item.item_code) ?? 0
+      const totalPo = totalPoQtyMap.get(item.item_code) ?? 0
       const row: (string | number)[] = [item.item_code, item.description, a1 || 0, a2 || 0, `${isHi ? rhPct : rdPct}%`, sumA]
       for (const sup of plan.suppliers) {
         const m = allPoQtyMaps.get(sup.id) ?? new Map<string, number>()
@@ -686,7 +687,7 @@ export default function LoadPlanPage() {
           row.push(e?.qty ?? 0)
         }
       }
-      row.push(sumA - loaded)
+      row.push(totalPo - loaded)
       return row
     })
 
