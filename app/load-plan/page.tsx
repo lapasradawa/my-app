@@ -571,7 +571,7 @@ export default function LoadPlanPage() {
       const hasManual = withoutAuto.some(l => l.po_id === poId && l.item_code === item_code)
       if (hasManual) continue
       // floor each non-first date to nearest 10, first date gets remainder
-      const base = Math.floor(Math.floor(qty / n) / 10) * 10
+      const base = Math.floor(Math.floor(qty / n) / 100) * 100
       dates.forEach((d, i) => {
         const autoQty = i === 0 ? qty - base * (n - 1) : base
         if (autoQty > 0) newAutoLoads.push({ po_id: poId, date: d, item_code, qty: autoQty, is_auto: true })
