@@ -56,6 +56,8 @@ interface POUpload {
   filename: string | null
   created_at: string
   rows: POItemRow[] | null
+  cost_saving: number | null
+  cost_saving_pct: number | null
 }
 
 // ── Period helpers ────────────────────────────────────────────────────────────
@@ -125,6 +127,7 @@ export default function POSummaryPage() {
   const [loading, setLoading] = useState(true)
   const [cnyRate, setCnyRate] = useState(4.85)
   const [usdRate, setUsdRate] = useState(33.00)
+  const [ddpMultiplier, setDdpMultiplier] = useState(1.11)
   const [vendorCodeMap, setVendorCodeMap] = useState<Map<string, string>>(new Map())
   const [selectedProject, setSelectedProject] = useState<string>('all')
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null)
@@ -145,7 +148,7 @@ export default function POSummaryPage() {
     async function load() {
       const [{ data: poItems }, { data: poUploads }, { data: settings }, { data: invs }] = await Promise.all([
         supabase.from('po_items').select('project, supplier, item_code, description, fob_price, currency'),
-        supabase.from('po_uploads').select('id, supplier, project, currency, total_amount, exchange_rate, po_rbs_ch_no, po_rbs_th_no, po_date, filename, created_at, rows'),
+        supabase.from('po_uploads').select('id, supplier, project, currency, total_amount, exchange_rate, po_rbs_ch_no, po_rbs_th_no, po_date, filename, created_at, rows, cost_saving, cost_saving_pct'),
         supabase.from('cost_settings').select('key, value'),
         supabase.from('invoices').select('supplier, vendor_code').not('vendor_code', 'is', null),
       ])
@@ -155,6 +158,7 @@ export default function POSummaryPage() {
         const m = Object.fromEntries((settings as { key: string; value: string }[]).map(r => [r.key, r.value]))
         if (m.cny_rate) setCnyRate(parseFloat(m.cny_rate))
         if (m.usd_rate) setUsdRate(parseFloat(m.usd_rate))
+        if (m.ddp_multiplier) setDdpMultiplier(parseFloat(m.ddp_multiplier))
       }
       if (invs) {
         const vcMap = new Map<string, string>()
@@ -279,6 +283,44 @@ export default function POSummaryPage() {
   const grandPoThb = useMemo(() =>
     filteredUploads.reduce((s, u) => s + u.total_amount * rateFor(u), 0)
   , [filteredUploads, cnyRate, usdRate])
+
+  // Per-supplier summary for the summary table
+  const supplierSummary = useMemo(() => {
+    const map = new Map<string, { cny: number; usd: number; fobThb: number; costSaving: number | null; hasSaving: boolean }>()
+    for (const u of filteredUploads) {
+      if (!map.has(u.supplier)) map.set(u.supplier, { cny: 0, usd: 0, fobThb: 0, costSaving: null, hasSaving: false })
+      const s = map.get(u.supplier)!
+      const rate = rateFor(u)
+      const thb = u.total_amount * rate
+      if (u.currency === 'USD') s.usd += u.total_amount
+      else s.cny += u.total_amount
+      s.fobThb += thb
+      if (u.cost_saving != null) {
+        s.costSaving = (s.costSaving ?? 0) + u.cost_saving
+        s.hasSaving = true
+      }
+    }
+    const totalFobThb = Array.from(map.values()).reduce((s, v) => s + v.fobThb, 0)
+    return Array.from(map.entries())
+      .map(([supplier, v]) => {
+        const ddpThb = v.fobThb * ddpMultiplier
+        const saving = v.hasSaving ? (v.costSaving ?? 0) : null
+        const thaiCost = saving != null ? ddpThb + saving : null
+        const savingPct = thaiCost != null && thaiCost > 0 ? (saving! / thaiCost) * 100 : null
+        return {
+          supplier,
+          cny: v.cny,
+          usd: v.usd,
+          fobThb: v.fobThb,
+          ddpThb,
+          distPct: totalFobThb > 0 ? (v.fobThb / totalFobThb) * 100 : 0,
+          thaiCost,
+          costSaving: saving,
+          costSavingPct: savingPct,
+        }
+      })
+      .sort((a, b) => b.fobThb - a.fobThb)
+  }, [filteredUploads, cnyRate, usdRate, ddpMultiplier])
 
   // Allocate every PO's total_amount×rate to product groups.
   // Priority: (1) po_uploads.rows item totals, (2) po_items matched by supplier+project,
@@ -597,6 +639,88 @@ export default function POSummaryPage() {
               </div>
             ))}
           </div>
+
+          {/* Supplier Summary Table */}
+          {supplierSummary.length > 0 && (
+            <div className="bg-white rounded-2xl border border-amber-100 shadow-sm p-6 mb-6 overflow-x-auto">
+              <h2 className="text-sm font-bold mb-4" style={{ color: '#3a2a1a' }}>สรุปต้นทุนรายซัพพลายเออร์</h2>
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="bg-gray-800 text-white text-xs">
+                    <th className="text-left px-3 py-2.5 rounded-tl-lg" rowSpan={2}>Supplier</th>
+                    <th className="text-center px-3 py-2.5 border-l border-gray-600" colSpan={2}>Original Currency FOB</th>
+                    <th className="text-right px-3 py-2.5 border-l border-gray-600" rowSpan={2}>FOB (THB)</th>
+                    <th className="text-right px-3 py-2.5 border-l border-gray-600" rowSpan={2}>DDP (THB)<br /><span className="font-normal opacity-70 text-[10px]">×{ddpMultiplier}</span></th>
+                    <th className="text-right px-3 py-2.5 border-l border-gray-600" rowSpan={2}>% Distribution</th>
+                    <th className="text-right px-3 py-2.5 border-l border-gray-600" rowSpan={2}>ทุนไทยที่ถูกที่สุด (THB)</th>
+                    <th className="text-right px-3 py-2.5 border-l border-gray-600" rowSpan={2}>Cost Saving (THB)</th>
+                    <th className="text-right px-3 py-2.5 border-l border-gray-600 rounded-tr-lg" rowSpan={2}>% Cost Saving</th>
+                  </tr>
+                  <tr className="bg-gray-700 text-white text-xs">
+                    <th className="text-right px-3 py-1.5 border-l border-gray-600">CNY</th>
+                    <th className="text-right px-3 py-1.5 border-l border-gray-500">USD</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {supplierSummary.map((s, i) => (
+                    <tr key={s.supplier} className={`border-t border-gray-100 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-amber-50/40`}>
+                      <td className="px-3 py-2.5 font-semibold text-gray-800">{s.supplier}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-gray-700 border-l border-gray-100">
+                        {s.cny > 0 ? `¥${fmt(s.cny, 2)}` : '—'}
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-gray-700 border-l border-gray-100">
+                        {s.usd > 0 ? `$${fmt(s.usd, 2)}` : '—'}
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums font-medium text-gray-900 border-l border-gray-100">
+                        {fmt(s.fobThb, 2)}
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-gray-700 border-l border-gray-100">
+                        {fmt(s.ddpThb, 2)}
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-gray-600 border-l border-gray-100">
+                        {s.distPct.toFixed(2)}%
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-gray-700 border-l border-gray-100">
+                        {s.thaiCost != null ? fmt(s.thaiCost, 2) : <span className="text-gray-300">—</span>}
+                      </td>
+                      <td className={`px-3 py-2.5 text-right tabular-nums font-medium border-l border-gray-100 ${s.costSaving != null && s.costSaving > 0 ? 'text-green-700' : s.costSaving != null ? 'text-red-600' : 'text-gray-300'}`}>
+                        {s.costSaving != null ? fmt(s.costSaving, 2) : '—'}
+                      </td>
+                      <td className={`px-3 py-2.5 text-right tabular-nums font-semibold border-l border-gray-100 ${s.costSavingPct != null && s.costSavingPct > 0 ? 'text-green-700' : s.costSavingPct != null ? 'text-red-600' : 'text-gray-300'}`}>
+                        {s.costSavingPct != null ? `${s.costSavingPct.toFixed(2)}%` : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                  {/* Total row */}
+                  {(() => {
+                    const totalCny = supplierSummary.reduce((s, r) => s + r.cny, 0)
+                    const totalUsd = supplierSummary.reduce((s, r) => s + r.usd, 0)
+                    const totalFob = supplierSummary.reduce((s, r) => s + r.fobThb, 0)
+                    const totalDdp = supplierSummary.reduce((s, r) => s + r.ddpThb, 0)
+                    const totalThai = supplierSummary.every(r => r.thaiCost != null)
+                      ? supplierSummary.reduce((s, r) => s + (r.thaiCost ?? 0), 0) : null
+                    const totalSaving = supplierSummary.every(r => r.costSaving != null)
+                      ? supplierSummary.reduce((s, r) => s + (r.costSaving ?? 0), 0) : null
+                    const totalSavingPct = totalThai != null && totalThai > 0 && totalSaving != null
+                      ? (totalSaving / totalThai) * 100 : null
+                    return (
+                      <tr className="border-t-2 border-gray-300 bg-gray-100 font-bold text-gray-900 text-xs">
+                        <td className="px-3 py-2.5">Total</td>
+                        <td className="px-3 py-2.5 text-right tabular-nums border-l border-gray-200">{totalCny > 0 ? `¥${fmt(totalCny, 2)}` : '—'}</td>
+                        <td className="px-3 py-2.5 text-right tabular-nums border-l border-gray-200">{totalUsd > 0 ? `$${fmt(totalUsd, 2)}` : '—'}</td>
+                        <td className="px-3 py-2.5 text-right tabular-nums border-l border-gray-200">{fmt(totalFob, 2)}</td>
+                        <td className="px-3 py-2.5 text-right tabular-nums border-l border-gray-200">{fmt(totalDdp, 2)}</td>
+                        <td className="px-3 py-2.5 text-right border-l border-gray-200">100.00%</td>
+                        <td className="px-3 py-2.5 text-right tabular-nums border-l border-gray-200">{totalThai != null ? fmt(totalThai, 2) : '—'}</td>
+                        <td className={`px-3 py-2.5 text-right tabular-nums border-l border-gray-200 ${totalSaving != null && totalSaving > 0 ? 'text-green-700' : ''}`}>{totalSaving != null ? fmt(totalSaving, 2) : '—'}</td>
+                        <td className={`px-3 py-2.5 text-right border-l border-gray-200 ${totalSavingPct != null && totalSavingPct > 0 ? 'text-green-700' : ''}`}>{totalSavingPct != null ? `${totalSavingPct.toFixed(2)}%` : '—'}</td>
+                      </tr>
+                    )
+                  })()}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           {/* Overview chart */}
           <div className="bg-white rounded-2xl border border-amber-100 shadow-sm p-6 mb-6">
