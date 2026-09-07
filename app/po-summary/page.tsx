@@ -459,6 +459,61 @@ export default function POSummaryPage() {
     [groupData]
   )
 
+  // ── Export: Supplier Cost Summary table ─────────────────────────────────────
+  function exportSupplierSummary() {
+    const rows = supplierSummary.map(s => ({
+      'Supplier': s.supplier,
+      'FOB CNY (¥)': s.cny > 0 ? s.cny : '',
+      'FOB USD ($)': s.usd > 0 ? s.usd : '',
+      'FOB (THB)': s.fobThb,
+      'DDP (THB)': s.ddpThb,
+      '% Distribution': parseFloat(s.distPct.toFixed(2)),
+      'ทุนไทยที่ถูกที่สุด (THB)': s.thaiCost ?? '',
+      'Cost Saving (THB)': s.costSaving ?? '',
+      '% Cost Saving': s.costSavingPct != null ? parseFloat(s.costSavingPct.toFixed(2)) : '',
+    }))
+    // Total row
+    const totalFob = supplierSummary.reduce((s, r) => s + r.fobThb, 0)
+    const totalDdp = supplierSummary.reduce((s, r) => s + r.ddpThb, 0)
+    const totalCny = supplierSummary.reduce((s, r) => s + r.cny, 0)
+    const totalUsd = supplierSummary.reduce((s, r) => s + r.usd, 0)
+    const totalThai = supplierSummary.every(r => r.thaiCost != null) ? supplierSummary.reduce((s, r) => s + (r.thaiCost ?? 0), 0) : null
+    const totalSaving = supplierSummary.every(r => r.costSaving != null) ? supplierSummary.reduce((s, r) => s + (r.costSaving ?? 0), 0) : null
+    const totalSavingPct = totalThai && totalThai > 0 && totalSaving != null ? parseFloat(((totalSaving / totalThai) * 100).toFixed(2)) : ''
+    rows.push({
+      'Supplier': 'Total',
+      'FOB CNY (¥)': totalCny > 0 ? totalCny : '',
+      'FOB USD ($)': totalUsd > 0 ? totalUsd : '',
+      'FOB (THB)': totalFob,
+      'DDP (THB)': totalDdp,
+      '% Distribution': 100,
+      'ทุนไทยที่ถูกที่สุด (THB)': totalThai ?? '',
+      'Cost Saving (THB)': totalSaving ?? '',
+      '% Cost Saving': totalSavingPct,
+    })
+    const ws = XLSX.utils.json_to_sheet(rows)
+    ws['!cols'] = [{ wch: 16 }, { wch: 18 }, { wch: 14 }, { wch: 18 }, { wch: 18 }, { wch: 14 }, { wch: 22 }, { wch: 18 }, { wch: 14 }]
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Supplier Summary')
+    XLSX.writeFile(wb, `supplier-summary-${new Date().toISOString().slice(0, 10)}.xlsx`)
+  }
+
+  // ── Export: Supplier FOB THB breakdown ───────────────────────────────────────
+  function exportSupplierFob() {
+    const totalFob = supplierSummary.reduce((s, r) => s + r.fobThb, 0)
+    const rows = supplierSummary.map(s => ({
+      'Supplier': s.supplier,
+      'FOB THB': s.fobThb,
+      '% of Total': parseFloat(s.distPct.toFixed(2)),
+    }))
+    rows.push({ 'Supplier': 'Total', 'FOB THB': totalFob, '% of Total': 100 })
+    const ws = XLSX.utils.json_to_sheet(rows)
+    ws['!cols'] = [{ wch: 16 }, { wch: 18 }, { wch: 12 }]
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Supplier FOB THB')
+    XLSX.writeFile(wb, `supplier-fob-${new Date().toISOString().slice(0, 10)}.xlsx`)
+  }
+
   // ── Export Excel ────────────────────────────────────────────────────────────
   async function exportExcel() {
     setExporting(true)
@@ -643,7 +698,13 @@ export default function POSummaryPage() {
           {/* Supplier Summary Table */}
           {supplierSummary.length > 0 && (
             <div className="bg-white rounded-2xl border border-amber-100 shadow-sm p-6 mb-6 overflow-x-auto">
-              <h2 className="text-sm font-bold mb-4" style={{ color: '#3a2a1a' }}>สรุปต้นทุนรายซัพพลายเออร์</h2>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-sm font-bold" style={{ color: '#3a2a1a' }}>สรุปต้นทุนรายซัพพลายเออร์</h2>
+                <button
+                  onClick={exportSupplierSummary}
+                  className="text-xs px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
+                >↓ Export Excel</button>
+              </div>
               <table className="w-full text-sm border-collapse">
                 <thead>
                   <tr className="bg-gray-800 text-white text-xs">
@@ -822,7 +883,13 @@ export default function POSummaryPage() {
           {/* FOB THB by Supplier */}
           {supplierTotals.length > 0 && grandPoThb > 0 && (
             <div className="bg-white rounded-2xl border border-amber-100 shadow-sm p-6 mb-6">
-              <h2 className="text-sm font-bold mb-4" style={{ color: '#3a2a1a' }}>มูลค่า PO รวมแยกตาม Supplier (FOB THB)</h2>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-sm font-bold" style={{ color: '#3a2a1a' }}>มูลค่า PO รวมแยกตาม Supplier (FOB THB)</h2>
+                <button
+                  onClick={exportSupplierFob}
+                  className="text-xs px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
+                >↓ Export Excel</button>
+              </div>
               <div className="flex flex-col lg:flex-row gap-6 items-start">
                 <div className="shrink-0">
                   <DonutChart
