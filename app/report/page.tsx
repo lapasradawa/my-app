@@ -627,7 +627,11 @@ export default function ReportPage() {
                       <tr key={p.id} className="border-b border-gray-100 hover:bg-gray-50">
                         <td className="px-3 py-2 border border-gray-200 text-gray-700 whitespace-nowrap">{i === 0 ? mg.label : ''}</td>
                         <td className="px-3 py-2 border border-gray-200 font-mono text-gray-800 text-xs">{p.po_rbs_ch_no || <span className="text-gray-400">—</span>}</td>
-                        <td className="px-3 py-2 border border-gray-200 font-mono text-gray-800 text-xs">{p.po_rbs_th_no || <span className="text-gray-400">—</span>}</td>
+                        <td className="px-3 py-2 border border-gray-200 font-mono text-gray-800 text-xs">
+                          {p.po_rbs_th_no
+                            ? p.po_rbs_th_no.split(/[,،、]\s*/).map((n, i) => <div key={i}>{n.trim()}</div>)
+                            : <span className="text-gray-400">—</span>}
+                        </td>
                         <td className="px-3 py-2 border border-gray-200 text-right text-gray-700">{p.currency === 'CNY' ? fmt(p.total_amount) : <span className="text-gray-300">—</span>}</td>
                         <td className="px-3 py-2 border border-gray-200 text-right text-gray-700">{p.currency === 'USD' ? fmt(p.total_amount) : <span className="text-gray-300">—</span>}</td>
                         <td className="px-3 py-2 border border-gray-200 text-right text-gray-700">{fmt(getEstFobThb(p))}</td>
