@@ -417,12 +417,33 @@ export default function POSummaryPage() {
           })
           .sort((a, b) => b.suppFob - a.suppFob)
 
-        // Detail items: 1 row per unique item_code, with all supplier entries
+        // Price ranking: for items with 2+ suppliers, rank by unit_thb
+        const priceWins = new Map<string, { rank1: number; rank2: number; totalScore: number; count: number }>()
+        let comparableCount = 0
+        for (const ic of itemCodes) {
+          const entries = (groupDetailMap.get(ic) ?? []).filter(e => e.unit_thb > 0)
+          if (entries.length < 2) continue
+          comparableCount++
+          const sorted = [...entries].sort((a, b) => a.unit_thb - b.unit_thb)
+          sorted.forEach((e, rank) => {
+            if (!priceWins.has(e.supplier)) priceWins.set(e.supplier, { rank1: 0, rank2: 0, totalScore: 0, count: 0 })
+            const pw = priceWins.get(e.supplier)!
+            if (rank === 0) pw.rank1++
+            if (rank === 1) pw.rank2++
+            pw.totalScore += rank
+            pw.count++
+          })
+        }
+        const priceRanking = Array.from(priceWins.entries())
+          .map(([supplier, pw]) => ({ supplier, ...pw, avgScore: pw.totalScore / pw.count }))
+          .sort((a, b) => a.avgScore - b.avgScore)
+
+        // Detail items: 1 row per unique item_code, supplier entries sorted cheapest first
         const sortedItems: GroupDetailItem[] = Array.from(itemCodes)
           .map(ic => {
             const baseItem = rowItems.find(i => i.item_code === ic)
             const supplierEntries = (groupDetailMap.get(ic) ?? [])
-              .sort((a, b) => b.total_thb - a.total_thb)
+              .sort((a, b) => a.unit_thb - b.unit_thb)  // cheapest first
             return {
               item_code: ic,
               description: baseItem?.description ?? null,
@@ -432,7 +453,7 @@ export default function POSummaryPage() {
           })
           .sort((a, b) => b.total_thb - a.total_thb)
 
-        return { group, itemCount, pct, fobThb, suppliers, suppSet, sortedItems, color: PALETTE[gi % PALETTE.length] }
+        return { group, itemCount, pct, fobThb, suppliers, suppSet, sortedItems, priceRanking, comparableCount, color: PALETTE[gi % PALETTE.length] }
       })
       .sort((a, b) => b.itemCount - a.itemCount)
   }, [rowItems, groupFobAlloc, groupDetailMap])
@@ -1000,6 +1021,29 @@ export default function POSummaryPage() {
                     </div>
                   </div>
 
+                  {/* Price ranking section */}
+                  {g.priceRanking.length > 0 && (
+                    <div className="px-5 pb-4 border-t" style={{ borderColor: '#f5f0e8' }}>
+                      <p className="text-xs font-semibold mt-3 mb-2" style={{ color: '#8a7a6a' }}>
+                        เปรียบราคาจาก {g.comparableCount} item code ที่มีหลายซัพ
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {g.priceRanking.map((r, ri) => {
+                          const medal = ri === 0 ? '🥇' : ri === 1 ? '🥈' : ri === 2 ? '🥉' : `#${ri + 1}`
+                          const bg = ri === 0 ? '#dcfce7' : ri === 1 ? '#fef9c3' : ri === 2 ? '#fce7f3' : '#f3f4f6'
+                          const col = ri === 0 ? '#15803d' : ri === 1 ? '#854d0e' : ri === 2 ? '#9d174d' : '#374151'
+                          return (
+                            <div key={r.supplier} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium" style={{ background: bg, color: col }}>
+                              <span>{medal}</span>
+                              <span className="font-bold">{r.supplier}</span>
+                              <span className="opacity-70">· ถูกสุด {r.rank1}/{r.count} รายการ</span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Expanded: item detail table */}
                   {isExpanded && (
                     <div className="border-t" style={{ borderColor: '#ede8df' }}>
@@ -1020,28 +1064,44 @@ export default function POSummaryPage() {
                               </tr>
                             </thead>
                             <tbody>
-                              {g.sortedItems.map((item) => (
-                                item.supplierEntries.map((e, ei) => (
-                                  <tr key={`${item.item_code}-${e.supplier}`}
-                                    className="border-t"
-                                    style={{ borderColor: ei === 0 ? '#ddd8ce' : '#f5f0e8' }}>
-                                    {ei === 0 ? (
-                                      <>
-                                        <td className="py-2 pr-4 font-mono font-semibold text-xs align-top" rowSpan={item.supplierEntries.length} style={{ color: '#3a2a1a' }}>{item.item_code}</td>
-                                        <td className="py-2 pr-4 text-xs align-top" rowSpan={item.supplierEntries.length} style={{ color: '#5a5a5a', maxWidth: '220px' }}>{item.description || '—'}</td>
-                                      </>
-                                    ) : null}
-                                    <td className="py-1.5 pr-3 text-xs">
-                                      <Link href={`/po-builder/${e.poId}`} className="hover:underline font-mono" style={{ color: '#d4962a' }}>{e.poLabel}</Link>
-                                    </td>
-                                    <td className="py-1.5 pr-4 text-xs font-semibold" style={{ color: '#3d8b82' }}>{e.supplier}</td>
-                                    <td className="py-1.5 pr-3 text-right text-xs tabular-nums" style={{ color: '#3a2a1a' }}>{fmt(e.qty)}</td>
-                                    <td className="py-1.5 pr-3 text-right text-xs tabular-nums" style={{ color: '#5a5a5a' }}>{e.currency === 'USD' ? '$' : '¥'}{fmt(e.unit_price, 2)}</td>
-                                    <td className="py-1.5 pr-3 text-right text-xs tabular-nums" style={{ color: '#6a5a4a' }}>{fmt(e.unit_thb, 2)}</td>
-                                    <td className="py-1.5 text-right text-xs font-semibold tabular-nums" style={{ color: '#3d8b82' }}>{fmt(e.total_thb, 2)}</td>
-                                  </tr>
-                                ))
-                              ))}
+                              {g.sortedItems.map((item) => {
+                                const hasMulti = item.supplierEntries.length > 1
+                                return item.supplierEntries.map((e, ei) => {
+                                  const rankBadge = hasMulti
+                                    ? ei === 0 ? { label: '1st', bg: '#dcfce7', col: '#15803d' }
+                                    : ei === 1 ? { label: '2nd', bg: '#fef9c3', col: '#854d0e' }
+                                    : ei === 2 ? { label: '3rd', bg: '#fce7f3', col: '#9d174d' }
+                                    : { label: `#${ei+1}`, bg: '#f3f4f6', col: '#374151' }
+                                    : null
+                                  return (
+                                    <tr key={`${item.item_code}-${e.supplier}`}
+                                      className="border-t"
+                                      style={{ borderColor: ei === 0 ? '#ddd8ce' : '#f5f0e8', background: ei === 0 && hasMulti ? '#f0fdf4' : undefined }}>
+                                      {ei === 0 ? (
+                                        <>
+                                          <td className="py-2 pr-4 font-mono font-semibold text-xs align-top" rowSpan={item.supplierEntries.length} style={{ color: '#3a2a1a' }}>{item.item_code}</td>
+                                          <td className="py-2 pr-4 text-xs align-top" rowSpan={item.supplierEntries.length} style={{ color: '#5a5a5a', maxWidth: '220px' }}>{item.description || '—'}</td>
+                                        </>
+                                      ) : null}
+                                      <td className="py-1.5 pr-3 text-xs">
+                                        <Link href={`/po-builder/${e.poId}`} className="hover:underline font-mono" style={{ color: '#d4962a' }}>{e.poLabel}</Link>
+                                      </td>
+                                      <td className="py-1.5 pr-4 text-xs font-semibold">
+                                        <span style={{ color: '#3d8b82' }}>{e.supplier}</span>
+                                        {rankBadge && (
+                                          <span className="ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: rankBadge.bg, color: rankBadge.col }}>
+                                            {rankBadge.label}
+                                          </span>
+                                        )}
+                                      </td>
+                                      <td className="py-1.5 pr-3 text-right text-xs tabular-nums" style={{ color: '#3a2a1a' }}>{fmt(e.qty)}</td>
+                                      <td className="py-1.5 pr-3 text-right text-xs tabular-nums" style={{ color: '#5a5a5a' }}>{e.currency === 'USD' ? '$' : '¥'}{fmt(e.unit_price, 2)}</td>
+                                      <td className="py-1.5 pr-3 text-right text-xs tabular-nums font-semibold" style={{ color: ei === 0 && hasMulti ? '#15803d' : '#6a5a4a' }}>{fmt(e.unit_thb, 2)}</td>
+                                      <td className="py-1.5 text-right text-xs font-semibold tabular-nums" style={{ color: '#3d8b82' }}>{fmt(e.total_thb, 2)}</td>
+                                    </tr>
+                                  )
+                                })
+                              })}
                             </tbody>
                           </table>
                         </div>
