@@ -417,12 +417,21 @@ export default function POSummaryPage() {
           })
           .sort((a, b) => b.suppFob - a.suppFob)
 
-        // Price ranking: for items with 2+ suppliers, rank by unit_thb
+        // Price ranking: items with 2+ suppliers → rank by unit_thb; sole supplier → auto rank1
         const priceWins = new Map<string, { rank1: number; rank2: number; totalScore: number; count: number }>()
         let comparableCount = 0
         for (const ic of itemCodes) {
           const entries = (groupDetailMap.get(ic) ?? []).filter(e => e.unit_thb > 0)
-          if (entries.length < 2) continue
+          if (entries.length === 0) continue
+          if (entries.length === 1) {
+            // sole supplier — automatic rank1 win
+            const e = entries[0]
+            if (!priceWins.has(e.supplier)) priceWins.set(e.supplier, { rank1: 0, rank2: 0, totalScore: 0, count: 0 })
+            const pw = priceWins.get(e.supplier)!
+            pw.rank1++
+            pw.count++
+            continue
+          }
           comparableCount++
           const sorted = [...entries].sort((a, b) => a.unit_thb - b.unit_thb)
           sorted.forEach((e, rank) => {
@@ -436,7 +445,7 @@ export default function POSummaryPage() {
         }
         const priceRanking = Array.from(priceWins.entries())
           .map(([supplier, pw]) => ({ supplier, ...pw, avgScore: pw.totalScore / pw.count }))
-          .sort((a, b) => a.avgScore - b.avgScore)
+          .sort((a, b) => b.rank1 - a.rank1 || a.avgScore - b.avgScore)
 
         // Detail items: 1 row per unique item_code, supplier entries sorted cheapest first
         const sortedItems: GroupDetailItem[] = Array.from(itemCodes)
