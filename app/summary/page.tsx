@@ -382,7 +382,7 @@ export default function SummaryPage() {
           {/* Title */}
           <div style={{ flex: 1, minWidth: 200 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: '#3d8b82', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 4 }}>Import PO</div>
-            <div style={{ fontSize: 30, fontWeight: 900, color: '#d4962a', lineHeight: 1.1 }}>ITEM SUMMARY</div>
+            <div style={{ fontSize: 30, fontWeight: 900, color: '#d4962a', lineHeight: 1.1 }}>INVOICE SUMMARY</div>
             <div style={{ fontSize: 13, color: '#7a9aaa', marginTop: 4 }}>สรุปยอดสั่งซื้อแยกตาม Supplier และ Item</div>
           </div>
           {/* KPI cards */}

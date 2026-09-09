@@ -226,7 +226,7 @@ export default function QCSummaryPage() {
           <span className="text-blue-600 cursor-default">Summary ▾</span>
           <div className="absolute left-0 top-full pt-1 hidden group-hover:block z-50">
             <div className="bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[150px]">
-              <Link href="/summary" className="block px-4 py-2 text-sm text-gray-700 hover:bg-blue-50">Item Summary</Link>
+              <Link href="/summary" className="block px-4 py-2 text-sm text-gray-700 hover:bg-blue-50">Invoice Summary</Link>
               <Link href="/qc/summary" className="block px-4 py-2 text-sm text-gray-700 hover:bg-blue-50">QC Summary</Link>
             </div>
           </div>

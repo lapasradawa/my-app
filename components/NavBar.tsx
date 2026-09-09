@@ -57,7 +57,7 @@ export default function NavBar({ onUnlock, onLock }: Props) {
 
       {/* Direct links when user has access to only one summary page */}
       {!showSummaryDropdown && canAccess('summary') && (
-        <Link href="/summary" className={cls('/summary')}>Item Summary</Link>
+        <Link href="/summary" className={cls('/summary')}>Invoice Summary</Link>
       )}
       {!showSummaryDropdown && canAccess('qc') && (
         <Link href="/qc/summary" className={pathname === '/qc/summary' ? 'text-blue-600' : 'text-gray-500 hover:text-gray-800 transition-colors'}>QC Summary</Link>
@@ -75,7 +75,7 @@ export default function NavBar({ onUnlock, onLock }: Props) {
             <div className="bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[150px]">
               {canAccess('summary') && (
                 <Link href="/summary" className={`block px-4 py-2 text-sm hover:bg-blue-50 ${pathname === '/summary' ? 'text-blue-600' : 'text-gray-700'}`}>
-                  Item Summary
+                  Invoice Summary
                 </Link>
               )}
               {canAccess('qc') && (
