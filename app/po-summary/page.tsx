@@ -84,6 +84,18 @@ function generateMonthKeys(count = 18): string[] {
 // ── Helpers ──────────────────────────────────────────────────────────────────
 const PALETTE = ['#3d8b82','#d4962a','#c85a3a','#6b5ea8','#2a7c9a','#c87a3a','#5a9a6b','#c85a82','#a89a3a','#3a82c8']
 
+// Supplier identity colors — stable per supplier name across all groups
+const SUPP_PALETTE: { bg: string; text: string; dot: string }[] = [
+  { bg: '#dbeafe', text: '#1e40af', dot: '#3b82f6' },  // blue
+  { bg: '#d1fae5', text: '#065f46', dot: '#10b981' },  // emerald
+  { bg: '#ede9fe', text: '#5b21b6', dot: '#8b5cf6' },  // violet
+  { bg: '#ffedd5', text: '#9a3412', dot: '#f97316' },  // orange
+  { bg: '#fce7f3', text: '#9d174d', dot: '#ec4899' },  // pink
+  { bg: '#ccfbf1', text: '#134e4a', dot: '#14b8a6' },  // teal
+  { bg: '#fef9c3', text: '#854d0e', dot: '#eab308' },  // amber
+  { bg: '#fce7f3', text: '#831843', dot: '#db2777' },  // rose
+]
+
 function fmt(n: number, dec = 0) {
   return n.toLocaleString(undefined, { minimumFractionDigits: dec, maximumFractionDigits: dec })
 }
@@ -223,6 +235,16 @@ export default function POSummaryPage() {
   , [periodFilteredUploads, selectedProject])
 
   const rateFor = (u: POUpload) => u.exchange_rate ?? (u.currency === 'USD' ? usdRate : cnyRate)
+
+  // Stable supplier → color map (sorted alphabetically so color never shifts)
+  const supplierColorMap = useMemo(() => {
+    const names = Array.from(new Set(filteredUploads.map(u => u.supplier))).sort()
+    const map = new Map<string, { bg: string; text: string; dot: string }>()
+    names.forEach((name, i) => map.set(name, SUPP_PALETTE[i % SUPP_PALETTE.length]))
+    return map
+  }, [filteredUploads])
+
+  const suppColor = (name: string) => supplierColorMap.get(name) ?? SUPP_PALETTE[0]
 
   // Unique item_codes from PO rows — dedup by item_code only (1 item = 1 SKU regardless of supplier)
   const rowItems = useMemo((): POItem[] => {
@@ -923,30 +945,30 @@ export default function POSummaryPage() {
               <div className="flex flex-col lg:flex-row gap-6 items-start">
                 <div className="shrink-0">
                   <DonutChart
-                    slices={supplierTotals.map((s, i) => ({ label: s.supplier, value: s.thb, color: PALETTE[i % PALETTE.length] }))}
+                    slices={supplierTotals.map(s => ({ label: s.supplier, value: s.thb, color: suppColor(s.supplier).dot }))}
                     total={grandPoThb} size={140}
                     centerLabel={grandPoThb >= 1000000 ? `${(grandPoThb / 1000000).toFixed(1)}M` : `${(grandPoThb/1000).toFixed(0)}k`}
                     centerSub="FOB THB"
                   />
                 </div>
                 <div className="flex-1 space-y-2.5">
-                  {supplierTotals.map((s, i) => {
+                  {supplierTotals.map((s) => {
                     const pct = grandPoThb > 0 ? (s.thb / grandPoThb) * 100 : 0
-                    const color = PALETTE[i % PALETTE.length]
+                    const sc = suppColor(s.supplier)
                     return (
                       <div key={s.supplier}>
                         <div className="flex items-center justify-between mb-1">
                           <div className="flex items-center gap-2">
-                            <span className="w-2.5 h-2.5 rounded-full" style={{ background: color }} />
+                            <span className="w-2.5 h-2.5 rounded-full" style={{ background: sc.dot }} />
                             <span className="text-sm font-medium" style={{ color: '#3a2a1a' }}>{s.supplier}</span>
                           </div>
                           <div className="flex items-center gap-3 text-xs">
                             <span style={{ color: '#6a6a6a' }}>{fmt(s.thb)} THB</span>
-                            <span className="font-semibold w-12 text-right" style={{ color }}>{pct.toFixed(1)}%</span>
+                            <span className="font-semibold w-12 text-right" style={{ color: sc.dot }}>{pct.toFixed(1)}%</span>
                           </div>
                         </div>
                         <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ background: '#ede8df' }}>
-                          <div className="h-full rounded-full" style={{ width: `${pct}%`, background: color }} />
+                          <div className="h-full rounded-full" style={{ width: `${pct}%`, background: sc.dot }} />
                         </div>
                       </div>
                     )
@@ -992,40 +1014,42 @@ export default function POSummaryPage() {
                     <div className="flex flex-col lg:flex-row gap-4 pt-4 items-start">
                       <div className="shrink-0">
                         <DonutChart
-                          slices={g.suppliers.map(s => ({ label: s.supplier, value: s.suppFob, color: s.color }))}
+                          slices={g.suppliers.map(s => ({ label: s.supplier, value: s.suppFob, color: suppColor(s.supplier).dot }))}
                           total={g.fobThb} size={100}
                           centerLabel={String(g.itemCount)} centerSub="item code"
                         />
                       </div>
                       <div className="flex-1 space-y-2.5 pt-1 min-w-0">
-                        {g.suppliers.map(s => (
+                        {g.suppliers.map(s => {
+                          const sc = suppColor(s.supplier)
+                          return (
                           <div key={s.supplier}>
                             <div className="flex items-center gap-1.5 min-w-0 mb-1">
-                              <span className="w-2 h-2 rounded-full shrink-0" style={{ background: s.color }} />
+                              <span className="w-2 h-2 rounded-full shrink-0" style={{ background: sc.dot }} />
                               <span className="text-xs font-medium truncate" style={{ color: '#3a2a1a' }}>{s.supplier}</span>
                             </div>
                             {/* Item code bar */}
                             <div className="flex items-center gap-2 mb-0.5">
                               <span className="text-xs w-16 shrink-0" style={{ color: '#9a8a7a' }}>item code</span>
                               <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: '#ede8df' }}>
-                                <div className="h-full rounded-full" style={{ width: `${s.pct}%`, background: s.color }} />
+                                <div className="h-full rounded-full" style={{ width: `${s.pct}%`, background: sc.dot }} />
                               </div>
-                              <span className="text-xs font-semibold w-8 text-right shrink-0" style={{ color: s.color }}>{s.pct.toFixed(0)}%</span>
+                              <span className="text-xs font-semibold w-8 text-right shrink-0" style={{ color: sc.dot }}>{s.pct.toFixed(0)}%</span>
                               <span className="text-xs w-14 text-right shrink-0" style={{ color: '#8a7a6a' }}>{s.count} codes</span>
                             </div>
                             {/* FOB THB bar */}
                             <div className="flex items-center gap-2">
                               <span className="text-xs w-16 shrink-0" style={{ color: '#9a8a7a' }}>FOB THB</span>
                               <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: '#ede8df' }}>
-                                <div className="h-full rounded-full" style={{ width: `${s.fobPct}%`, background: s.color, opacity: 0.55 }} />
+                                <div className="h-full rounded-full" style={{ width: `${s.fobPct}%`, background: sc.dot, opacity: 0.55 }} />
                               </div>
-                              <span className="text-xs font-semibold w-8 text-right shrink-0" style={{ color: s.color, opacity: 0.8 }}>{s.fobPct.toFixed(0)}%</span>
+                              <span className="text-xs font-semibold w-8 text-right shrink-0" style={{ color: sc.dot, opacity: 0.8 }}>{s.fobPct.toFixed(0)}%</span>
                               <span className="text-xs w-14 text-right shrink-0" style={{ color: '#8a7a6a' }}>
                                 {s.suppFob >= 1000000 ? `${(s.suppFob/1000000).toFixed(1)}M` : `${(s.suppFob/1000).toFixed(0)}k`}
                               </span>
                             </div>
                           </div>
-                        ))}
+                        )})}
                       </div>
                     </div>
                   </div>
@@ -1039,10 +1063,9 @@ export default function POSummaryPage() {
                       <div className="flex flex-wrap gap-2">
                         {g.priceRanking.map((r, ri) => {
                           const medal = ri === 0 ? '🥇' : ri === 1 ? '🥈' : ri === 2 ? '🥉' : `#${ri + 1}`
-                          const bg = ri === 0 ? '#dcfce7' : ri === 1 ? '#fef9c3' : ri === 2 ? '#fce7f3' : '#f3f4f6'
-                          const col = ri === 0 ? '#15803d' : ri === 1 ? '#854d0e' : ri === 2 ? '#9d174d' : '#374151'
+                          const sc = suppColor(r.supplier)
                           return (
-                            <div key={r.supplier} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium" style={{ background: bg, color: col }}>
+                            <div key={r.supplier} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium" style={{ background: sc.bg, color: sc.text }}>
                               <span>{medal}</span>
                               <span className="font-bold">{r.supplier}</span>
                               <span className="opacity-70">· ถูกสุด {r.rank1}/{r.count} รายการ</span>
