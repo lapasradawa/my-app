@@ -84,16 +84,24 @@ function generateMonthKeys(count = 18): string[] {
 // ── Helpers ──────────────────────────────────────────────────────────────────
 const PALETTE = ['#3d8b82','#d4962a','#c85a3a','#6b5ea8','#2a7c9a','#c87a3a','#5a9a6b','#c85a82','#a89a3a','#3a82c8']
 
-// Supplier identity colors — stable per supplier name across all groups
-const SUPP_PALETTE: { bg: string; text: string; dot: string }[] = [
-  { bg: '#dbeafe', text: '#1e40af', dot: '#3b82f6' },  // blue
-  { bg: '#d1fae5', text: '#065f46', dot: '#10b981' },  // emerald
-  { bg: '#ede9fe', text: '#5b21b6', dot: '#8b5cf6' },  // violet
-  { bg: '#ffedd5', text: '#9a3412', dot: '#f97316' },  // orange
-  { bg: '#fce7f3', text: '#9d174d', dot: '#ec4899' },  // pink
-  { bg: '#ccfbf1', text: '#134e4a', dot: '#14b8a6' },  // teal
-  { bg: '#fef9c3', text: '#854d0e', dot: '#eab308' },  // amber
-  { bg: '#fce7f3', text: '#831843', dot: '#db2777' },  // rose
+// Supplier identity colors — matches Order Plan Excel export SUP_COLOR
+const SUP_COLOR: Record<string, { bg: string; text: string; dot: string }> = {
+  'KNCD':     { bg: '#c6efc5', text: '#166534', dot: '#22c55e' },
+  'LITELON':  { bg: '#fddcb5', text: '#9a3412', dot: '#f97316' },
+  'MK':       { bg: '#d5b8ff', text: '#4c1d95', dot: '#8b5cf6' },
+  'SGL':      { bg: '#fff2cc', text: '#92400e', dot: '#eab308' },
+  'YG':       { bg: '#dcdcdc', text: '#374151', dot: '#6b7280' },
+  'YLD':      { bg: '#ffe4e1', text: '#9f1239', dot: '#f43f5e' },
+  'YONGGUAN': { bg: '#dcdcdc', text: '#374151', dot: '#6b7280' },
+  'YPN':      { bg: '#bdd7ee', text: '#1e3a8a', dot: '#3b82f6' },
+}
+const SUPP_FALLBACK: { bg: string; text: string; dot: string }[] = [
+  { bg: '#ffd0d0', text: '#991b1b', dot: '#ef4444' },
+  { bg: '#b3e5fc', text: '#0c4a6e', dot: '#0ea5e9' },
+  { bg: '#fef9c3', text: '#854d0e', dot: '#eab308' },
+  { bg: '#e0f2fe', text: '#075985', dot: '#0284c7' },
+  { bg: '#f3e8ff', text: '#581c87', dot: '#a855f7' },
+  { bg: '#fce7f3', text: '#9d174d', dot: '#ec4899' },
 ]
 
 function fmt(n: number, dec = 0) {
@@ -236,15 +244,18 @@ export default function POSummaryPage() {
 
   const rateFor = (u: POUpload) => u.exchange_rate ?? (u.currency === 'USD' ? usdRate : cnyRate)
 
-  // Stable supplier → color map (sorted alphabetically so color never shifts)
+  // Stable supplier → color (known names use SUP_COLOR, others get fallback by sorted index)
   const supplierColorMap = useMemo(() => {
     const names = Array.from(new Set(filteredUploads.map(u => u.supplier))).sort()
     const map = new Map<string, { bg: string; text: string; dot: string }>()
-    names.forEach((name, i) => map.set(name, SUPP_PALETTE[i % SUPP_PALETTE.length]))
+    let fi = 0
+    names.forEach(name => {
+      map.set(name, SUP_COLOR[name] ?? SUPP_FALLBACK[fi++ % SUPP_FALLBACK.length])
+    })
     return map
   }, [filteredUploads])
 
-  const suppColor = (name: string) => supplierColorMap.get(name) ?? SUPP_PALETTE[0]
+  const suppColor = (name: string) => supplierColorMap.get(name) ?? SUPP_FALLBACK[0]
 
   // Unique item_codes from PO rows — dedup by item_code only (1 item = 1 SKU regardless of supplier)
   const rowItems = useMemo((): POItem[] => {
