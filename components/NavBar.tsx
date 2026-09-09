@@ -21,7 +21,8 @@ export default function NavBar({ onUnlock, onLock }: Props) {
 
   // Summary dropdown active when on /summary or /qc/summary
   const summaryActive = pathname === '/summary' || pathname === '/qc/summary' || pathname === '/po-summary'
-  const showSummaryDropdown = canAccess('summary') || canAccess('qc') || canAccess('po-summary')
+  const summaryCount = [canAccess('summary'), canAccess('qc'), canAccess('po-summary')].filter(Boolean).length
+  const showSummaryDropdown = summaryCount >= 2
 
   return (
     <nav className="bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-6 text-sm shrink-0 sticky top-0 z-20 shadow-sm flex-wrap">
@@ -52,6 +53,17 @@ export default function NavBar({ onUnlock, onLock }: Props) {
       )}
       {canAccess('load-plan') && (
         <Link href="/load-plan" className={cls('/load-plan')}>Branch Load</Link>
+      )}
+
+      {/* Direct links when user has access to only one summary page */}
+      {!showSummaryDropdown && canAccess('summary') && (
+        <Link href="/summary" className={cls('/summary')}>Item Summary</Link>
+      )}
+      {!showSummaryDropdown && canAccess('qc') && (
+        <Link href="/qc/summary" className={pathname === '/qc/summary' ? 'text-blue-600' : 'text-gray-500 hover:text-gray-800 transition-colors'}>QC Summary</Link>
+      )}
+      {!showSummaryDropdown && canAccess('po-summary') && (
+        <Link href="/po-summary" className={cls('/po-summary')}>PO Summary</Link>
       )}
 
       {showSummaryDropdown && (
