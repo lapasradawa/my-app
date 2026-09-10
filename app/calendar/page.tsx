@@ -301,18 +301,21 @@ export default function CalendarPage() {
                         const arrEnd = pd(inv.estimated_arrival_end || inv.estimated_arrival!)
                         const cfg = S[inv.st] || S['อยู่ที่จีน']
 
-                        // Sunday (dow=6) is closed — bars never enter that column.
-                        // Clamp barStartDay to Mon (0) if source date falls on Sunday.
+                        // Sunday (dow=6) is allowed but shown in red as a warning.
                         const rawStart = arrStart < mon ? 0 : dow(arrStart)
-                        const barStartDay = rawStart === 6 ? 0 : rawStart // Sun start → treat as Mon next week (handled by nextWeek row)
+                        const barStartDay = rawStart  // allow Sunday (6)
 
-                        // Clamp barEndDay to Sat (5) — never render into Sunday column.
-                        const rawEnd = arrEnd > sun ? 5 : Math.min(dow(arrEnd), 5)
-                        const barEndDay = rawEnd
+                        const rawEnd = arrEnd > sun ? 6 : dow(arrEnd)
+                        const barEndDay = rawEnd  // allow Sunday (6)
 
-                        const prevCont = arrStart < mon || dow(arrStart) === 6
-                        // nextCont: extends past this week's Saturday (into Mon+)
-                        const nextCont = arrEnd > sun || (arrEnd <= sun && dow(arrEnd) === 6)
+                        // Flag: arrival date actually lands on Sunday
+                        const startsOnSunday = rawStart === 6 && arrStart >= mon
+                        const endsOnSunday = rawEnd === 6 && arrEnd <= sun
+                        const isOnSunday = startsOnSunday || endsOnSunday
+
+                        const prevCont = arrStart < mon
+                        // nextCont: extends past this week's Sunday
+                        const nextCont = arrEnd > sun
 
                         // Border-radius: pill if starts/ends here, square if continues
                         const rl = prevCont ? '4px' : '18px'
@@ -362,31 +365,31 @@ export default function CalendarPage() {
                                 margin: '5px 4px',
                                 height: arrivesToday ? 'calc(100% - 10px)' : 'calc(100% - 10px)',
                                 borderRadius: radius,
-                                background: arrivesToday ? cfg.stroke : cfg.fill,
+                                background: arrivesToday ? cfg.stroke : isOnSunday ? '#fee2e2' : cfg.fill,
                                 border: arrivesToday
                                   ? `2px solid ${cfg.stroke}`
-                                  : undefined,
-                                borderTop: arrivesToday ? undefined : `1.5px solid ${cfg.stroke}50`,
-                                borderRight: arrivesToday ? undefined : `1.5px solid ${cfg.stroke}50`,
-                                borderBottom: arrivesToday ? undefined : `1.5px solid ${cfg.stroke}50`,
-                                borderLeft: arrivesToday ? undefined : `${leftBorderW} solid ${cfg.stroke}`,
+                                  : isOnSunday ? '2px solid #ef4444' : undefined,
+                                borderTop: arrivesToday || isOnSunday ? undefined : `1.5px solid ${cfg.stroke}50`,
+                                borderRight: arrivesToday || isOnSunday ? undefined : `1.5px solid ${cfg.stroke}50`,
+                                borderBottom: arrivesToday || isOnSunday ? undefined : `1.5px solid ${cfg.stroke}50`,
+                                borderLeft: arrivesToday || isOnSunday ? undefined : `${leftBorderW} solid ${cfg.stroke}`,
                                 boxShadow: arrivesToday
                                   ? `0 0 0 3px ${cfg.stroke}30, 0 4px 16px ${cfg.stroke}50`
-                                  : undefined,
+                                  : isOnSunday ? '0 0 0 2px #fca5a530, 0 2px 8px #ef444440' : undefined,
                               }}
                               title={`${inv.invoice_no}${inv.supplier ? ' · ' + inv.supplier : ''} · ${inv.st}`}
                             >
                               {prevCont && (
                                 <span
                                   className="text-[10px] pl-1.5 pr-0.5 shrink-0 opacity-60"
-                                  style={{ color: arrivesToday ? 'white' : cfg.textColor }}
+                                  style={{ color: arrivesToday ? 'white' : isOnSunday ? '#991b1b' : cfg.textColor }}
                                 >◀</span>
                               )}
                               <div className="flex flex-col justify-center px-2 overflow-hidden flex-1 min-w-0">
                                 <div className="flex items-center gap-1 min-w-0">
                                   <span
                                     className="truncate leading-none font-bold text-[11px]"
-                                    style={{ color: arrivesToday ? 'white' : cfg.textColor }}
+                                    style={{ color: arrivesToday ? 'white' : isOnSunday ? '#991b1b' : cfg.textColor }}
                                   >
                                     {inv.invoice_no}
                                   </span>
@@ -395,11 +398,16 @@ export default function CalendarPage() {
                                       เข้าวันนี้!
                                     </span>
                                   )}
+                                  {isOnSunday && !arrivesToday && (
+                                    <span className="shrink-0 text-[8px] font-black bg-red-500 text-white rounded-full px-1.5 py-0.5 leading-none whitespace-nowrap">
+                                      วันหยุด
+                                    </span>
+                                  )}
                                 </div>
                                 {inv.supplier && (
                                   <span
                                     className="text-[9px] truncate leading-none mt-0.5"
-                                    style={{ color: arrivesToday ? 'rgba(255,255,255,0.75)' : cfg.textColor, opacity: arrivesToday ? 1 : 0.6 }}
+                                    style={{ color: arrivesToday ? 'rgba(255,255,255,0.75)' : isOnSunday ? '#b91c1c' : cfg.textColor, opacity: arrivesToday ? 1 : 0.6 }}
                                   >
                                     {inv.supplier}
                                   </span>
@@ -408,7 +416,7 @@ export default function CalendarPage() {
                               {nextCont && (
                                 <span
                                   className="text-[10px] pr-1.5 pl-0.5 shrink-0 opacity-60"
-                                  style={{ color: arrivesToday ? 'white' : cfg.textColor }}
+                                  style={{ color: arrivesToday ? 'white' : isOnSunday ? '#991b1b' : cfg.textColor }}
                                 >▶</span>
                               )}
                             </Link>
