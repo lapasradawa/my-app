@@ -71,10 +71,15 @@ function gc(dayIdx: number) { return dayIdx + 2 }
 
 const LABEL_W = 80 // px width of week-label column
 
+const HUBS_FILTER = ['ทั้งหมด', 'มัยลาภ', 'ขอนแก่น', 'พิษณุโลก', 'สุราษฎร์ธานี'] as const
+type HubFilter = typeof HUBS_FILTER[number]
+
 export default function CalendarPage() {
   const [invoices, setInvoices] = useState<CalInvoice[]>([])
   const [loading, setLoading] = useState(true)
   const [hubMap, setHubMap] = useState<Map<string, string>>(new Map()) // invoice_id → hub label summary
+  const [confirmedHubsMap, setConfirmedHubsMap] = useState<Map<string, Set<string>>>(new Map()) // invoice_id → set of confirmed hubs
+  const [hubFilter, setHubFilter] = useState<HubFilter>('ทั้งหมด')
   const [curDate, setCurDate] = useState(() => {
     const d = new Date()
     return new Date(d.getFullYear(), d.getMonth(), 1)
@@ -92,16 +97,20 @@ export default function CalendarPage() {
     ])
     if (data) setInvoices(data as CalInvoice[])
     if (hubs) {
-      // Build invoice_id → unique confirmed non-default hubs
-      const m = new Map<string, Set<string>>()
-      for (const h of hubs as { invoice_id: string; hub: string; status: string }[]) {
-        if (h.hub !== 'มัยลาภ') {
-          if (!m.has(h.invoice_id)) m.set(h.invoice_id, new Set())
-          m.get(h.invoice_id)!.add(h.hub)
-        }
+      const hubRows = hubs as { invoice_id: string; hub: string }[]
+      // confirmedHubsMap: all confirmed hubs per invoice (for filtering)
+      const cm = new Map<string, Set<string>>()
+      for (const h of hubRows) {
+        if (!cm.has(h.invoice_id)) cm.set(h.invoice_id, new Set())
+        cm.get(h.invoice_id)!.add(h.hub)
       }
+      setConfirmedHubsMap(cm)
+      // hubMap: non-default hubs only (for badge display)
       const result = new Map<string, string>()
-      m.forEach((hubs, invId) => result.set(invId, Array.from(hubs).join(', ')))
+      cm.forEach((hubSet, invId) => {
+        const nonDefault = Array.from(hubSet).filter(h => h !== 'มัยลาภ')
+        if (nonDefault.length > 0) result.set(invId, nonDefault.join(', '))
+      })
       setHubMap(result)
     }
     setLoading(false)
@@ -131,12 +140,25 @@ export default function CalendarPage() {
   }, [year, month])
 
   const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`
-  const monthArrivals = invoices.filter(inv => inv.estimated_arrival?.startsWith(monthStr))
-  const monthEtas = invoices.filter(inv => inv.eta_date?.startsWith(monthStr))
+  const monthArrivals = filteredInvoices.filter(inv => inv.estimated_arrival?.startsWith(monthStr))
+  const monthEtas = filteredInvoices.filter(inv => inv.eta_date?.startsWith(monthStr))
+
+  const filteredInvoices = useMemo(() => {
+    if (hubFilter === 'ทั้งหมด') return invoices
+    return invoices.filter(inv => {
+      const hubs = confirmedHubsMap.get(inv.id)
+      if (hubFilter === 'มัยลาภ') {
+        // Show if no non-default confirmed hubs (all containers default to มัยลาภ)
+        return !hubs || hubs.size === 0 || (hubs.size === 1 && hubs.has('มัยลาภ'))
+      }
+      // Show if any container confirmed for this hub
+      return hubs?.has(hubFilter) ?? false
+    })
+  }, [invoices, confirmedHubsMap, hubFilter])
 
   const weeksData = useMemo(() => weeks.map(w => {
     const wM = ds(w.mon); const wS = ds(w.sun)
-    const inv = invoices
+    const inv = filteredInvoices
       .filter(inv => {
         if (!inv.estimated_arrival) return false
         return inv.estimated_arrival <= wS && (inv.estimated_arrival_end || inv.estimated_arrival) >= wM
@@ -146,7 +168,7 @@ export default function CalendarPage() {
         st: computeStatus(inv.status, inv.estimated_arrival, inv.estimated_arrival_end, inv.eta_date),
       }))
     return { ...w, inv }
-  }), [weeks, invoices])
+  }), [weeks, filteredInvoices])
 
   const GRID = `${LABEL_W}px repeat(7, minmax(0, 1fr))`
 
@@ -177,6 +199,23 @@ export default function CalendarPage() {
                 <span className="font-black">{s.n}</span>
                 <span className="font-medium opacity-80">{s.label}</span>
               </div>
+            ))}
+          </div>
+
+          {/* Hub filter */}
+          <div className="flex items-center gap-1">
+            {HUBS_FILTER.map(h => (
+              <button
+                key={h}
+                onClick={() => setHubFilter(h)}
+                className={`px-2.5 py-1 rounded-full text-xs font-semibold border transition-colors ${
+                  hubFilter === h
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300 hover:text-blue-600'
+                }`}
+              >
+                {h === 'ทั้งหมด' ? 'ทุกคลัง' : h}
+              </button>
             ))}
           </div>
 
