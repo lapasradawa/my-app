@@ -126,6 +126,7 @@ export default function DashboardPage() {
   const [unlocked, setUnlocked] = useState(false)
   const [showPasswordModal, setShowPasswordModal] = useState(false)
   const [pendingAction, setPendingAction] = useState<(() => void) | null>(null)
+  const [pendingHubIds, setPendingHubIds] = useState<Set<string>>(new Set())
 
   useEffect(() => { loadInvoices(); setUnlocked(isUnlocked()) }, [])
 
@@ -153,6 +154,14 @@ export default function DashboardPage() {
         }
       }
       setEdits(initial)
+    }
+    // Fetch pending hub requests to show badge on invoice list
+    const { data: hubPending } = await supabase
+      .from('container_hub_requests')
+      .select('invoice_id')
+      .eq('status', 'pending')
+    if (hubPending) {
+      setPendingHubIds(new Set((hubPending as { invoice_id: string }[]).map(r => r.invoice_id)))
     }
     setLoading(false)
   }
@@ -367,9 +376,14 @@ export default function DashboardPage() {
                   return (
                     <tr key={inv.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50/60 transition-colors">
                       <td className="px-4 py-3">
-                        <Link href={`/dashboard/${inv.id}`} className="font-semibold text-blue-600 hover:text-blue-800 hover:underline">
-                          {inv.invoice_no || '-'}
-                        </Link>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Link href={`/dashboard/${inv.id}`} className="font-semibold text-blue-600 hover:text-blue-800 hover:underline">
+                            {inv.invoice_no || '-'}
+                          </Link>
+                          {pendingHubIds.has(inv.id) && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-orange-100 text-orange-700 border border-orange-200 whitespace-nowrap">⏳ Hub pending</span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-4 py-3">
                         {unlocked ? (
