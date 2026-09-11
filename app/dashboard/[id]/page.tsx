@@ -2,11 +2,23 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import type { ResultRow } from '@/lib/excel-parser'
 import { exportToExcel } from '@/lib/excel-exporter'
 import { isUnlocked, tryUnlock } from '@/lib/auth'
+import { usePermissions } from '@/lib/permissions'
+
+const HUBS = ['มัยลาภ', 'ขอนแก่น', 'พิษณุโลก', 'สุราษฎร์ธานี'] as const
+type Hub = typeof HUBS[number]
+
+interface HubRequest {
+  container_name: string
+  hub: Hub
+  requested_by: string
+  status: 'pending' | 'confirmed'
+  created_at: string
+}
 
 const STATUS_STYLE: Record<string, string> = {
   'อยู่ที่จีน': 'bg-yellow-100 text-yellow-800',
@@ -129,9 +141,17 @@ function PasswordGate({ onSuccess, onCancel }: { onSuccess: () => void; onCancel
 export default function InvoiceDetailPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const { isAdmin } = usePermissions()
   const [invoice, setInvoice] = useState<Invoice | null>(null)
   const [loading, setLoading] = useState(true)
   const [unlocked, setUnlocked] = useState(false)
+
+  // Hub routing
+  const [hubRequests, setHubRequests] = useState<HubRequest[]>([])
+  const [hubPopup, setHubPopup] = useState<string | null>(null) // container_name
+  const [hubSending, setHubSending] = useState(false)
+  const [hubConfirming, setHubConfirming] = useState(false)
 
   // Password gate
   const [showPW, setShowPW] = useState(false)
@@ -181,6 +201,12 @@ export default function InvoiceDetailPage() {
     load()
   }, [id])
 
+  useEffect(() => {
+    // Auto-open popup from email deep-link ?container=XXXX
+    const c = searchParams.get('container')
+    if (c) setHubPopup(c)
+  }, [searchParams])
+
   async function createQCReport() {
     if (!invoice) return
     const now = new Date()
@@ -219,12 +245,58 @@ export default function InvoiceDetailPage() {
       }
       setInvoice(inv)
     }
+    // Fetch hub requests for this invoice
+    const { data: hubs } = await supabase
+      .from('container_hub_requests')
+      .select('container_name, hub, requested_by, status, created_at')
+      .eq('invoice_id', id)
+    setHubRequests((hubs ?? []) as HubRequest[])
     setLoading(false)
   }
 
   function requireUnlock(action: () => void) {
     if (isUnlocked()) { action() }
     else { setPwCallback(() => action); setShowPW(true) }
+  }
+
+  // Hub request helpers
+  function hubFor(containerName: string): HubRequest | undefined {
+    return hubRequests.find(r => r.container_name === containerName)
+  }
+
+  async function requestHub(containerName: string, hub: Hub) {
+    if (!invoice) return
+    const { data: { user } } = await supabase.auth.getUser()
+    const userEmail = user?.email ?? 'unknown'
+    setHubSending(true)
+    try {
+      await fetch('/api/hub-request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invoice_id: id, invoice_no: invoice.invoice_no, container_name: containerName, hub, requested_by: userEmail }),
+      })
+      setHubRequests(prev => {
+        const filtered = prev.filter(r => r.container_name !== containerName)
+        return [...filtered, { container_name: containerName, hub, requested_by: userEmail, status: 'pending', created_at: new Date().toISOString() }]
+      })
+    } finally {
+      setHubSending(false)
+    }
+  }
+
+  async function confirmHub(containerName: string) {
+    if (!invoice) return
+    setHubConfirming(true)
+    try {
+      await fetch('/api/hub-request', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invoice_id: id, container_name: containerName }),
+      })
+      setHubRequests(prev => prev.map(r => r.container_name === containerName ? { ...r, status: 'confirmed' } : r))
+    } finally {
+      setHubConfirming(false)
+    }
   }
 
   // Save total amount
@@ -908,9 +980,32 @@ export default function InvoiceDetailPage() {
                 <th className="px-3 py-2 border-b border-gray-200 sticky top-0 z-30 bg-gray-100" style={{ left: L.desc }}>Description</th>
                 <th className="px-3 py-2 border-b border-gray-200 sticky top-0 z-30 bg-gray-100" style={{ left: L.po }}>PO</th>
                 <th className="px-3 py-2 text-right border-b border-gray-200 sticky top-0 z-30 bg-gray-100 shadow-[2px_0_5px_rgba(0,0,0,0.07)]" style={{ left: L.qty }}>QTY</th>
-                {invoice.container_names.map(name => (
-                  <th key={name} className="px-3 py-2 text-right border-b border-gray-200 whitespace-nowrap sticky top-0 z-20 bg-gray-100">{name}</th>
-                ))}
+                {invoice.container_names.map(name => {
+                  const hr = hubFor(name)
+                  const isOtherHub = hr && hr.hub !== 'มัยลาภ'
+                  const bgCls = hr?.status === 'confirmed' && isOtherHub
+                    ? 'bg-amber-100 text-amber-900'
+                    : hr?.status === 'pending' && isOtherHub
+                    ? 'bg-orange-50 text-orange-800'
+                    : 'bg-gray-100'
+                  return (
+                    <th
+                      key={name}
+                      className={`px-3 py-2 text-right border-b border-gray-200 whitespace-nowrap sticky top-0 z-20 cursor-pointer hover:bg-blue-50 transition-colors ${bgCls}`}
+                      onClick={() => setHubPopup(name)}
+                      title={hr ? `Hub: ${hr.hub} (${hr.status})` : 'คลิกเพื่อตั้งปลายทาง'}
+                    >
+                      <div className="flex flex-col items-end gap-0.5">
+                        <span>{name}</span>
+                        {hr && isOtherHub && (
+                          <span className={`text-[9px] font-bold px-1 py-0.5 rounded ${hr.status === 'confirmed' ? 'bg-amber-500 text-white' : 'bg-orange-400 text-white'}`}>
+                            {hr.hub}
+                          </span>
+                        )}
+                      </div>
+                    </th>
+                  )
+                })}
                 <th className="px-3 py-2 text-right border-b border-gray-200 sticky top-0 z-20 bg-gray-100">LEFT</th>
               </tr>
             </thead>
@@ -951,6 +1046,71 @@ export default function InvoiceDetailPage() {
           </table>
         </div>
       </div>
+
+      {/* ── Hub Routing Popup ── */}
+      {hubPopup && invoice && (() => {
+        const hr = hubFor(hubPopup)
+        const currentHub: Hub = (hr?.hub as Hub) ?? 'มัยลาภ'
+        return (
+          <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setHubPopup(null)}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-base font-bold text-gray-900">ปลายทางตู้</h2>
+                <button onClick={() => setHubPopup(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+              </div>
+
+              <p className="text-sm font-mono font-bold text-gray-700 mb-1">{hubPopup}</p>
+              <p className="text-xs text-gray-500 mb-4">Invoice: {invoice.invoice_no}</p>
+
+              <div className={`rounded-xl px-4 py-3 mb-4 ${hr?.status === 'confirmed' ? 'bg-amber-50 border border-amber-200' : 'bg-blue-50 border border-blue-200'}`}>
+                <p className="text-xs text-gray-500 mb-1">ปลายทางปัจจุบัน</p>
+                <p className="font-bold text-gray-900 text-sm">Warehouse {currentHub}</p>
+                {hr && (
+                  <div className="mt-2 flex items-center gap-2 flex-wrap">
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${hr.status === 'confirmed' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
+                      {hr.status === 'confirmed' ? '✓ ยืนยันแล้ว' : '⏳ Pending'}
+                    </span>
+                    <span className="text-[10px] text-gray-400">โดย {hr.requested_by}</span>
+                  </div>
+                )}
+              </div>
+
+              {isAdmin && hr?.status === 'pending' && (
+                <button
+                  onClick={() => confirmHub(hubPopup)}
+                  disabled={hubConfirming}
+                  className="w-full mb-4 px-4 py-2.5 rounded-xl bg-green-600 text-white text-sm font-semibold hover:bg-green-700 disabled:opacity-50"
+                >
+                  {hubConfirming ? 'กำลังยืนยัน...' : '✓ ยืนยันดำเนินการแล้ว'}
+                </button>
+              )}
+
+              {(!hr || hr.status !== 'confirmed') && (
+                <>
+                  <p className="text-xs font-semibold text-gray-600 mb-2">เลือก Hub ปลายทาง</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {HUBS.map(hub => (
+                      <button
+                        key={hub}
+                        onClick={() => { if (!hubSending) requestHub(hubPopup, hub) }}
+                        disabled={hubSending}
+                        className={`px-3 py-2.5 rounded-xl text-sm font-medium border transition-colors disabled:opacity-50 ${
+                          currentHub === hub
+                            ? 'bg-blue-600 text-white border-blue-600'
+                            : 'bg-white text-gray-700 border-gray-200 hover:border-blue-300 hover:bg-blue-50'
+                        }`}
+                      >
+                        {hub === 'มัยลาภ' ? '🏭 ' : '📦 '}Warehouse {hub}
+                      </button>
+                    ))}
+                  </div>
+                  {hubSending && <p className="text-xs text-blue-600 mt-2 text-center">กำลังส่งคำร้อง...</p>}
+                </>
+              )}
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }

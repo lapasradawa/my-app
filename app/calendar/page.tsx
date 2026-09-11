@@ -74,6 +74,7 @@ const LABEL_W = 80 // px width of week-label column
 export default function CalendarPage() {
   const [invoices, setInvoices] = useState<CalInvoice[]>([])
   const [loading, setLoading] = useState(true)
+  const [hubMap, setHubMap] = useState<Map<string, string>>(new Map()) // invoice_id → hub label summary
   const [curDate, setCurDate] = useState(() => {
     const d = new Date()
     return new Date(d.getFullYear(), d.getMonth(), 1)
@@ -85,11 +86,24 @@ export default function CalendarPage() {
   useEffect(() => { load() }, [])
 
   async function load() {
-    const { data } = await supabase
-      .from('invoices')
-      .select('id, invoice_no, status, estimated_arrival, estimated_arrival_end, eta_date, supplier')
-      .order('estimated_arrival', { ascending: true })
+    const [{ data }, { data: hubs }] = await Promise.all([
+      supabase.from('invoices').select('id, invoice_no, status, estimated_arrival, estimated_arrival_end, eta_date, supplier').order('estimated_arrival', { ascending: true }),
+      supabase.from('container_hub_requests').select('invoice_id, hub, status').eq('status', 'confirmed'),
+    ])
     if (data) setInvoices(data as CalInvoice[])
+    if (hubs) {
+      // Build invoice_id → unique confirmed non-default hubs
+      const m = new Map<string, Set<string>>()
+      for (const h of hubs as { invoice_id: string; hub: string; status: string }[]) {
+        if (h.hub !== 'มัยลาภ') {
+          if (!m.has(h.invoice_id)) m.set(h.invoice_id, new Set())
+          m.get(h.invoice_id)!.add(h.hub)
+        }
+      }
+      const result = new Map<string, string>()
+      m.forEach((hubs, invId) => result.set(invId, Array.from(hubs).join(', ')))
+      setHubMap(result)
+    }
     setLoading(false)
   }
 
@@ -410,6 +424,11 @@ export default function CalendarPage() {
                                     style={{ color: arrivesToday ? 'rgba(255,255,255,0.75)' : isOnSunday ? '#b91c1c' : cfg.textColor, opacity: arrivesToday ? 1 : 0.6 }}
                                   >
                                     {inv.supplier}
+                                  </span>
+                                )}
+                                {hubMap.get(inv.id) && (
+                                  <span className="text-[8px] font-bold bg-amber-500 text-white rounded px-1 py-0.5 leading-none whitespace-nowrap mt-0.5 shrink-0">
+                                    Hub {hubMap.get(inv.id)}
                                   </span>
                                 )}
                               </div>
