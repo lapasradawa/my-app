@@ -8,9 +8,10 @@ export async function POST(req: NextRequest) {
     const groupId = event.source?.groupId
     const replyToken = event.replyToken
 
+    console.log('LINE event:', JSON.stringify({ type: event.type, groupId, hasReplyToken: !!replyToken }))
+
     if (groupId && replyToken) {
-      // Reply to group with its own ID so admin can copy it
-      await fetch('https://api.line.me/v2/bot/message/reply', {
+      const res = await fetch('https://api.line.me/v2/bot/message/reply', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -21,6 +22,8 @@ export async function POST(req: NextRequest) {
           messages: [{ type: 'text', text: `Group ID: ${groupId}` }],
         }),
       })
+      const result = await res.text()
+      console.log('LINE reply result:', res.status, result)
     }
   }
 
