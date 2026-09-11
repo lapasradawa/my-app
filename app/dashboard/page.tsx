@@ -371,7 +371,7 @@ export default function DashboardPage() {
               <tbody>
                 {invoices.map((inv) => {
                   const e = edits[inv.id] || { status: 'อยู่ที่จีน' as Status, estimated_arrival: '', estimated_arrival_end: '' }
-                  const showDate = e.status === 'On board' || e.status === 'กำลังเข้าคลัง' || e.status === 'ถึงไทย กำลังเข้าคลัง' || e.status === 'ถึงคลัง'
+                  const showDate = e.status === 'On board' || e.status === 'กำลังเข้าคลัง' || (e.status as string) === 'ถึงไทย กำลังเข้าคลัง' || (e.status as string) === 'ถึงคลัง'
                   const displaySt = computeStatus(inv.status, inv.estimated_arrival, inv.estimated_arrival_end, inv.eta_date)
                   return (
                     <tr key={inv.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50/60 transition-colors">
@@ -401,7 +401,7 @@ export default function DashboardPage() {
                       <td className="px-4 py-3 whitespace-nowrap">
                         {unlocked && displaySt !== 'เข้าคลังแล้ว' ? (
                           <select
-                            value={e.status === 'ถึงคลัง' || e.status === 'ถึงไทย กำลังเข้าคลัง' ? 'กำลังเข้าคลัง' : e.status}
+                            value={(e.status as string) === 'ถึงคลัง' || (e.status as string) === 'ถึงไทย กำลังเข้าคลัง' ? 'กำลังเข้าคลัง' : e.status}
                             onChange={ev => setField(inv.id, 'status', ev.target.value as Status)}
                             className={`text-xs font-medium px-2 py-1 rounded-full border cursor-pointer outline-none ${STATUS_STYLE[e.status] || ''}`}
                           >

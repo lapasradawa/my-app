@@ -80,6 +80,7 @@ interface Invoice {
   estimated_arrival_end: string | null
   eta_date: string | null
   vendor_code: string | null
+  supplier: string | null
 }
 
 function computeDueDate(blDate: string | null): Date | null {
