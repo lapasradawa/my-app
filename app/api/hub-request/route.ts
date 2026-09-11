@@ -75,9 +75,11 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: 'missing fields' }, { status: 400 })
   }
 
+  const { confirmed_by } = body
+
   const { error } = await supabase
     .from('container_hub_requests')
-    .update({ status: 'confirmed', confirmed_at: new Date().toISOString() })
+    .update({ status: 'confirmed', confirmed_at: new Date().toISOString(), confirmed_by: confirmed_by ?? null })
     .eq('invoice_id', invoice_id)
     .eq('container_name', container_name)
 

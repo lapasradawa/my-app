@@ -18,6 +18,7 @@ interface HubRequest {
   requested_by: string
   status: 'pending' | 'confirmed'
   created_at: string
+  confirmed_by?: string
 }
 
 const STATUS_STYLE: Record<string, string> = {
@@ -248,7 +249,7 @@ export default function InvoiceDetailPage() {
     // Fetch hub requests for this invoice
     const { data: hubs } = await supabase
       .from('container_hub_requests')
-      .select('container_name, hub, requested_by, status, created_at')
+      .select('container_name, hub, requested_by, status, created_at, confirmed_by')
       .eq('invoice_id', id)
     setHubRequests((hubs ?? []) as HubRequest[])
     setLoading(false)
@@ -277,7 +278,7 @@ export default function InvoiceDetailPage() {
       })
       setHubRequests(prev => {
         const filtered = prev.filter(r => r.container_name !== containerName)
-        return [...filtered, { container_name: containerName, hub, requested_by: userEmail, status: 'pending', created_at: new Date().toISOString() }]
+        return [...filtered, { container_name: containerName, hub, requested_by: userEmail, status: 'pending', created_at: new Date().toISOString(), confirmed_by: undefined }]
       })
     } finally {
       setHubSending(false)
@@ -287,13 +288,15 @@ export default function InvoiceDetailPage() {
   async function confirmHub(containerName: string) {
     if (!invoice) return
     setHubConfirming(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    const confirmerEmail = user?.email ?? 'unknown'
     try {
       await fetch('/api/hub-request', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invoice_id: id, container_name: containerName }),
+        body: JSON.stringify({ invoice_id: id, container_name: containerName, confirmed_by: confirmerEmail }),
       })
-      setHubRequests(prev => prev.map(r => r.container_name === containerName ? { ...r, status: 'confirmed' } : r))
+      setHubRequests(prev => prev.map(r => r.container_name === containerName ? { ...r, status: 'confirmed', confirmed_by: confirmerEmail } : r))
     } finally {
       setHubConfirming(false)
     }
@@ -1066,11 +1069,16 @@ export default function InvoiceDetailPage() {
                 <p className="text-xs text-gray-500 mb-1">ปลายทางปัจจุบัน</p>
                 <p className="font-bold text-gray-900 text-sm">Warehouse {currentHub}</p>
                 {hr && (
-                  <div className="mt-2 flex items-center gap-2 flex-wrap">
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${hr.status === 'confirmed' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
-                      {hr.status === 'confirmed' ? '✓ ยืนยันแล้ว' : '⏳ Pending'}
-                    </span>
-                    <span className="text-[10px] text-gray-400">โดย {hr.requested_by}</span>
+                  <div className="mt-2 space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${hr.status === 'confirmed' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
+                        {hr.status === 'confirmed' ? '✓ ยืนยันแล้ว' : '⏳ รอยืนยัน'}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-gray-500">ขอโดย: <span className="font-medium text-gray-700">{hr.requested_by}</span></p>
+                    {hr.status === 'confirmed' && hr.confirmed_by && (
+                      <p className="text-[10px] text-gray-500">ยืนยันโดย: <span className="font-medium text-green-700">{hr.confirmed_by}</span></p>
+                    )}
                   </div>
                 )}
               </div>

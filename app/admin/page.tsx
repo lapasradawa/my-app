@@ -62,7 +62,9 @@ export default function AdminPage() {
   }
 
   async function confirmHub(invoiceId: string, containerName: string) {
-    await supabase.from('container_hub_requests').update({ status: 'confirmed', confirmed_at: new Date().toISOString() }).eq('invoice_id', invoiceId).eq('container_name', containerName)
+    const { data: { user } } = await supabase.auth.getUser()
+    const confirmedBy = user?.email ?? 'admin'
+    await supabase.from('container_hub_requests').update({ status: 'confirmed', confirmed_at: new Date().toISOString(), confirmed_by: confirmedBy }).eq('invoice_id', invoiceId).eq('container_name', containerName)
     setHubRequests(prev => prev.filter(r => !(r.invoice_id === invoiceId && r.container_name === containerName)))
   }
 
