@@ -1083,16 +1083,6 @@ export default function InvoiceDetailPage() {
                 )}
               </div>
 
-              {isAdmin && hr?.status === 'pending' && (
-                <button
-                  onClick={() => confirmHub(hubPopup)}
-                  disabled={hubConfirming}
-                  className="w-full mb-4 px-4 py-2.5 rounded-xl bg-green-600 text-white text-sm font-semibold hover:bg-green-700 disabled:opacity-50"
-                >
-                  {hubConfirming ? 'กำลังยืนยัน...' : '✓ ยืนยันดำเนินการแล้ว'}
-                </button>
-              )}
-
               {/* Hub selection — always shown; confirmed state shows note */}
               <div className="border-t pt-4 mt-2">
                 <div className="flex items-center justify-between mb-2">
@@ -1108,7 +1098,12 @@ export default function InvoiceDetailPage() {
                     return (
                       <button
                         key={hub}
-                        onClick={() => { if (!hubSending) requestHub(hubPopup, hub) }}
+                        onClick={() => {
+                          if (hubSending) return
+                          const label = `Warehouse ${hub}`
+                          if (!confirm(`ยืนยันขอเปลี่ยนปลายทางตู้ ${hubPopup}\nไปที่ ${label} ใช่หรือไม่?`)) return
+                          requestHub(hubPopup, hub)
+                        }}
                         disabled={hubSending}
                         className={`px-3 py-2.5 rounded-xl text-sm font-medium border transition-colors disabled:opacity-50 ${
                           isConfirmed
