@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
   const lineToken = process.env.LINE_CHANNEL_ACCESS_TOKEN
   const lineGroupId = process.env.LINE_GROUP_ID
   if (lineToken && lineGroupId) {
-    const adminLink = `${APP_URL}/admin`
+    const invoiceLink = `${APP_URL}/dashboard/${invoice_id}`
     const message = [
       '🔔 คำขอเปลี่ยน Hub',
       '',
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
       `Hub ที่ขอ: ${hub}`,
       `ขอโดย: ${requested_by}`,
       '',
-      `👉 ยืนยันที่: ${adminLink}`,
+      `📄 ดู Invoice: ${invoiceLink}`,
     ].join('\n')
     try {
       await fetch('https://api.line.me/v2/bot/message/push', {
