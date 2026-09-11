@@ -34,6 +34,7 @@ export default function AdminPage() {
 
   const [rows, setRows] = useState<PermRow[]>([])
   const [defaultPages, setDefaultPages] = useState<PageKey[]>(['po-matching'])
+  const [hubRequests, setHubRequests] = useState<{ id: string; invoice_id: string; invoice_no: string; container_name: string; hub: string; requested_by: string; created_at: string }[]>([])
   const [savingDefault, setSavingDefault] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<string | null>(null)
@@ -55,7 +56,14 @@ export default function AdminPage() {
     const defRow = all.find(r => r.email === DEFAULT_EMAIL)
     if (defRow?.allowed_pages) setDefaultPages(defRow.allowed_pages)
     setRows(all.filter(r => r.email !== DEFAULT_EMAIL))
+    const { data: hubs } = await supabase.from('container_hub_requests').select('id, invoice_id, invoice_no, container_name, hub, requested_by, created_at').eq('status', 'pending').order('created_at', { ascending: false })
+    setHubRequests((hubs ?? []) as typeof hubRequests)
     setLoading(false)
+  }
+
+  async function confirmHub(invoiceId: string, containerName: string) {
+    await supabase.from('container_hub_requests').update({ status: 'confirmed', confirmed_at: new Date().toISOString() }).eq('invoice_id', invoiceId).eq('container_name', containerName)
+    setHubRequests(prev => prev.filter(r => !(r.invoice_id === invoiceId && r.container_name === containerName)))
   }
 
   async function saveDefaultPages() {
@@ -143,6 +151,31 @@ export default function AdminPage() {
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-gray-900">Admin — จัดการสิทธิ์ผู้ใช้</h1>
         </div>
+
+        {/* Hub routing requests */}
+        {hubRequests.length > 0 && (
+          <div className="bg-red-50 border border-red-200 rounded-xl p-5 mb-8">
+            <h2 className="text-sm font-bold text-red-900 mb-3">คำร้องเปลี่ยน Hub ({hubRequests.length} รายการ)</h2>
+            <div className="space-y-2">
+              {hubRequests.map(r => (
+                <div key={r.id} className="bg-white rounded-lg border border-red-100 px-4 py-3 flex items-center justify-between gap-4 flex-wrap">
+                  <div className="text-sm">
+                    <span className="font-mono font-bold text-gray-800">{r.container_name}</span>
+                    <span className="text-gray-400 mx-2">·</span>
+                    <span className="text-gray-600">{r.invoice_no}</span>
+                    <span className="text-gray-400 mx-2">→</span>
+                    <span className="font-semibold text-orange-700">Hub {r.hub}</span>
+                    <span className="text-xs text-gray-400 ml-2">โดย {r.requested_by}</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <a href={`/dashboard/${r.invoice_id}?container=${encodeURIComponent(r.container_name)}`} target="_blank" className="px-3 py-1 text-xs border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50">ดู Invoice</a>
+                    <button onClick={() => confirmHub(r.invoice_id, r.container_name)} className="px-3 py-1 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium">✓ ยืนยัน</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Default pages */}
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 mb-8">

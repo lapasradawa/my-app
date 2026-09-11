@@ -2,8 +2,10 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useEffect, useState } from 'react'
 import { usePermissions } from '@/lib/permissions'
 import LockButton from './LockButton'
+import { supabase } from '@/lib/supabase'
 
 interface Props {
   onUnlock?: () => void
@@ -13,6 +15,13 @@ interface Props {
 export default function NavBar({ onUnlock, onLock }: Props) {
   const pathname = usePathname()
   const { canAccess, isAdmin } = usePermissions()
+  const [pendingCount, setPendingCount] = useState(0)
+
+  useEffect(() => {
+    if (!isAdmin) return
+    supabase.from('container_hub_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending')
+      .then(({ count }) => setPendingCount(count ?? 0))
+  }, [isAdmin, pathname])
 
   const cls = (href: string) =>
     pathname === href || (href !== '/' && pathname.startsWith(href + '/') && href.split('/').length === pathname.split('/').length)
@@ -102,7 +111,14 @@ export default function NavBar({ onUnlock, onLock }: Props) {
         <Link href="/guide" className={cls('/guide')}>Guide</Link>
       )}
       {isAdmin && (
-        <Link href="/admin" className={cls('/admin')}>Admin</Link>
+        <Link href="/admin" className={`relative ${cls('/admin')}`}>
+          Admin
+          {pendingCount > 0 && (
+            <span className="absolute -top-1.5 -right-3 bg-red-500 text-white text-[9px] font-bold rounded-full min-w-[16px] h-4 flex items-center justify-center px-1 leading-none">
+              {pendingCount}
+            </span>
+          )}
+        </Link>
       )}
 
       <div className="ml-auto">
