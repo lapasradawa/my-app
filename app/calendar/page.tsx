@@ -140,8 +140,6 @@ export default function CalendarPage() {
   }, [year, month])
 
   const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`
-  const monthArrivals = filteredInvoices.filter(inv => inv.estimated_arrival?.startsWith(monthStr))
-  const monthEtas = filteredInvoices.filter(inv => inv.eta_date?.startsWith(monthStr))
 
   const filteredInvoices = useMemo(() => {
     if (hubFilter === 'ทั้งหมด') return invoices
@@ -155,6 +153,9 @@ export default function CalendarPage() {
       return hubs?.has(hubFilter) ?? false
     })
   }, [invoices, confirmedHubsMap, hubFilter])
+
+  const monthArrivals = useMemo(() => filteredInvoices.filter(inv => inv.estimated_arrival?.startsWith(monthStr)), [filteredInvoices, monthStr])
+  const monthEtas = useMemo(() => filteredInvoices.filter(inv => inv.eta_date?.startsWith(monthStr)), [filteredInvoices, monthStr])
 
   const weeksData = useMemo(() => weeks.map(w => {
     const wM = ds(w.mon); const wS = ds(w.sun)
