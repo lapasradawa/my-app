@@ -35,31 +35,35 @@ export async function POST(req: NextRequest) {
 
   const adminEmails = (admins ?? []).map((a: { email: string }) => a.email).filter(Boolean)
 
-  // Send email via Resend if API key is configured
-  const resendKey = process.env.RESEND_API_KEY
-  if (resendKey && adminEmails.length > 0) {
-    const deepLink = `${APP_URL}/dashboard/${invoice_id}?container=${encodeURIComponent(container_name)}`
+  // Send LINE notification if configured
+  const lineToken = process.env.LINE_CHANNEL_ACCESS_TOKEN
+  const lineGroupId = process.env.LINE_GROUP_ID
+  if (lineToken && lineGroupId) {
+    const adminLink = `${APP_URL}/admin`
+    const message = [
+      '🔔 คำขอเปลี่ยน Hub',
+      '',
+      `ตู้: ${container_name}`,
+      `Invoice: ${invoice_no}`,
+      `Hub ที่ขอ: ${hub}`,
+      `ขอโดย: ${requested_by}`,
+      '',
+      `👉 ยืนยันที่: ${adminLink}`,
+    ].join('\n')
     try {
-      const { Resend } = await import('resend')
-      const resend = new Resend(resendKey)
-      await resend.emails.send({
-        from: 'Import PO <noreply@rbs-groups.com>',
-        to: adminEmails,
-        subject: `[Hub Request] ตู้ ${container_name} → Hub ${hub}`,
-        html: `
-          <p><strong>${requested_by}</strong> ขอเปลี่ยนปลายทางตู้</p>
-          <ul>
-            <li>Invoice: <strong>${invoice_no}</strong></li>
-            <li>ตู้: <strong>${container_name}</strong></li>
-            <li>Hub ที่ขอ: <strong>${hub}</strong></li>
-          </ul>
-          <p><a href="${deepLink}" style="background:#2563eb;color:white;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block">
-            ดู Invoice และยืนยัน
-          </a></p>
-        `,
+      await fetch('https://api.line.me/v2/bot/message/push', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${lineToken}`,
+        },
+        body: JSON.stringify({
+          to: lineGroupId,
+          messages: [{ type: 'text', text: message }],
+        }),
       })
     } catch (e) {
-      console.error('email send failed', e)
+      console.error('LINE notification failed', e)
     }
   }
 
