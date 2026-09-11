@@ -1085,28 +1085,39 @@ export default function InvoiceDetailPage() {
                 </button>
               )}
 
-              {(!hr || hr.status !== 'confirmed') && (
-                <>
-                  <p className="text-xs font-semibold text-gray-600 mb-2">เลือก Hub ปลายทาง</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {HUBS.map(hub => (
+              {/* Hub selection — always shown; confirmed state shows note */}
+              <div className="border-t pt-4 mt-2">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-semibold text-gray-600">เลือก Hub ปลายทาง</p>
+                  {hr?.status === 'confirmed' && (
+                    <span className="text-[10px] text-gray-400">เปลี่ยนได้ — จะ pending ใหม่</span>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {HUBS.map(hub => {
+                    const isSelected = currentHub === hub
+                    const isConfirmed = hr?.status === 'confirmed' && isSelected
+                    return (
                       <button
                         key={hub}
                         onClick={() => { if (!hubSending) requestHub(hubPopup, hub) }}
                         disabled={hubSending}
                         className={`px-3 py-2.5 rounded-xl text-sm font-medium border transition-colors disabled:opacity-50 ${
-                          currentHub === hub
+                          isConfirmed
+                            ? 'bg-amber-500 text-white border-amber-500'
+                            : isSelected
                             ? 'bg-blue-600 text-white border-blue-600'
                             : 'bg-white text-gray-700 border-gray-200 hover:border-blue-300 hover:bg-blue-50'
                         }`}
                       >
                         {hub === 'มัยลาภ' ? '🏭 ' : '📦 '}Warehouse {hub}
+                        {isConfirmed && <span className="block text-[9px] opacity-80">✓ ยืนยันแล้ว</span>}
                       </button>
-                    ))}
-                  </div>
-                  {hubSending && <p className="text-xs text-blue-600 mt-2 text-center">กำลังส่งคำร้อง...</p>}
-                </>
-              )}
+                    )
+                  })}
+                </div>
+                {hubSending && <p className="text-xs text-blue-600 mt-2 text-center">กำลังส่งคำร้อง...</p>}
+              </div>
             </div>
           </div>
         )
