@@ -8,6 +8,7 @@ import type { ResultRow } from '@/lib/excel-parser'
 import { exportToExcel } from '@/lib/excel-exporter'
 import { isUnlocked, tryUnlock } from '@/lib/auth'
 import { usePermissions } from '@/lib/permissions'
+import { hubColor } from '@/lib/hub-colors'
 
 const HUBS = ['มัยลาภ', 'ขอนแก่น', 'พิษณุโลก', 'สุราษฎร์ธานี'] as const
 type Hub = typeof HUBS[number]
@@ -1096,22 +1097,19 @@ export default function InvoiceDetailPage() {
                   {HUBS.map(hub => {
                     const isSelected = currentHub === hub
                     const isConfirmed = hr?.status === 'confirmed' && isSelected
+                    const hc = hubColor(hub)
                     return (
                       <button
                         key={hub}
                         onClick={() => {
                           if (hubSending) return
-                          const label = `Warehouse ${hub}`
-                          if (!confirm(`ยืนยันขอเปลี่ยนปลายทางตู้ ${hubPopup}\nไปที่ ${label} ใช่หรือไม่?`)) return
+                          if (!confirm(`ยืนยันขอเปลี่ยนปลายทางตู้ ${hubPopup}\nไปที่ Warehouse ${hub} ใช่หรือไม่?`)) return
                           requestHub(hubPopup, hub)
                         }}
                         disabled={hubSending}
+                        style={isSelected ? { background: hc.dot, borderColor: hc.dot, color: '#fff' } : { borderColor: hc.border }}
                         className={`px-3 py-2.5 rounded-xl text-sm font-medium border transition-colors disabled:opacity-50 ${
-                          isConfirmed
-                            ? 'bg-amber-500 text-white border-amber-500'
-                            : isSelected
-                            ? 'bg-blue-600 text-white border-blue-600'
-                            : 'bg-white text-gray-700 border-gray-200 hover:border-blue-300 hover:bg-blue-50'
+                          isSelected ? '' : 'bg-white text-gray-700 hover:opacity-80'
                         }`}
                       >
                         {hub === 'มัยลาภ' ? '🏭 ' : '📦 '}Warehouse {hub}

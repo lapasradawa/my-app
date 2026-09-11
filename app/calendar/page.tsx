@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import LockButton from '@/components/LockButton'
 import NavBar from '@/components/NavBar'
+import { hubColor } from '@/lib/hub-colors'
 
 interface CalInvoice {
   id: string
@@ -14,6 +15,15 @@ interface CalInvoice {
   estimated_arrival_end: string | null
   eta_date: string | null
   supplier: string | null
+}
+
+interface HubContainer {
+  id: string
+  invoice_id: string
+  invoice_no: string
+  container_name: string
+  hub: string
+  hub_arrival_date: string
 }
 
 const MONTHS_TH = [
@@ -79,6 +89,7 @@ export default function CalendarPage() {
   const [loading, setLoading] = useState(true)
   const [hubMap, setHubMap] = useState<Map<string, string>>(new Map()) // invoice_id → hub label summary
   const [confirmedHubsMap, setConfirmedHubsMap] = useState<Map<string, Set<string>>>(new Map()) // invoice_id → set of confirmed hubs
+  const [hubContainers, setHubContainers] = useState<HubContainer[]>([]) // confirmed hub containers with arrival date
   const [hubFilter, setHubFilter] = useState<HubFilter>('ทั้งหมด')
   const [curDate, setCurDate] = useState(() => {
     const d = new Date()
@@ -93,11 +104,13 @@ export default function CalendarPage() {
   async function load() {
     const [{ data }, { data: hubs }] = await Promise.all([
       supabase.from('invoices').select('id, invoice_no, status, estimated_arrival, estimated_arrival_end, eta_date, supplier').order('estimated_arrival', { ascending: true }),
-      supabase.from('container_hub_requests').select('invoice_id, hub, status').eq('status', 'confirmed'),
+      supabase.from('container_hub_requests').select('id, invoice_id, invoice_no, container_name, hub, hub_arrival_date, status').eq('status', 'confirmed'),
     ])
     if (data) setInvoices(data as CalInvoice[])
     if (hubs) {
-      const hubRows = hubs as { invoice_id: string; hub: string }[]
+      const hubRows = hubs as { id: string; invoice_id: string; invoice_no: string; container_name: string; hub: string; hub_arrival_date: string | null; status: string }[]
+      // Store containers with hub arrival date for per-hub calendar view
+      setHubContainers(hubRows.filter(h => h.hub_arrival_date) as HubContainer[])
       // confirmedHubsMap: all confirmed hubs per invoice (for filtering)
       const cm = new Map<string, Set<string>>()
       for (const h of hubRows) {
@@ -157,6 +170,18 @@ export default function CalendarPage() {
   const monthArrivals = useMemo(() => filteredInvoices.filter(inv => inv.estimated_arrival?.startsWith(monthStr)), [filteredInvoices, monthStr])
   const monthEtas = useMemo(() => filteredInvoices.filter(inv => inv.eta_date?.startsWith(monthStr)), [filteredInvoices, monthStr])
 
+  // Container-level data for per-hub view
+  const filteredContainers = useMemo(() => {
+    if (hubFilter === 'ทั้งหมด') return []
+    return hubContainers.filter(c => c.hub === hubFilter)
+  }, [hubContainers, hubFilter])
+
+  const containerWeeksData = useMemo(() => weeks.map(w => {
+    const wM = ds(w.mon); const wS = ds(w.sun)
+    const containers = filteredContainers.filter(c => c.hub_arrival_date >= wM && c.hub_arrival_date <= wS)
+    return { ...w, containers }
+  }), [weeks, filteredContainers])
+
   const weeksData = useMemo(() => weeks.map(w => {
     const wM = ds(w.mon); const wS = ds(w.sun)
     const inv = filteredInvoices
@@ -205,19 +230,24 @@ export default function CalendarPage() {
 
           {/* Hub filter */}
           <div className="flex items-center gap-1">
-            {HUBS_FILTER.map(h => (
-              <button
-                key={h}
-                onClick={() => setHubFilter(h)}
-                className={`px-2.5 py-1 rounded-full text-xs font-semibold border transition-colors ${
-                  hubFilter === h
-                    ? 'bg-blue-600 text-white border-blue-600'
-                    : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300 hover:text-blue-600'
-                }`}
-              >
-                {h === 'ทั้งหมด' ? 'ทุกคลัง' : h}
-              </button>
-            ))}
+            {HUBS_FILTER.map(h => {
+              const hc = h === 'ทั้งหมด' ? null : hubColor(h)
+              const isActive = hubFilter === h
+              return (
+                <button
+                  key={h}
+                  onClick={() => setHubFilter(h)}
+                  style={hc && isActive ? { background: hc.dot, borderColor: hc.dot, color: '#fff' } : hc ? { borderColor: hc.border } : undefined}
+                  className={`px-2.5 py-1 rounded-full text-xs font-semibold border transition-colors ${
+                    !hc && isActive ? 'bg-gray-700 text-white border-gray-700'
+                    : !hc ? 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
+                    : isActive ? '' : 'bg-white text-gray-600 hover:opacity-80'
+                  }`}
+                >
+                  {h === 'ทั้งหมด' ? 'ทุกคลัง' : h}
+                </button>
+              )
+            })}
           </div>
 
           {/* Month nav — pushed to right */}
@@ -251,7 +281,9 @@ export default function CalendarPage() {
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto bg-white rounded-xl shadow-sm border border-gray-100">
-            {weeksData.map(({ mon, sun, wn, days, inv: weekInvs }, wi) => {
+            {(hubFilter !== 'ทั้งหมด' ? containerWeeksData : weeksData).map(({ mon, sun, wn, days, ...rest }, wi) => {
+              const weekInvs = hubFilter === 'ทั้งหมด' ? (rest as typeof weeksData[0]).inv : []
+              const weekContainers = hubFilter !== 'ทั้งหมด' ? (rest as typeof containerWeeksData[0]).containers : []
               const todayInWeek = todayStr >= ds(mon) && todayStr <= ds(sun)
               const todayColIdx = todayInWeek ? dow(today) : -1
 
@@ -338,7 +370,33 @@ export default function CalendarPage() {
                       />
                     )}
 
-                    {weekInvs.length === 0 ? (
+                    {/* Container bars for per-hub view */}
+                    {hubFilter !== 'ทั้งหมด' && weekContainers.map((c, ci) => {
+                      const hc = hubColor(c.hub)
+                      const dayIdx = dow(pd(c.hub_arrival_date))
+                      const colStart = gc(dayIdx); const colEnd = colStart + 1
+                      return (
+                        <div key={c.id} className={`grid relative ${ci % 2 === 1 ? 'bg-slate-50/60' : 'bg-white'}`} style={{ gridTemplateColumns: GRID, height: '40px', zIndex: 1 }}>
+                          <div className="border-r" style={{ background: 'rgba(30,41,59,0.04)', borderRightColor: 'rgba(30,41,59,0.12)' }} />
+                          <Link href={`/dashboard/${c.invoice_id}`}
+                            style={{ gridColumn: `${colStart} / ${colEnd}`, gridRow: 1, margin: '5px 4px', borderRadius: '18px', background: hc.calFill, borderLeft: `4px solid ${hc.calStroke}`, borderTop: `1.5px solid ${hc.calStroke}50`, borderRight: `1.5px solid ${hc.calStroke}50`, borderBottom: `1.5px solid ${hc.calStroke}50` }}
+                            className="flex flex-col justify-center px-2 overflow-hidden cursor-pointer hover:brightness-95 transition-all z-10 relative"
+                            title={`${c.container_name} · ${c.invoice_no} · เข้า ${c.hub} ${c.hub_arrival_date}`}
+                          >
+                            <span className="truncate leading-none font-bold text-[11px]" style={{ color: hc.text }}>{c.container_name}</span>
+                            <span className="text-[9px] leading-none mt-0.5 opacity-60" style={{ color: hc.text }}>{c.invoice_no}</span>
+                          </Link>
+                        </div>
+                      )
+                    })}
+                    {hubFilter !== 'ทั้งหมด' && weekContainers.length === 0 && (
+                      <div className="grid" style={{ gridTemplateColumns: GRID }}>
+                        <div className="border-r border-slate-700/20 bg-slate-800/5" style={{ height: '28px' }} />
+                        {days.map((_, di) => <div key={di} className="border-r last:border-r-0 border-gray-50" style={{ height: '28px' }} />)}
+                      </div>
+                    )}
+
+                    {hubFilter === 'ทั้งหมด' && weekInvs.length === 0 ? (
                       <div className="grid" style={{ gridTemplateColumns: GRID }}>
                         <div className="border-r border-slate-700/20 bg-slate-800/5" style={{ height: '28px' }} />
                         {days.map((_, di) => (
@@ -349,7 +407,7 @@ export default function CalendarPage() {
                           />
                         ))}
                       </div>
-                    ) : (
+                    ) : hubFilter === 'ทั้งหมด' && (
                       weekInvs.map((inv, ii) => {
                         const arrStart = pd(inv.estimated_arrival!)
                         const arrEnd = pd(inv.estimated_arrival_end || inv.estimated_arrival!)

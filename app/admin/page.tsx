@@ -35,6 +35,7 @@ export default function AdminPage() {
   const [rows, setRows] = useState<PermRow[]>([])
   const [defaultPages, setDefaultPages] = useState<PageKey[]>(['po-matching'])
   const [hubRequests, setHubRequests] = useState<{ id: string; invoice_id: string; invoice_no: string; container_name: string; hub: string; requested_by: string; created_at: string }[]>([])
+  const [confirmDates, setConfirmDates] = useState<Record<string, string>>({})
   const [savingDefault, setSavingDefault] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<string | null>(null)
@@ -62,9 +63,16 @@ export default function AdminPage() {
   }
 
   async function confirmHub(invoiceId: string, containerName: string) {
+    const key = `${invoiceId}:${containerName}`
+    const hubArrivalDate = confirmDates[key]
+    if (!hubArrivalDate) { alert('กรุณาใส่วันที่เข้าคลังก่อนยืนยัน'); return }
     const { data: { user } } = await supabase.auth.getUser()
     const confirmedBy = user?.email ?? 'admin'
-    await supabase.from('container_hub_requests').update({ status: 'confirmed', confirmed_at: new Date().toISOString(), confirmed_by: confirmedBy }).eq('invoice_id', invoiceId).eq('container_name', containerName)
+    await fetch('/api/hub-request', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ invoice_id: invoiceId, container_name: containerName, confirmed_by: confirmedBy, hub_arrival_date: hubArrivalDate }),
+    })
     setHubRequests(prev => prev.filter(r => !(r.invoice_id === invoiceId && r.container_name === containerName)))
   }
 
@@ -169,8 +177,17 @@ export default function AdminPage() {
                     <span className="font-semibold text-orange-700">Hub {r.hub}</span>
                     <span className="text-xs text-gray-400 ml-2">โดย {r.requested_by}</span>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <a href={`/dashboard/${r.invoice_id}?container=${encodeURIComponent(r.container_name)}`} target="_blank" className="px-3 py-1 text-xs border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50">ดู Invoice</a>
+                    <div className="flex items-center gap-1">
+                      <label className="text-xs text-gray-500 whitespace-nowrap">วันเข้าคลัง:</label>
+                      <input
+                        type="date"
+                        value={confirmDates[`${r.invoice_id}:${r.container_name}`] ?? ''}
+                        onChange={e => setConfirmDates(prev => ({ ...prev, [`${r.invoice_id}:${r.container_name}`]: e.target.value }))}
+                        className="border border-gray-200 rounded px-2 py-0.5 text-xs outline-none focus:border-green-400"
+                      />
+                    </div>
                     <button onClick={() => confirmHub(r.invoice_id, r.container_name)} className="px-3 py-1 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium">✓ ยืนยัน</button>
                   </div>
                 </div>

@@ -8,6 +8,7 @@ import { isUnlocked } from '@/lib/auth'
 import LockButton from '@/components/LockButton'
 import PasswordModal from '@/components/PasswordModal'
 import NavBar from '@/components/NavBar'
+import { hubColor } from '@/lib/hub-colors'
 
 const STATUSES = ['อยู่ที่จีน', 'On board', 'กำลังเข้าคลัง'] as const
 type Status = typeof STATUSES[number]
@@ -127,6 +128,7 @@ export default function DashboardPage() {
   const [showPasswordModal, setShowPasswordModal] = useState(false)
   const [pendingAction, setPendingAction] = useState<(() => void) | null>(null)
   const [pendingHubIds, setPendingHubIds] = useState<Set<string>>(new Set())
+  const [confirmedHubMap, setConfirmedHubMap] = useState<Map<string, string[]>>(new Map())
 
   useEffect(() => { loadInvoices(); setUnlocked(isUnlocked()) }, [])
 
@@ -155,13 +157,19 @@ export default function DashboardPage() {
       }
       setEdits(initial)
     }
-    // Fetch pending hub requests to show badge on invoice list
-    const { data: hubPending } = await supabase
+    // Fetch hub requests to show badges on invoice list
+    const { data: hubRows } = await supabase
       .from('container_hub_requests')
-      .select('invoice_id')
-      .eq('status', 'pending')
-    if (hubPending) {
-      setPendingHubIds(new Set((hubPending as { invoice_id: string }[]).map(r => r.invoice_id)))
+      .select('invoice_id, hub, status')
+    if (hubRows) {
+      const rows = hubRows as { invoice_id: string; hub: string; status: string }[]
+      setPendingHubIds(new Set(rows.filter(r => r.status === 'pending').map(r => r.invoice_id)))
+      const cm = new Map<string, string[]>()
+      for (const r of rows.filter(r => r.status === 'confirmed')) {
+        if (!cm.has(r.invoice_id)) cm.set(r.invoice_id, [])
+        if (!cm.get(r.invoice_id)!.includes(r.hub)) cm.get(r.invoice_id)!.push(r.hub)
+      }
+      setConfirmedHubMap(cm)
     }
     setLoading(false)
   }
@@ -381,8 +389,16 @@ export default function DashboardPage() {
                             {inv.invoice_no || '-'}
                           </Link>
                           {pendingHubIds.has(inv.id) && (
-                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-orange-100 text-orange-700 border border-orange-200 whitespace-nowrap">⏳ Hub pending</span>
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-orange-100 text-orange-700 border border-orange-200 whitespace-nowrap">⏳ pending</span>
                           )}
+                          {(confirmedHubMap.get(inv.id) ?? []).map(hub => {
+                            const hc = hubColor(hub)
+                            return (
+                              <span key={hub} style={{ background: hc.bg, color: hc.text, borderColor: hc.border }} className="text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap">
+                                📦 {hub}
+                              </span>
+                            )
+                          })}
                         </div>
                       </td>
                       <td className="px-4 py-3">
