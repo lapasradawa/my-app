@@ -988,23 +988,29 @@ export default function InvoiceDetailPage() {
                 {invoice.container_names.map(name => {
                   const hr = hubFor(name)
                   const isOtherHub = hr && hr.hub !== 'มัยลาภ'
-                  const bgCls = hr?.status === 'confirmed' && isOtherHub
-                    ? 'bg-amber-100 text-amber-900'
-                    : hr?.status === 'pending' && isOtherHub
-                    ? 'bg-orange-50 text-orange-800'
-                    : 'bg-gray-100'
+                  const hc = hr ? hubColor(hr.hub) : null
+                  const isPending = hr?.status === 'pending'
                   return (
                     <th
                       key={name}
-                      className={`px-3 py-2 text-right border-b border-gray-200 whitespace-nowrap sticky top-0 z-20 cursor-pointer hover:bg-blue-50 transition-colors ${bgCls}`}
+                      className="px-3 py-2 text-right border-b border-gray-200 whitespace-nowrap sticky top-0 z-20 cursor-pointer hover:opacity-90 transition-colors"
+                      style={hc && isOtherHub ? { backgroundColor: hc.bg, color: hc.text } : { backgroundColor: '#f3f4f6', color: '#374151' }}
                       onClick={() => setHubPopup(name)}
                       title={hr ? `Hub: ${hr.hub} (${hr.status})` : 'คลิกเพื่อตั้งปลายทาง'}
                     >
                       <div className="flex flex-col items-end gap-0.5">
                         <span>{name}</span>
-                        {hr && isOtherHub && (
-                          <span className={`text-[9px] font-bold px-1 py-0.5 rounded ${hr.status === 'confirmed' ? 'bg-amber-500 text-white' : 'bg-orange-400 text-white'}`}>
-                            {hr.hub}
+                        {hr && isOtherHub && isPending && (
+                          <>
+                            <span style={{ background: hc!.dot, color: '#fff' }} className="text-[9px] font-bold px-1.5 py-0.5 rounded-full">
+                              ⏳ รอยืนยัน
+                            </span>
+                            <span className="text-[9px] font-medium" style={{ color: hc!.text }}>→ {hr.hub}</span>
+                          </>
+                        )}
+                        {hr && isOtherHub && !isPending && (
+                          <span style={{ background: hc!.dot, color: '#fff' }} className="text-[9px] font-bold px-1.5 py-0.5 rounded-full">
+                            ✓ {hr.hub}
                           </span>
                         )}
                       </div>
