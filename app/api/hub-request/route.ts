@@ -7,7 +7,7 @@ const supabase = createClient(
 )
 
 const HUBS = ['มัยลาภ', 'ขอนแก่น', 'พิษณุโลก', 'สุราษฎร์ธานี'] as const
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://my-app-mu-one-69.vercel.app'
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://import-project-zeta.vercel.app'
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
