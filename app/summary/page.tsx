@@ -189,8 +189,6 @@ export default function SummaryPage() {
   const [hubReqs, setHubReqs] = useState<HubReq[]>([])
   const [loading, setLoading] = useState(true)
   const [rowsLoading, setRowsLoading] = useState(true)
-  const [activeHub, setActiveHub] = useState<string>('ทั้งหมด')
-  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set())
   const [selectedMonths, setSelectedMonths] = useState<Set<string>>(() => {
     const now = new Date()
     return new Set([`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`])
@@ -322,57 +320,16 @@ export default function SummaryPage() {
     selectedItem ? itemSummary.find(i => i.code === selectedItem) : null,
     [selectedItem, itemSummary])
 
-  // Hub summary: per-container breakdown for confirmed hub requests
-  type HubEntry = {
-    invoice_id: string; invoice_no: string; container_name: string
-    hub: string; hub_arrival_date: string | null; month_key: string | null
-    items: { code: string; description: string; qty: number; fob_total: number | null; currency: string | null }[]
-    totalQty: number; fobByCurrency: Map<string, number>
-  }
-  const hubEntries = useMemo<HubEntry[]>(() => {
-    const invMap = new Map(invoices.map(inv => [inv.id, inv]))
-    const result: HubEntry[] = []
+  // invoice_id → confirmed hub names (for badges in table/detail)
+  const invoiceHubMap = useMemo(() => {
+    const m = new Map<string, string[]>()
     for (const req of hubReqs) {
-      const inv = invMap.get(req.invoice_id)
-      if (!inv) continue
-      const dateForMonth = req.hub_arrival_date || inv.estimated_arrival
-      const mk = mKey(dateForMonth)
-      if (selectedMonths.size > 0 && (!mk || !selectedMonths.has(mk))) continue
-      const supplier = inv.supplier || '—'
-      const rows = inv.rows ?? []
-      const containerItems = rows
-        .filter(row => row.containers && (row.containers[req.container_name] ?? 0) > 0)
-        .map(row => {
-          const qty = row.containers![req.container_name]
-          const lookup = priceMap.get(`${row.code}|${supplier}`)
-          const fob = lookup?.price ?? null
-          return { code: row.code, description: row.description, qty, fob_total: fob != null ? fob * qty : null, currency: lookup?.currency ?? inv.currency }
-        })
-      const fobByCurrency = new Map<string, number>()
-      for (const item of containerItems) {
-        if (item.fob_total != null && item.currency) fobByCurrency.set(item.currency, (fobByCurrency.get(item.currency) ?? 0) + item.fob_total)
-      }
-      result.push({ invoice_id: req.invoice_id, invoice_no: req.invoice_no, container_name: req.container_name, hub: req.hub, hub_arrival_date: req.hub_arrival_date, month_key: mk, items: containerItems, totalQty: containerItems.reduce((s, i) => s + i.qty, 0), fobByCurrency })
+      const list = m.get(req.invoice_id) ?? []
+      if (!list.includes(req.hub)) list.push(req.hub)
+      m.set(req.invoice_id, list)
     }
-    return result
-  }, [hubReqs, invoices, priceMap, selectedMonths])
-
-  const HUBS_LIST = ['มัยลาภ', 'ขอนแก่น', 'พิษณุโลก', 'สุราษฎร์ธานี'] as const
-
-  const visibleHubEntries = useMemo(() =>
-    activeHub === 'ทั้งหมด' ? hubEntries : hubEntries.filter(e => e.hub === activeHub),
-    [hubEntries, activeHub])
-
-  // Group by month_key for display
-  const hubByMonth = useMemo(() => {
-    const map = new Map<string, HubEntry[]>()
-    for (const e of visibleHubEntries) {
-      const k = e.month_key || 'ไม่ระบุ'
-      if (!map.has(k)) map.set(k, [])
-      map.get(k)!.push(e)
-    }
-    return Array.from(map.entries()).sort((a, b) => b[0].localeCompare(a[0]))
-  }, [visibleHubEntries])
+    return m
+  }, [hubReqs])
 
   // actualThb per invoice: exchange_rates array sum, or total_amount × exchange_rate
   const invoiceThbMap = useMemo(() => {
@@ -682,9 +639,13 @@ export default function SummaryPage() {
                           style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 10px', borderRadius: 8, background: '#f0ece4', textDecoration: 'none', transition: 'background 0.12s' }}
                           onMouseEnter={e => (e.currentTarget.style.background = '#e4ddd0')}
                           onMouseLeave={e => (e.currentTarget.style.background = '#f0ece4')}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                             <span style={{ fontSize: 11, fontWeight: 700, color: '#3d8b82', fontFamily: 'monospace' }}>{invoiceNo}</span>
                             <span style={{ fontSize: 10, color: '#9a8a7a' }}>{inv.supplier}</span>
+                            {(invoiceHubMap.get(inv.id) ?? []).map(hub => {
+                              const hc = hubColor(hub)
+                              return <span key={hub} style={{ fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 8, background: hc.bg, color: hc.text, border: `1px solid ${hc.border}` }}>{hub}</span>
+                            })}
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <span style={{ fontSize: 11, fontWeight: 700, color: '#3a2a1a' }}>{inv.qty.toLocaleString()} pcs</span>
@@ -755,7 +716,7 @@ export default function SummaryPage() {
                   <table style={{ fontSize: 11, width: '100%', borderCollapse: 'collapse', minWidth: 800 }}>
                     <thead>
                       <tr style={{ background: '#f0ebe0', position: 'sticky', top: 0, zIndex: 1 }}>
-                        {['Item no', 'Item name', 'Supplier', 'Vendor Code', 'QTY', 'Invoice', 'PO', 'FOB Unit', 'FOB Total', 'CCY'].map(h => (
+                        {['Item no', 'Item name', 'Supplier', 'Vendor Code', 'QTY', 'Invoice', 'Hub', 'PO', 'FOB Unit', 'FOB Total', 'CCY'].map(h => (
                           <th key={h} style={{ padding: '8px 10px', textAlign: h === 'QTY' || h === 'FOB Unit' || h === 'FOB Total' ? 'right' : 'left', fontSize: 10, fontWeight: 800, color: '#8a7a6a', whiteSpace: 'nowrap', borderBottom: '1px solid #e2d8c8' }}>{h}</th>
                         ))}
                       </tr>
@@ -772,6 +733,12 @@ export default function SummaryPage() {
                           <td style={{ padding: '7px 10px', whiteSpace: 'nowrap' }}>
                             <Link href={`/dashboard/${l.invoice_id}`} onClick={e => e.stopPropagation()}
                               style={{ color: '#3d8b82', textDecoration: 'none', fontWeight: 600 }}>{l.invoice_no}</Link>
+                          </td>
+                          <td style={{ padding: '7px 10px', whiteSpace: 'nowrap' }}>
+                            {(invoiceHubMap.get(l.invoice_id) ?? []).map(hub => {
+                              const hc = hubColor(hub)
+                              return <span key={hub} style={{ display: 'inline-block', fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 8, background: hc.bg, color: hc.text, border: `1px solid ${hc.border}`, marginRight: 3 }}>{hub}</span>
+                            })}
                           </td>
                           <td style={{ padding: '7px 10px', color: '#9a8a7a', whiteSpace: 'nowrap' }}>{l.po || '—'}</td>
                           <td style={{ padding: '7px 10px', textAlign: 'right', color: '#5a4a3a' }}>{l.fob_price != null ? fmt(l.fob_price) : '—'}</td>
@@ -793,121 +760,6 @@ export default function SummaryPage() {
         </div>
       )}
 
-      {/* ── Hub Summary ── */}
-      {!loading && hubEntries.length > 0 && (
-        <div style={{ maxWidth: 1400, margin: '0 auto', padding: '0 24px 40px' }}>
-          <div style={{ background: '#faf5ee', border: '1px solid #e2d8c8', borderRadius: 16, overflow: 'hidden' }}>
-            {/* Header + hub tabs */}
-            <div style={{ padding: '12px 16px', borderBottom: '1px solid #e2d8c8', background: '#f5efe4', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 11, fontWeight: 800, color: '#5a4a3a', textTransform: 'uppercase', letterSpacing: '0.08em', marginRight: 4 }}>📦 สรุปตาม Hub</span>
-              {/* All tab */}
-              <button onClick={() => setActiveHub('ทั้งหมด')}
-                style={{ padding: '4px 14px', borderRadius: 20, fontSize: 11, fontWeight: 700, cursor: 'pointer', border: 'none', background: activeHub === 'ทั้งหมด' ? '#3a2a1a' : 'transparent', color: activeHub === 'ทั้งหมด' ? '#fff' : '#8a7a6a', transition: 'all 0.12s' }}>
-                ทั้งหมด <span style={{ opacity: 0.7 }}>({hubEntries.length})</span>
-              </button>
-              {HUBS_LIST.map(hub => {
-                const hc = hubColor(hub)
-                const cnt = hubEntries.filter(e => e.hub === hub).length
-                if (cnt === 0) return null
-                const isActive = activeHub === hub
-                return (
-                  <button key={hub} onClick={() => setActiveHub(hub)}
-                    style={{ padding: '4px 14px', borderRadius: 20, fontSize: 11, fontWeight: 700, cursor: 'pointer', border: `1.5px solid ${isActive ? hc.dot : hc.border}`, background: isActive ? hc.dot : 'transparent', color: isActive ? '#fff' : hc.text, transition: 'all 0.12s' }}>
-                    {hub} <span style={{ opacity: 0.75 }}>({cnt})</span>
-                  </button>
-                )
-              })}
-            </div>
-
-            {/* Month groups */}
-            {hubByMonth.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '32px 0', color: '#bbb', fontSize: 12 }}>ไม่มีข้อมูลในช่วงเวลานี้</div>
-            ) : hubByMonth.map(([mk, entries]) => (
-              <div key={mk} style={{ borderBottom: '1px solid #e2d8c8' }}>
-                {/* Month header */}
-                <div style={{ padding: '8px 16px', background: '#f0ebe0', fontSize: 11, fontWeight: 800, color: '#7a6a5a', display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span>{mk === 'ไม่ระบุ' ? 'ไม่ระบุเดือน' : mLabel(mk)}</span>
-                  <span style={{ opacity: 0.5, fontWeight: 400 }}>{entries.length} ตู้</span>
-                </div>
-
-                {/* Container rows */}
-                <div>
-                  {entries.map(entry => {
-                    const hc = hubColor(entry.hub)
-                    const key = `${entry.invoice_id}:${entry.container_name}`
-                    const isExpanded = expandedKeys.has(key)
-                    const fobStr = entry.fobByCurrency.size > 0
-                      ? Array.from(entry.fobByCurrency.entries()).map(([ccy, amt]) => `${ccy} ${fmt(amt, 0)}`).join(' · ')
-                      : null
-                    return (
-                      <div key={key} style={{ borderBottom: '1px solid #f5f0e8' }}>
-                        {/* Summary row */}
-                        <div
-                          onClick={() => setExpandedKeys(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n })}
-                          style={{ padding: '10px 16px', display: 'grid', gridTemplateColumns: '24px 140px 1fr 120px 160px 80px', alignItems: 'center', gap: 12, cursor: 'pointer', background: isExpanded ? '#fdf8f0' : '#fff', transition: 'background 0.1s' }}
-                        >
-                          {/* Expand toggle */}
-                          <span style={{ fontSize: 9, color: '#bbb' }}>{isExpanded ? '▼' : '▶'}</span>
-                          {/* Container name */}
-                          <span style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: 12, color: '#2a2a1a' }}>{entry.container_name}</span>
-                          {/* Invoice link */}
-                          <a href={`/dashboard/${entry.invoice_id}`} onClick={e => e.stopPropagation()}
-                            style={{ fontSize: 11, fontWeight: 700, color: '#3d8b82', textDecoration: 'none', fontFamily: 'monospace' }}>
-                            {entry.invoice_no}
-                          </a>
-                          {/* Hub badge */}
-                          <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 10px', borderRadius: 12, background: hc.bg, color: hc.text, border: `1px solid ${hc.border}`, whiteSpace: 'nowrap', justifySelf: 'start' }}>
-                            {entry.hub}
-                          </span>
-                          {/* FOB value */}
-                          <span style={{ fontSize: 11, fontWeight: 700, color: '#3d7a5a', textAlign: 'right' }}>{fobStr ?? '—'}</span>
-                          {/* Item count */}
-                          <span style={{ fontSize: 10, color: '#9a8a7a', textAlign: 'right' }}>{entry.items.length} รายการ</span>
-                        </div>
-
-                        {/* Expanded: item list */}
-                        {isExpanded && (
-                          <div style={{ background: '#fdf8f0', borderTop: '1px solid #f0ebe0', padding: '0 16px 10px 52px' }}>
-                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-                              <thead>
-                                <tr style={{ color: '#9a8a7a' }}>
-                                  <th style={{ textAlign: 'left', padding: '6px 8px 4px', fontWeight: 700, fontSize: 10 }}>Item Code</th>
-                                  <th style={{ textAlign: 'left', padding: '6px 8px 4px', fontWeight: 700, fontSize: 10 }}>ชื่อสินค้า</th>
-                                  <th style={{ textAlign: 'right', padding: '6px 8px 4px', fontWeight: 700, fontSize: 10 }}>QTY</th>
-                                  <th style={{ textAlign: 'right', padding: '6px 8px 4px', fontWeight: 700, fontSize: 10 }}>FOB</th>
-                                  <th style={{ textAlign: 'left', padding: '6px 8px 4px', fontWeight: 700, fontSize: 10 }}>CCY</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {entry.items.map((item, ii) => (
-                                  <tr key={ii} style={{ borderTop: '1px solid #ede8df' }}>
-                                    <td style={{ padding: '5px 8px', fontFamily: 'monospace', color: '#3a2a1a', fontWeight: 700, whiteSpace: 'nowrap' }}>{item.code}</td>
-                                    <td style={{ padding: '5px 8px', color: '#6a5a4a', maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.description}</td>
-                                    <td style={{ padding: '5px 8px', textAlign: 'right', fontWeight: 700, color: '#2a2a1a' }}>{item.qty.toLocaleString()}</td>
-                                    <td style={{ padding: '5px 8px', textAlign: 'right', color: '#3d7a5a', fontWeight: 600 }}>{item.fob_total != null ? fmt(item.fob_total, 0) : '—'}</td>
-                                    <td style={{ padding: '5px 8px', color: '#aaa' }}>{item.currency || '—'}</td>
-                                  </tr>
-                                ))}
-                                {/* Total row */}
-                                <tr style={{ borderTop: '2px solid #e2d8c8', fontWeight: 800 }}>
-                                  <td colSpan={2} style={{ padding: '6px 8px', color: '#5a4a3a' }}>รวม</td>
-                                  <td style={{ padding: '6px 8px', textAlign: 'right', color: '#2a2a1a' }}>{entry.totalQty.toLocaleString()}</td>
-                                  <td style={{ padding: '6px 8px', textAlign: 'right', color: '#3d7a5a' }}>{fobStr ?? '—'}</td>
-                                  <td />
-                                </tr>
-                              </tbody>
-                            </table>
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   )
 }
