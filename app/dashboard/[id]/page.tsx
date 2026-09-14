@@ -17,7 +17,7 @@ interface HubRequest {
   container_name: string
   hub: Hub
   requested_by: string
-  status: 'pending' | 'confirmed'
+  status: 'pending' | 'confirmed' | 'rejected'
   created_at: string
   confirmed_by?: string
 }
@@ -990,16 +990,20 @@ export default function InvoiceDetailPage() {
                   const isOtherHub = hr && hr.hub !== 'มัยลาภ'
                   const hc = hr ? hubColor(hr.hub) : null
                   const isPending = hr?.status === 'pending'
+                  const isRejected = hr?.status === 'rejected'
                   return (
                     <th
                       key={name}
                       className="px-3 py-2 text-right border-b border-gray-200 whitespace-nowrap sticky top-0 z-20 cursor-pointer hover:opacity-90 transition-colors"
-                      style={hc && isOtherHub ? { backgroundColor: hc.bg, color: hc.text } : { backgroundColor: '#f3f4f6', color: '#374151' }}
+                      style={isRejected ? { backgroundColor: '#fee2e2', color: '#991b1b' } : hc && isOtherHub ? { backgroundColor: hc.bg, color: hc.text } : { backgroundColor: '#f3f4f6', color: '#374151' }}
                       onClick={() => setHubPopup(name)}
                       title={hr ? `Hub: ${hr.hub} (${hr.status})` : 'คลิกเพื่อตั้งปลายทาง'}
                     >
                       <div className="flex flex-col items-end gap-0.5">
                         <span>{name}</span>
+                        {hr && isRejected && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-red-500 text-white">✕ ถูกปฏิเสธ</span>
+                        )}
                         {hr && isOtherHub && isPending && (
                           <>
                             <span style={{ background: hc!.dot, color: '#fff' }} className="text-[9px] font-bold px-1.5 py-0.5 rounded-full">
@@ -1008,7 +1012,7 @@ export default function InvoiceDetailPage() {
                             <span className="text-[9px] font-medium" style={{ color: hc!.text }}>→ {hr.hub}</span>
                           </>
                         )}
-                        {hr && isOtherHub && !isPending && (
+                        {hr && isOtherHub && !isPending && !isRejected && (
                           <span style={{ background: hc!.dot, color: '#fff' }} className="text-[9px] font-bold px-1.5 py-0.5 rounded-full">
                             ✓ {hr.hub}
                           </span>
@@ -1073,19 +1077,22 @@ export default function InvoiceDetailPage() {
               <p className="text-sm font-mono font-bold text-gray-700 mb-1">{hubPopup}</p>
               <p className="text-xs text-gray-500 mb-4">Invoice: {invoice.invoice_no}</p>
 
-              <div className={`rounded-xl px-4 py-3 mb-4 ${hr?.status === 'confirmed' ? 'bg-amber-50 border border-amber-200' : 'bg-blue-50 border border-blue-200'}`}>
+              <div className={`rounded-xl px-4 py-3 mb-4 ${hr?.status === 'confirmed' ? 'bg-amber-50 border border-amber-200' : hr?.status === 'rejected' ? 'bg-red-50 border border-red-200' : 'bg-blue-50 border border-blue-200'}`}>
                 <p className="text-xs text-gray-500 mb-1">ปลายทางปัจจุบัน</p>
                 <p className="font-bold text-gray-900 text-sm">Warehouse {currentHub}</p>
                 {hr && (
                   <div className="mt-2 space-y-1">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${hr.status === 'confirmed' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
-                        {hr.status === 'confirmed' ? '✓ ยืนยันแล้ว' : '⏳ รอยืนยัน'}
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${hr.status === 'confirmed' ? 'bg-green-100 text-green-700' : hr.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'}`}>
+                        {hr.status === 'confirmed' ? '✓ ยืนยันแล้ว' : hr.status === 'rejected' ? '✕ ถูกปฏิเสธ' : '⏳ รอยืนยัน'}
                       </span>
                     </div>
                     <p className="text-[10px] text-gray-500">ขอโดย: <span className="font-medium text-gray-700">{hr.requested_by}</span></p>
                     {hr.status === 'confirmed' && hr.confirmed_by && (
                       <p className="text-[10px] text-gray-500">ยืนยันโดย: <span className="font-medium text-green-700">{hr.confirmed_by}</span></p>
+                    )}
+                    {hr.status === 'rejected' && (
+                      <p className="text-[10px] text-red-500">กดเลือก Hub ด้านล่างเพื่อขอใหม่</p>
                     )}
                   </div>
                 )}

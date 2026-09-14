@@ -71,16 +71,43 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  // Admin confirms a request
   const body = await req.json()
-  const { invoice_id, container_name } = body
+  const { invoice_id, container_name, action } = body
 
   if (!invoice_id || !container_name) {
     return NextResponse.json({ error: 'missing fields' }, { status: 400 })
   }
 
-  const { confirmed_by, hub_arrival_date } = body
+  if (action === 'reject') {
+    const { error } = await supabase
+      .from('container_hub_requests')
+      .update({ status: 'rejected' })
+      .eq('invoice_id', invoice_id)
+      .eq('container_name', container_name)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
+    // LINE notification for rejection
+    const lineToken = process.env.LINE_CHANNEL_ACCESS_TOKEN
+    const lineGroupId = process.env.LINE_GROUP_ID
+    if (lineToken && lineGroupId) {
+      const { container_name: cn, invoice_no, hub, requested_by } = body
+      try {
+        await fetch('https://api.line.me/v2/bot/message/push', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${lineToken}` },
+          body: JSON.stringify({
+            to: lineGroupId,
+            messages: [{ type: 'text', text: `❌ ปฏิเสธคำขอเปลี่ยน Hub\n\nตู้: ${cn}\nInvoice: ${invoice_no}\nHub ที่ขอ: ${hub}\nขอโดย: ${requested_by}` }],
+          }),
+        })
+      } catch {}
+    }
+
+    return NextResponse.json({ ok: true })
+  }
+
+  // Default: confirm
+  const { confirmed_by, hub_arrival_date } = body
   const { error } = await supabase
     .from('container_hub_requests')
     .update({ status: 'confirmed', confirmed_at: new Date().toISOString(), confirmed_by: confirmed_by ?? null, hub_arrival_date: hub_arrival_date ?? null })
