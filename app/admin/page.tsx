@@ -78,6 +78,7 @@ export default function AdminPage() {
   }
 
   async function rejectHub(r: typeof hubRequests[0]) {
+    if (!confirm(`ปฏิเสธคำขอตู้ ${r.container_name} → Hub ${r.hub} ?\nตู้นี้จะกลับไปเป็น Warehouse มัยลาภตามเดิม`)) return
     setRejecting(r.container_name)
     await fetch('/api/hub-request', {
       method: 'PATCH',

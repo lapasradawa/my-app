@@ -79,29 +79,31 @@ export async function PATCH(req: NextRequest) {
   }
 
   if (action === 'reject') {
-    const { error } = await supabase
-      .from('container_hub_requests')
-      .update({ status: 'rejected' })
-      .eq('invoice_id', invoice_id)
-      .eq('container_name', container_name)
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    const { invoice_no, hub, requested_by } = body
 
-    // LINE notification for rejection
+    // LINE notification before deleting
     const lineToken = process.env.LINE_CHANNEL_ACCESS_TOKEN
     const lineGroupId = process.env.LINE_GROUP_ID
     if (lineToken && lineGroupId) {
-      const { container_name: cn, invoice_no, hub, requested_by } = body
       try {
         await fetch('https://api.line.me/v2/bot/message/push', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${lineToken}` },
           body: JSON.stringify({
             to: lineGroupId,
-            messages: [{ type: 'text', text: `❌ ปฏิเสธคำขอเปลี่ยน Hub\n\nตู้: ${cn}\nInvoice: ${invoice_no}\nHub ที่ขอ: ${hub}\nขอโดย: ${requested_by}` }],
+            messages: [{ type: 'text', text: `❌ ปฏิเสธคำขอเปลี่ยน Hub\n\nตู้: ${container_name}\nInvoice: ${invoice_no}\nHub ที่ขอ: ${hub}\nขอโดย: ${requested_by}` }],
           }),
         })
       } catch {}
     }
+
+    // Delete record — container reverts to default (มัยลาภ)
+    const { error } = await supabase
+      .from('container_hub_requests')
+      .delete()
+      .eq('invoice_id', invoice_id)
+      .eq('container_name', container_name)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
     return NextResponse.json({ ok: true })
   }
