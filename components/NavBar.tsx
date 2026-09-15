@@ -28,6 +28,8 @@ export default function NavBar({ onUnlock, onLock }: Props) {
       ? 'text-blue-600'
       : 'text-gray-500 hover:text-gray-800 transition-colors'
 
+  const calendarActive = pathname === '/calendar' || pathname === '/weekly-inbound'
+
   // Summary dropdown active when on /summary or /qc/summary
   const summaryActive = pathname === '/summary' || pathname === '/qc/summary' || pathname === '/po-summary'
   const summaryCount = [canAccess('summary'), canAccess('qc'), canAccess('po-summary')].filter(Boolean).length
@@ -46,7 +48,21 @@ export default function NavBar({ onUnlock, onLock }: Props) {
         <Link href="/dashboard" className={cls('/dashboard')}>Dashboard</Link>
       )}
       {canAccess('calendar') && (
-        <Link href="/calendar" className={cls('/calendar')}>Calendar</Link>
+        <div className="relative group">
+          <span className={`cursor-default ${calendarActive ? 'text-blue-600' : 'text-gray-500 hover:text-gray-800'}`}>
+            Calendar ▾
+          </span>
+          <div className="absolute left-0 top-full pt-1 hidden group-hover:block z-50">
+            <div className="bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[180px]">
+              <Link href="/calendar" className={`block px-4 py-2 text-sm hover:bg-blue-50 ${pathname === '/calendar' ? 'text-blue-600' : 'text-gray-700'}`}>
+                Calendar
+              </Link>
+              <Link href="/weekly-inbound" className={`block px-4 py-2 text-sm hover:bg-blue-50 ${pathname === '/weekly-inbound' ? 'text-blue-600' : 'text-gray-700'}`}>
+                Weekly Inbound Plan
+              </Link>
+            </div>
+          </div>
+        </div>
       )}
       {canAccess('report') && (
         <Link href="/report" className={cls('/report')}>Report</Link>

@@ -64,6 +64,9 @@ export function pathnameToPageKey(pathname: string): PageKey | null {
     case 'guide':      return 'guide'
     case 'po-summary': return 'po-summary'
     case 'load-plan':  return 'load-plan'
+    // Weekly Inbound Plan is a sub-view reached from the Calendar dropdown,
+    // not its own nav item — gate it behind the same 'calendar' permission.
+    case 'weekly-inbound': return 'calendar'
     case 'admin':      return null // handled separately
     case 'login':      return null // public
     default:           return null
