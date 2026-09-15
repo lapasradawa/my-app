@@ -137,6 +137,23 @@ function readHistory(): HistorySession[] {
   try { return JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '[]') } catch { return [] }
 }
 
+// Natural, case-insensitive name compare — groups similar names together
+// (e.g. all "Shelf..." variants) and orders embedded numbers correctly
+// ("Shelf 2" before "Shelf 10").
+function compareNames(a: string, b: string): number {
+  return a.trim().localeCompare(b.trim(), undefined, { numeric: true, sensitivity: 'base' })
+}
+
+// Sorts a template's item codes once by name (via a description lookup),
+// producing the fixed reference sequence every plan generation follows.
+function buildTemplateOrder(codes: string[], descByCode: Map<string, string>): string[] {
+  return [...codes].sort((a, b) => {
+    const nameA = descByCode.get(a) || a
+    const nameB = descByCode.get(b) || b
+    return compareNames(nameA, nameB) || a.localeCompare(b)
+  })
+}
+
 export default function OrderPlanPage() {
   const [projects, setProjects] = useState<string[]>([])
   const [allDbSuppliers, setAllDbSuppliers] = useState<string[]>([])
@@ -170,6 +187,11 @@ export default function OrderPlanPage() {
 
   const [allParsedCache, setAllParsedCache] = useState<ParsedRow[]>([])
   const [templateCodes, setTemplateCodes] = useState<Set<string> | null>(null)
+  // Canonical row sequence: the template's item codes, sorted once by name
+  // (grouping similar names together). Anchoring order to the template file
+  // — rather than whatever order the stock file lists items in — keeps the
+  // plan's row order identical every time it's regenerated.
+  const [templateOrder, setTemplateOrder] = useState<string[] | null>(null)
   const [templateInfo, setTemplateInfo] = useState<{ fileName: string; count: number } | null>(null)
   const templateFileRef = useRef<HTMLInputElement>(null)
 
@@ -204,9 +226,10 @@ export default function OrderPlanPage() {
     try {
       const saved = localStorage.getItem(TEMPLATE_KEY)
       if (saved) {
-        const data = JSON.parse(saved) as { codes: string[]; fileName: string }
+        const data = JSON.parse(saved) as { codes: string[]; fileName: string; order?: string[] }
         setTemplateCodes(new Set(data.codes))
         setTemplateInfo({ fileName: data.fileName, count: data.codes.length })
+        if (data.order) setTemplateOrder(data.order)
       }
     } catch { /* corrupt storage */ }
   }, [])
@@ -312,6 +335,24 @@ export default function OrderPlanPage() {
 
     setAllParsedCache(allParsed)
     const filtered = templateCodes ? allParsed.filter(r => templateCodes.has(r.item_code)) : allParsed
+
+    // Refresh the template's canonical order now that descriptions from this
+    // stock file are available (fills in names for codes the order didn't
+    // have one for yet; the order itself stays keyed off the template, not
+    // this stock file's row order).
+    if (templateCodes) {
+      const descByCode = new Map(allParsed.map(r => [r.item_code, r.description]))
+      const order = buildTemplateOrder([...templateCodes], descByCode)
+      setTemplateOrder(order)
+      try {
+        const saved = localStorage.getItem(TEMPLATE_KEY)
+        if (saved) {
+          const data = JSON.parse(saved) as { codes: string[]; fileName: string; order?: string[] }
+          localStorage.setItem(TEMPLATE_KEY, JSON.stringify({ ...data, order }))
+        }
+      } catch { /* corrupt storage */ }
+    }
+
     setParsedCache(filtered)
     await buildPlanRows(filtered, selectedProject)
 
@@ -363,7 +404,13 @@ export default function OrderPlanPage() {
     const newSet = new Set(codes)
     setTemplateCodes(newSet)
     setTemplateInfo({ fileName: file.name, count: codes.length })
-    localStorage.setItem(TEMPLATE_KEY, JSON.stringify({ codes, fileName: file.name }))
+
+    // Sort the template's codes by name once — this becomes the fixed
+    // reference order every plan generation follows from now on.
+    const descByCode = new Map(allParsedCache.map(r => [r.item_code, r.description]))
+    const order = buildTemplateOrder(codes, descByCode)
+    setTemplateOrder(order)
+    localStorage.setItem(TEMPLATE_KEY, JSON.stringify({ codes, fileName: file.name, order }))
 
     // Re-filter if stock_dashboard already loaded
     if (allParsedCache.length > 0) {
@@ -379,6 +426,7 @@ export default function OrderPlanPage() {
   function clearTemplate() {
     setTemplateCodes(null)
     setTemplateInfo(null)
+    setTemplateOrder(null)
     localStorage.removeItem(TEMPLATE_KEY)
     if (allParsedCache.length > 0) {
       setParsedCache(allParsedCache)
@@ -562,6 +610,24 @@ export default function OrderPlanPage() {
       const U = T - r.next_month
       return { ...r, ddp_prices, L, S, T, U }
     })
+    if (templateOrder) {
+      // Anchor row order to the template's fixed sequence — identical every
+      // run regardless of how the stock file lists items that time.
+      const orderIndex = new Map(templateOrder.map((code, i) => [code, i]))
+      planRows.sort((a, b) => {
+        const ia = orderIndex.get(a.item_code) ?? Number.MAX_SAFE_INTEGER
+        const ib = orderIndex.get(b.item_code) ?? Number.MAX_SAFE_INTEGER
+        if (ia !== ib) return ia - ib
+        return compareNames(a.description || a.item_code, b.description || b.item_code) || a.item_code.localeCompare(b.item_code)
+      })
+    } else {
+      // No template loaded — fall back to sorting by name (description,
+      // falling back to item code) so similar items (e.g. all "Shelf..."
+      // variants) still sit next to each other and stay stable across runs.
+      planRows.sort((a, b) =>
+        compareNames(a.description || a.item_code, b.description || b.item_code) || a.item_code.localeCompare(b.item_code)
+      )
+    }
     setRows(planRows)
   }
 

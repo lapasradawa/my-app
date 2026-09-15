@@ -1,4 +1,10 @@
 import * as XLSX from 'xlsx'
+import { parseNumber } from './parse-number'
+
+// Normalizes header text so variants like "Q'TY", "QTY.", " Qty " all match "qty"
+function normalizeHeader(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9ก-๙]/g, '')
+}
 
 export interface POUploadRow {
   item_code: string
@@ -36,9 +42,10 @@ export function parsePOUploadExcel(buffer: ArrayBuffer): POUploadResult {
     let found = false
     for (let j = 0; j < row.length; j++) {
       const h = String(row[j]).toLowerCase().trim()
+      const hNorm = normalizeHeader(h)
       if (h.includes('item') && h.includes('code')) { itemCol = j; found = true }
       if (h.includes('desc') || h.includes('สินค้า') || h.includes('name')) descCol = j
-      if (h === 'qty' || h === 'quantity' || h === 'จำนวน') qtyCol = j
+      if (hNorm === 'qty' || hNorm === 'quantity' || hNorm === 'จำนวน') qtyCol = j
       if (h.includes('unit') && h.includes('price')) {
         priceCol = j
         const raw_h = String(row[j]).toUpperCase()
@@ -56,7 +63,19 @@ export function parsePOUploadExcel(buffer: ArrayBuffer): POUploadResult {
 
   // Fallbacks if columns not found
   if (descCol < 0) descCol = itemCol + 1
+  const qtyColDetected = qtyCol >= 0
   if (qtyCol < 0) qtyCol = priceCol - 1
+
+  // If we had to guess the qty column, sanity-check it against the first few data
+  // rows — if none of them look numeric, the guess almost certainly points at the
+  // wrong column (e.g. a description column), which would silently zero every qty.
+  if (!qtyColDetected) {
+    const sample = raw.slice(headerRow + 1, headerRow + 6)
+    const anyNumeric = sample.some(row => parseNumber(row[qtyCol]) > 0)
+    if (sample.length > 0 && !anyNumeric) {
+      throw new Error('ไม่พบคอลัมน์ QTY ที่ชัดเจน — กรุณาตรวจสอบว่าไฟล์มีหัวตาราง "QTY" หรือ "Quantity"')
+    }
+  }
 
   const rows: POUploadRow[] = []
 
@@ -68,8 +87,8 @@ export function parsePOUploadExcel(buffer: ArrayBuffer): POUploadResult {
     if (!itemCode) continue
     if (itemCode.toUpperCase() === 'TOTAL' || itemCode.toUpperCase().startsWith('REMARK')) break
 
-    const qty = parseFloat(String(row[qtyCol] ?? '')) || 0
-    const unitPrice = parseFloat(String(row[priceCol] ?? '')) || 0
+    const qty = parseNumber(row[qtyCol])
+    const unitPrice = parseNumber(row[priceCol])
     if (unitPrice === 0 && qty === 0) continue
 
     rows.push({

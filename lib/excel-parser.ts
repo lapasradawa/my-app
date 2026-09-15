@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx'
+import { parseNumber } from './parse-number'
 
 export interface ResultRow {
   no: number
@@ -74,7 +75,7 @@ function parseCISheet(sheet: XLSX.WorkSheet): { code: string; description: strin
     const code = rawCode.trim()
     if (code.toUpperCase().includes('TOTAL') || code.toUpperCase().includes('COUNTRY')) break
 
-    const qty = typeof row[qtyCol] === 'number' ? (row[qtyCol] as number) : parseFloat(String(row[qtyCol])) || 0
+    const qty = parseNumber(row[qtyCol])
     const marks = marksCol !== -1 ? String(row[marksCol] || '').replace(/\n/g, ' ').trim() : ''
     const desc = descCol !== -1 ? String(row[descCol] || '').trim() : ''
 
@@ -111,7 +112,7 @@ function parseContainerSheet(sheet: XLSX.WorkSheet): Record<string, number> {
     if (!code || typeof code !== 'string' || code.trim() === '') continue
     if (code.toUpperCase().includes('COUNTRY') || code.toUpperCase().includes('SHIPPING')) break
 
-    const qty = typeof row[qtyCol] === 'number' ? (row[qtyCol] as number) : parseFloat(String(row[qtyCol])) || 0
+    const qty = parseNumber(row[qtyCol])
     if (qty > 0) {
       result[code.trim()] = (result[code.trim()] || 0) + qty
     }
@@ -189,8 +190,7 @@ function parseCombinedPLSheet(sheet: XLSX.WorkSheet): { containerNames: string[]
     if (!/^[A-Z0-9]/i.test(code)) continue             // must start alphanumeric
     if (code.toUpperCase().includes('TOTAL')) continue
 
-    const qtyRaw = row[qtyCol]
-    const qty = typeof qtyRaw === 'number' ? (qtyRaw as number) : parseFloat(String(qtyRaw || '')) || 0
+    const qty = parseNumber(row[qtyCol])
     if (qty > 0) {
       containerMaps[currentContainer][code] = (containerMaps[currentContainer][code] || 0) + qty
     }

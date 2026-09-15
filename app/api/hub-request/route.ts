@@ -1,15 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
+// Lazily constructed so a missing env var fails loudly on the first real
+// request (with a clear message in the logs) instead of at build time, and
+// instead of silently downgrading to the low-privilege anon key.
+function getSupabase() {
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!key) {
+    throw new Error('SUPABASE_SERVICE_ROLE_KEY is not set — required for /api/hub-request to write with elevated privileges')
+  }
+  return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, key)
+}
 
 const HUBS = ['มัยลาภ', 'ขอนแก่น', 'พิษณุโลก', 'สุราษฎร์ธานี'] as const
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://import-project-zeta.vercel.app'
 
 export async function POST(req: NextRequest) {
+  let supabase: ReturnType<typeof getSupabase>
+  try {
+    supabase = getSupabase()
+  } catch (e) {
+    console.error(e)
+    return NextResponse.json({ error: 'server misconfigured: SUPABASE_SERVICE_ROLE_KEY missing' }, { status: 500 })
+  }
+
   const body = await req.json()
   const { invoice_id, invoice_no, container_name, hub, requested_by } = body
 
@@ -71,6 +85,14 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
+  let supabase: ReturnType<typeof getSupabase>
+  try {
+    supabase = getSupabase()
+  } catch (e) {
+    console.error(e)
+    return NextResponse.json({ error: 'server misconfigured: SUPABASE_SERVICE_ROLE_KEY missing' }, { status: 500 })
+  }
+
   const body = await req.json()
   const { invoice_id, container_name, action } = body
 
@@ -81,7 +103,22 @@ export async function PATCH(req: NextRequest) {
   if (action === 'reject') {
     const { invoice_no, hub, requested_by } = body
 
-    // LINE notification before deleting
+    // Only delete a request that is still pending — if another admin already
+    // confirmed it, this guard stops the delete from silently reverting an
+    // already-confirmed hub assignment back to the default.
+    const { data, error } = await supabase
+      .from('container_hub_requests')
+      .delete()
+      .eq('invoice_id', invoice_id)
+      .eq('container_name', container_name)
+      .eq('status', 'pending')
+      .select('id')
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    if (!data || data.length === 0) {
+      return NextResponse.json({ error: 'already_handled', message: 'รายการนี้ถูกดำเนินการไปแล้วโดยแอดมินคนอื่น' }, { status: 409 })
+    }
+
+    // LINE notification after a successful delete
     const lineToken = process.env.LINE_CHANNEL_ACCESS_TOKEN
     const lineGroupId = process.env.LINE_GROUP_ID
     if (lineToken && lineGroupId) {
@@ -97,25 +134,24 @@ export async function PATCH(req: NextRequest) {
       } catch {}
     }
 
-    // Delete record — container reverts to default (มัยลาภ)
-    const { error } = await supabase
-      .from('container_hub_requests')
-      .delete()
-      .eq('invoice_id', invoice_id)
-      .eq('container_name', container_name)
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-
     return NextResponse.json({ ok: true })
   }
 
-  // Default: confirm
+  // Default: confirm — same guard so a stale "confirm" click after another
+  // admin already rejected/confirmed the same row doesn't silently no-op or
+  // overwrite it.
   const { confirmed_by, hub_arrival_date } = body
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('container_hub_requests')
     .update({ status: 'confirmed', confirmed_at: new Date().toISOString(), confirmed_by: confirmed_by ?? null, hub_arrival_date: hub_arrival_date ?? null })
     .eq('invoice_id', invoice_id)
     .eq('container_name', container_name)
+    .eq('status', 'pending')
+    .select('id')
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (!data || data.length === 0) {
+    return NextResponse.json({ error: 'already_handled', message: 'รายการนี้ถูกดำเนินการไปแล้วโดยแอดมินคนอื่น' }, { status: 409 })
+  }
   return NextResponse.json({ ok: true })
 }

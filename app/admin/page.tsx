@@ -36,6 +36,7 @@ export default function AdminPage() {
   const [defaultPages, setDefaultPages] = useState<PageKey[]>(['po-matching'])
   const [hubRequests, setHubRequests] = useState<{ id: string; invoice_id: string; invoice_no: string; container_name: string; hub: string; requested_by: string; created_at: string }[]>([])
   const [rejecting, setRejecting] = useState<string | null>(null) // container_name being rejected
+  const [confirming, setConfirming] = useState<string | null>(null) // container_name being confirmed
   const [confirmDates, setConfirmDates] = useState<Record<string, string>>({})
   const [savingDefault, setSavingDefault] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -67,26 +68,38 @@ export default function AdminPage() {
     const key = `${invoiceId}:${containerName}`
     const hubArrivalDate = confirmDates[key]
     if (!hubArrivalDate) { alert('กรุณาใส่วันที่เข้าคลังก่อนยืนยัน'); return }
+    setConfirming(containerName)
     const { data: { user } } = await supabase.auth.getUser()
     const confirmedBy = user?.email ?? 'admin'
-    await fetch('/api/hub-request', {
+    const res = await fetch('/api/hub-request', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ invoice_id: invoiceId, container_name: containerName, confirmed_by: confirmedBy, hub_arrival_date: hubArrivalDate }),
     })
+    setConfirming(null)
+    if (res.status === 409) {
+      alert('รายการนี้ถูกดำเนินการไปแล้วโดยแอดมินคนอื่น — รายการจะถูกโหลดใหม่')
+      await load()
+      return
+    }
     setHubRequests(prev => prev.filter(r => !(r.invoice_id === invoiceId && r.container_name === containerName)))
   }
 
   async function rejectHub(r: typeof hubRequests[0]) {
     if (!confirm(`ปฏิเสธคำขอตู้ ${r.container_name} → Hub ${r.hub} ?\nตู้นี้จะกลับไปเป็น Warehouse มัยลาภตามเดิม`)) return
     setRejecting(r.container_name)
-    await fetch('/api/hub-request', {
+    const res = await fetch('/api/hub-request', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ invoice_id: r.invoice_id, container_name: r.container_name, action: 'reject', invoice_no: r.invoice_no, hub: r.hub, requested_by: r.requested_by }),
     })
-    setHubRequests(prev => prev.filter(x => !(x.invoice_id === r.invoice_id && x.container_name === r.container_name)))
     setRejecting(null)
+    if (res.status === 409) {
+      alert('รายการนี้ถูกดำเนินการไปแล้วโดยแอดมินคนอื่น — รายการจะถูกโหลดใหม่')
+      await load()
+      return
+    }
+    setHubRequests(prev => prev.filter(x => !(x.invoice_id === r.invoice_id && x.container_name === r.container_name)))
   }
 
   async function saveDefaultPages() {
@@ -201,8 +214,8 @@ export default function AdminPage() {
                         className="border border-gray-200 rounded px-2 py-0.5 text-xs outline-none focus:border-green-400"
                       />
                     </div>
-                    <button onClick={() => rejectHub(r)} disabled={rejecting === r.container_name} className="px-3 py-1 text-xs border border-red-200 text-red-500 rounded-lg hover:bg-red-50 font-medium disabled:opacity-50">✕ ปฏิเสธ</button>
-                    <button onClick={() => confirmHub(r.invoice_id, r.container_name)} className="px-3 py-1 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium">✓ ยืนยัน</button>
+                    <button onClick={() => rejectHub(r)} disabled={rejecting === r.container_name || confirming === r.container_name} className="px-3 py-1 text-xs border border-red-200 text-red-500 rounded-lg hover:bg-red-50 font-medium disabled:opacity-50">✕ ปฏิเสธ</button>
+                    <button onClick={() => confirmHub(r.invoice_id, r.container_name)} disabled={confirming === r.container_name || rejecting === r.container_name} className="px-3 py-1 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium disabled:opacity-50">{confirming === r.container_name ? '...' : '✓ ยืนยัน'}</button>
                   </div>
                 </div>
               ))}

@@ -24,7 +24,24 @@ async function imgB64(url: string): Promise<{ data: string; ext: string } | null
 }
 
 export async function POST(request: NextRequest) {
-  const { reports, fileName } = await request.json() as { reports: QCSlideData[]; fileName: string }
+  let body: { reports?: unknown; fileName?: unknown }
+  try {
+    body = await request.json()
+  } catch {
+    return NextResponse.json({ error: 'invalid JSON body' }, { status: 400 })
+  }
+
+  const { reports: rawReports, fileName: rawFileName } = body
+  if (!Array.isArray(rawReports) || rawReports.length === 0) {
+    return NextResponse.json({ error: 'reports must be a non-empty array' }, { status: 400 })
+  }
+  for (const r of rawReports as Partial<QCSlideData>[]) {
+    if (!r || typeof r.report_no !== 'string') {
+      return NextResponse.json({ error: 'each report must include report_no' }, { status: 400 })
+    }
+  }
+  const reports = rawReports as QCSlideData[]
+  const fileName = typeof rawFileName === 'string' ? rawFileName : ''
 
   const pptx = new PptxGenJS()
   pptx.layout = 'LAYOUT_WIDE'
@@ -48,7 +65,7 @@ export async function POST(request: NextRequest) {
     slide.addShape(pptx.ShapeType.line, { x: 0.35, y: 0.76, w: 12.63, h: 0, line: { color: LINE, width: 1.5 } })
 
     const LX = 0.35, LW = 1.6, VX = 2.05, VW = 5.5
-    const caText = [...r.corrective_actions, r.corrective_action_comment].filter(Boolean).join('\n')
+    const caText = [...(r.corrective_actions ?? []), r.corrective_action_comment].filter(Boolean).join('\n')
     const prevText = [r.root_cause, r.preventive_action].filter(Boolean).join('\n')
 
     const rows: { label: string; value: string }[] = [

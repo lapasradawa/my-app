@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx'
+import { parseNumber } from './parse-number'
 
 export interface POItem {
   item_code: string
@@ -62,9 +63,8 @@ export function parsePO(buffer: ArrayBuffer): { items: POItem[]; currency: strin
     if (!code) continue
     if (/^total/i.test(code)) break
     if (!/^[A-Z0-9]/i.test(code)) continue
-    const rawPrice = row[priceCol]
-    const price = typeof rawPrice === 'number' ? rawPrice : parseFloat(String(rawPrice || ''))
-    if (isNaN(price) || price <= 0) continue
+    const price = parseNumber(row[priceCol])
+    if (price <= 0) continue
     const desc = descCol !== -1 ? String(row[descCol] || '').trim() : ''
     items.push({ item_code: code, description: desc, fob_price: price, currency, document_no, document_date })
   }

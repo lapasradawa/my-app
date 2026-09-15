@@ -255,7 +255,8 @@ export default function PoInsightsPage() {
     const sheetRows: (string | number)[][] = []
     sheetRows.push([], [], [])
     sheetRows.push(['No.', 'Item Code', 'Description', 'QTY', `UNIT PRICE (${currency}/PC)`, `TOTAL (${currency})`])
-    for (let i = 0; i < 30; i++) {
+    const rowCount = Math.max(30, poItems.length)
+    for (let i = 0; i < rowCount; i++) {
       if (i < poItems.length) {
         const item = poItems[i]
         const qty = parseFloat(item.qty) || 0
