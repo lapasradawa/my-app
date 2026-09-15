@@ -196,6 +196,12 @@ export default function CalendarPage() {
     return { ...w, inv }
   }), [weeks, filteredInvoices])
 
+  // "มัยลาภ" is the default hub — containers there never get a row in
+  // container_hub_requests (that table only holds explicit hub-change
+  // requests), so it must use the invoice-level view (like "ทั้งหมด"),
+  // not the container-level view built from confirmed hub-change requests.
+  const useInvoiceView = hubFilter === 'ทั้งหมด' || hubFilter === 'มัยลาภ'
+
   const GRID = `${LABEL_W}px repeat(7, minmax(0, 1fr))`
 
   return (
@@ -281,9 +287,9 @@ export default function CalendarPage() {
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto bg-white rounded-xl shadow-sm border border-gray-100">
-            {(hubFilter !== 'ทั้งหมด' ? containerWeeksData : weeksData).map(({ mon, sun, wn, days, ...rest }, wi) => {
-              const weekInvs = hubFilter === 'ทั้งหมด' ? (rest as typeof weeksData[0]).inv : []
-              const weekContainers = hubFilter !== 'ทั้งหมด' ? (rest as typeof containerWeeksData[0]).containers : []
+            {(useInvoiceView ? weeksData : containerWeeksData).map(({ mon, sun, wn, days, ...rest }, wi) => {
+              const weekInvs = useInvoiceView ? (rest as typeof weeksData[0]).inv : []
+              const weekContainers = !useInvoiceView ? (rest as typeof containerWeeksData[0]).containers : []
               const todayInWeek = todayStr >= ds(mon) && todayStr <= ds(sun)
               const todayColIdx = todayInWeek ? dow(today) : -1
 
@@ -371,7 +377,7 @@ export default function CalendarPage() {
                     )}
 
                     {/* Container bars for per-hub view */}
-                    {hubFilter !== 'ทั้งหมด' && weekContainers.map((c, ci) => {
+                    {!useInvoiceView && weekContainers.map((c, ci) => {
                       const hc = hubColor(c.hub)
                       const dayIdx = dow(pd(c.hub_arrival_date))
                       const colStart = gc(dayIdx); const colEnd = colStart + 1
@@ -389,14 +395,14 @@ export default function CalendarPage() {
                         </div>
                       )
                     })}
-                    {hubFilter !== 'ทั้งหมด' && weekContainers.length === 0 && (
+                    {!useInvoiceView && weekContainers.length === 0 && (
                       <div className="grid" style={{ gridTemplateColumns: GRID }}>
                         <div className="border-r border-slate-700/20 bg-slate-800/5" style={{ height: '28px' }} />
                         {days.map((_, di) => <div key={di} className="border-r last:border-r-0 border-gray-50" style={{ height: '28px' }} />)}
                       </div>
                     )}
 
-                    {hubFilter === 'ทั้งหมด' && weekInvs.length === 0 ? (
+                    {useInvoiceView && weekInvs.length === 0 ? (
                       <div className="grid" style={{ gridTemplateColumns: GRID }}>
                         <div className="border-r border-slate-700/20 bg-slate-800/5" style={{ height: '28px' }} />
                         {days.map((_, di) => (
@@ -407,7 +413,7 @@ export default function CalendarPage() {
                           />
                         ))}
                       </div>
-                    ) : hubFilter === 'ทั้งหมด' && (
+                    ) : useInvoiceView && (
                       weekInvs.map((inv, ii) => {
                         const arrStart = pd(inv.estimated_arrival!)
                         const arrEnd = pd(inv.estimated_arrival_end || inv.estimated_arrival!)

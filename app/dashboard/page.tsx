@@ -128,7 +128,7 @@ export default function DashboardPage() {
   const [showPasswordModal, setShowPasswordModal] = useState(false)
   const [pendingAction, setPendingAction] = useState<(() => void) | null>(null)
   const [pendingHubIds, setPendingHubIds] = useState<Set<string>>(new Set())
-  const [confirmedHubMap, setConfirmedHubMap] = useState<Map<string, string[]>>(new Map())
+  const [confirmedHubMap, setConfirmedHubMap] = useState<Map<string, { hub: string; date: string | null }[]>>(new Map())
 
   useEffect(() => { loadInvoices(); setUnlocked(isUnlocked()) }, [])
 
@@ -160,14 +160,21 @@ export default function DashboardPage() {
     // Fetch hub requests to show badges on invoice list
     const { data: hubRows } = await supabase
       .from('container_hub_requests')
-      .select('invoice_id, hub, status')
+      .select('invoice_id, hub, hub_arrival_date, status')
     if (hubRows) {
-      const rows = hubRows as { invoice_id: string; hub: string; status: string }[]
+      const rows = hubRows as { invoice_id: string; hub: string; hub_arrival_date: string | null; status: string }[]
       setPendingHubIds(new Set(rows.filter(r => r.status === 'pending').map(r => r.invoice_id)))
-      const cm = new Map<string, string[]>()
+      const cm = new Map<string, { hub: string; date: string | null }[]>()
       for (const r of rows.filter(r => r.status === 'confirmed')) {
-        if (!cm.has(r.invoice_id)) cm.set(r.invoice_id, [])
-        if (!cm.get(r.invoice_id)!.includes(r.hub)) cm.get(r.invoice_id)!.push(r.hub)
+        const list = cm.get(r.invoice_id) ?? []
+        const existing = list.find(x => x.hub === r.hub)
+        if (existing) {
+          // Same hub, multiple containers — keep the earliest arrival date
+          if (r.hub_arrival_date && (!existing.date || r.hub_arrival_date < existing.date)) existing.date = r.hub_arrival_date
+        } else {
+          list.push({ hub: r.hub, date: r.hub_arrival_date })
+        }
+        cm.set(r.invoice_id, list)
       }
       setConfirmedHubMap(cm)
     }
@@ -362,17 +369,21 @@ export default function DashboardPage() {
           </div>
         ) : (
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-auto max-h-[calc(100vh-320px)]">
-            <table className="w-full text-sm table-fixed">
+            {/* [&_td]:align-top — cells default to vertical-align:middle, so a
+                row whose Invoice cell grows taller (multi-hub box) would
+                otherwise center every other cell's text into the middle of
+                that taller row, overlapping the box. */}
+            <table className="w-full text-sm table-fixed [&_td]:align-top">
               <thead className="sticky top-0 z-10">
                 <tr className="bg-gray-50 text-gray-600 border-b border-gray-200">
-                  <th className="px-4 py-3 text-left font-medium w-[13%]">Invoice No.</th>
-                  <th className="px-4 py-3 text-left font-medium w-[10%]">Supplier</th>
-                  <th className="px-4 py-3 text-left font-medium w-[11%]">สถานะ</th>
-                  <th className="px-4 py-3 text-left font-medium w-[11%]"><span className="whitespace-nowrap">วันที่ถึงท่าเรือไทย</span><br/>(ETA)</th>
-                  <th className="px-4 py-3 text-left font-medium w-[18%]">ประมาณการเข้าคลัง</th>
-                  <th className="px-4 py-3 text-left font-medium w-[11%]">วันที่บันทึก</th>
-                  <th className="px-4 py-3 text-left font-medium w-[10%]">Due Date</th>
-                  <th className="px-4 py-3 text-left font-medium w-[11%]">สถานะจ่าย</th>
+                  <th className="px-4 py-3 text-left font-medium w-[16%]">Invoice No.</th>
+                  <th className="px-4 py-3 text-center font-medium w-[12%]">Supplier</th>
+                  <th className="px-4 py-3 text-center font-medium w-[11%]">สถานะ</th>
+                  <th className="px-4 py-3 text-center font-medium w-[11%]"><span className="whitespace-nowrap">วันที่ถึงท่าเรือไทย</span><br/>(ETA)</th>
+                  <th className="px-4 py-3 text-center font-medium w-[18%]">ประมาณการเข้าคลัง</th>
+                  <th className="px-4 py-3 text-center font-medium w-[11%]">วันที่บันทึก</th>
+                  <th className="px-4 py-3 text-center font-medium w-[8%]">Due Date</th>
+                  <th className="px-4 py-3 text-center font-medium w-[9%]">สถานะจ่าย</th>
                   <th className="px-4 py-3 w-[8%]"></th>
                 </tr>
               </thead>
@@ -391,30 +402,41 @@ export default function DashboardPage() {
                           {pendingHubIds.has(inv.id) && (
                             <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-orange-100 text-orange-700 border border-orange-200 whitespace-nowrap">⏳ pending</span>
                           )}
-                          {(confirmedHubMap.get(inv.id) ?? []).map(hub => {
-                            const hc = hubColor(hub)
-                            return (
-                              <span key={hub} style={{ background: hc.bg, color: hc.text, borderColor: hc.border }} className="text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap">
-                                📦 {hub}
-                              </span>
-                            )
-                          })}
                         </div>
+                        {/* One aligned box per invoice instead of separate variable-width
+                            pills — each hub gets its own row (name left, date right) so
+                            multi-hub invoices line up cleanly instead of wrapping jaggedly. */}
+                        {(confirmedHubMap.get(inv.id)?.length ?? 0) > 0 && (
+                          <div className="mt-1 inline-flex flex-col gap-0.5 border border-gray-200 rounded-md bg-gray-50/70 px-2 py-1">
+                            {(confirmedHubMap.get(inv.id) ?? []).map(({ hub, date }) => {
+                              const hc = hubColor(hub)
+                              return (
+                                <div key={hub} className="flex items-center justify-between gap-4 text-[10px] font-bold whitespace-nowrap">
+                                  <span className="flex items-center gap-1" style={{ color: hc.text }}>
+                                    <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: hc.dot }} />
+                                    📦 {hub}
+                                  </span>
+                                  {date && <span className="text-gray-400 font-normal">{fmtDate(date)}</span>}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 text-center">
                         {unlocked ? (
                           <input
                             type="text"
                             value={edits[inv.id]?.supplier ?? ''}
                             onChange={ev => setField(inv.id, 'supplier', ev.target.value)}
                             placeholder="ใส่ชื่อ supplier"
-                            className="text-xs border border-gray-200 rounded px-2 py-1 outline-none focus:border-blue-400 w-36 text-gray-700"
+                            className="text-xs border border-gray-200 rounded px-2 py-1 outline-none focus:border-blue-400 w-36 text-gray-700 text-center"
                           />
                         ) : (
                           <span className="text-xs text-gray-700">{inv.supplier || <span className="text-gray-400">—</span>}</span>
                         )}
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
+                      <td className="px-4 py-3 text-center whitespace-nowrap">
                         {unlocked && displaySt !== 'เข้าคลังแล้ว' ? (
                           <select
                             value={(e.status as string) === 'ถึงคลัง' || (e.status as string) === 'ถึงไทย กำลังเข้าคลัง' ? 'กำลังเข้าคลัง' : e.status}
@@ -429,7 +451,7 @@ export default function DashboardPage() {
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
+                      <td className="px-4 py-3 text-center whitespace-nowrap">
                         {unlocked ? (
                           <input
                             type="date"
@@ -441,9 +463,9 @@ export default function DashboardPage() {
                           <span className="text-xs text-gray-600">{fmtDate(inv.eta_date) || <span className="text-gray-400">—</span>}</span>
                         )}
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
+                      <td className="px-4 py-3 text-center whitespace-nowrap">
                         {unlocked && showDate ? (
-                          <div className="flex items-center gap-1.5 flex-wrap">
+                          <div className="flex items-center justify-center gap-1.5 flex-wrap">
                             <input
                               type="date"
                               value={e.estimated_arrival}
@@ -468,15 +490,15 @@ export default function DashboardPage() {
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">{formatDate(inv.created_at)}</td>
-                      <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-600">
+                      <td className="px-4 py-3 text-center text-gray-500 text-xs whitespace-nowrap">{formatDate(inv.created_at)}</td>
+                      <td className="px-4 py-3 text-center whitespace-nowrap text-xs text-gray-600">
                         {(() => {
                           const due = computeDueDate(inv.bl_date)
                           if (!due) return <span className="text-gray-400">—</span>
                           return due.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
                         })()}
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
+                      <td className="px-4 py-3 text-center whitespace-nowrap">
                         {(() => {
                           const p = getPaymentLabel(inv.payment_status, inv.bl_date)
                           if (p.label === '—') return <span className="text-gray-400 text-xs">—</span>

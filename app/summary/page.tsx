@@ -195,7 +195,7 @@ export default function SummaryPage() {
   })
   const [selectedItem, setSelectedItem] = useState<string | null>(null)
   const [itemSearch, setItemSearch] = useState('')
-  const [showDetail, setShowDetail] = useState(false)
+  const [view, setView] = useState<'items' | 'detail' | 'hub'>('items')
   const [periodOpen, setPeriodOpen] = useState(false)
 
   const allMonthKeys = useMemo(() => generateMonthKeys(18), [])
@@ -319,6 +319,54 @@ export default function SummaryPage() {
   const selectedItemData = useMemo(() =>
     selectedItem ? itemSummary.find(i => i.code === selectedItem) : null,
     [selectedItem, itemSummary])
+
+  // Per-container hub lines: item_code × invoice × hub, split from each
+  // row's per-container qty (row.containers) — needed because a single
+  // invoice's containers can go to different hubs, and LineItem/allLines
+  // only carries the invoice-wide total qty, not the per-container split.
+  const hubLines = useMemo(() => {
+    const hubReqMap = new Map<string, string>() // `${invoice_id}::${container_name}` -> hub
+    for (const h of hubReqs) hubReqMap.set(`${h.invoice_id}::${h.container_name}`, h.hub)
+
+    const lines: { hub: string; item_code: string; description: string; supplier: string; invoice_no: string; invoice_id: string; qty: number; month_key: string | null }[] = []
+    for (const inv of invoices) {
+      if (!inv.rows) continue
+      const supplier = inv.supplier || '—'
+      const mk = mKey(inv.bl_date || inv.estimated_arrival)
+      for (const row of inv.rows) {
+        if (!row.code || !row.containers) continue
+        for (const [containerName, qty] of Object.entries(row.containers)) {
+          if (!qty || qty <= 0) continue
+          // No confirmed hub-change request for this container → still at
+          // the default hub (มัยลาภ), same convention used on /calendar.
+          const hub = hubReqMap.get(`${inv.id}::${containerName}`) ?? 'มัยลาภ'
+          lines.push({ hub, item_code: row.code, description: row.description || '', supplier, invoice_no: inv.invoice_no, invoice_id: inv.id, qty, month_key: mk })
+        }
+      }
+    }
+    return lines
+  }, [invoices, hubReqs])
+
+  const filteredHubLines = useMemo(() => {
+    if (selectedMonths.size === 0) return hubLines
+    return hubLines.filter(l => l.month_key && selectedMonths.has(l.month_key))
+  }, [hubLines, selectedMonths])
+
+  const hubGroups = useMemo(() => {
+    const map = new Map<string, { qty: number; lines: Map<string, { item_code: string; description: string; supplier: string; invoice_no: string; invoice_id: string; qty: number }> }>()
+    for (const l of filteredHubLines) {
+      const g = map.get(l.hub) ?? { qty: 0, lines: new Map() }
+      g.qty += l.qty
+      const key = `${l.item_code}|${l.invoice_no}`
+      const existing = g.lines.get(key)
+      if (existing) existing.qty += l.qty
+      else g.lines.set(key, { item_code: l.item_code, description: l.description, supplier: l.supplier, invoice_no: l.invoice_no, invoice_id: l.invoice_id, qty: l.qty })
+      map.set(l.hub, g)
+    }
+    return Array.from(map.entries())
+      .map(([hub, v]) => ({ hub, qty: v.qty, lines: Array.from(v.lines.values()).sort((a, b) => b.qty - a.qty) }))
+      .sort((a, b) => b.qty - a.qty)
+  }, [filteredHubLines])
 
   // invoice_id → confirmed hub names (for badges in table/detail)
   const invoiceHubMap = useMemo(() => {
@@ -510,7 +558,7 @@ export default function SummaryPage() {
       {loading ? (
         <div style={{ textAlign: 'center', padding: '80px 0', color: '#aaa', fontSize: 14 }}>กำลังโหลด...</div>
       ) : (
-        <div style={{ maxWidth: 1400, margin: '0 auto', padding: '20px 24px', display: 'grid', gridTemplateColumns: '260px 1fr', gap: 16 }}>
+        <div style={{ maxWidth: 1400, margin: '0 auto', padding: '20px 24px', display: 'grid', gridTemplateColumns: '260px minmax(0, 1fr)', gap: 16 }}>
 
           {/* ── Left column ── */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -564,7 +612,10 @@ export default function SummaryPage() {
           </div>
 
           {/* ── Right column ── */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {/* minWidth: 0 stops this grid item's intrinsic content size (the
+              800px-min-width Detail Lines table) from bubbling up and
+              forcing the whole page wider than the viewport. */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
 
             {/* Line chart */}
             <div style={{ background: '#faf5ee', border: '1px solid #e2d8c8', borderRadius: 16, padding: '16px 20px' }}>
@@ -662,15 +713,20 @@ export default function SummaryPage() {
             <div style={{ background: '#faf5ee', border: '1px solid #e2d8c8', borderRadius: 16, overflow: 'hidden' }}>
               {/* Header row */}
               <div style={{ padding: '12px 16px', borderBottom: '1px solid #e2d8c8', display: 'flex', alignItems: 'center', gap: 10, background: '#f5efe4' }}>
-                <button onClick={() => setShowDetail(false)}
+                <button onClick={() => setView('items')}
                   style={{ padding: '4px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer', border: 'none',
-                    background: !showDetail ? '#d4962a' : 'transparent', color: !showDetail ? '#fff' : '#8a7a6a' }}>
+                    background: view === 'items' ? '#d4962a' : 'transparent', color: view === 'items' ? '#fff' : '#8a7a6a' }}>
                   By Item
                 </button>
-                <button onClick={() => setShowDetail(true)}
+                <button onClick={() => setView('detail')}
                   style={{ padding: '4px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer', border: 'none',
-                    background: showDetail ? '#d4962a' : 'transparent', color: showDetail ? '#fff' : '#8a7a6a' }}>
+                    background: view === 'detail' ? '#d4962a' : 'transparent', color: view === 'detail' ? '#fff' : '#8a7a6a' }}>
                   Detail Lines
+                </button>
+                <button onClick={() => setView('hub')}
+                  style={{ padding: '4px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer', border: 'none',
+                    background: view === 'hub' ? '#d4962a' : 'transparent', color: view === 'hub' ? '#fff' : '#8a7a6a' }}>
+                  By Hub
                 </button>
                 <input type="text" placeholder="Search item code / name…" value={itemSearch} onChange={e => setItemSearch(e.target.value)}
                   style={{ flex: 1, border: '1px solid #e2d8c8', borderRadius: 8, padding: '5px 10px', fontSize: 11, background: '#fff', outline: 'none', color: '#3a2a1a' }} />
@@ -682,7 +738,7 @@ export default function SummaryPage() {
 
               {rowsLoading ? (
                 <div style={{ textAlign: 'center', padding: '40px 0', color: '#bbb', fontSize: 12 }}>กำลังโหลด items…</div>
-              ) : !showDetail ? (
+              ) : view === 'items' ? (
                 /* Item cards */
                 <div style={{ maxHeight: 360, overflowY: 'auto', padding: 12, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(145px, 1fr))', gap: 8 }}>
                   {filteredItemSummary.slice(0, 120).map(item => (
@@ -710,7 +766,7 @@ export default function SummaryPage() {
                     <div style={{ gridColumn: '1/-1', textAlign: 'center', padding: '30px 0', color: '#bbb', fontSize: 12 }}>ไม่พบ item</div>
                   )}
                 </div>
-              ) : (
+              ) : view === 'detail' ? (
                 /* Detail table */
                 <div style={{ overflowX: 'auto', maxHeight: 360, overflowY: 'auto' }}>
                   <table style={{ fontSize: 11, width: '100%', borderCollapse: 'collapse', minWidth: 800 }}>
@@ -753,6 +809,49 @@ export default function SummaryPage() {
                       แสดง 500 รายการแรก จาก {filteredLines.length.toLocaleString()} — เลือก Item เพื่อดูทั้งหมด
                     </div>
                   )}
+                </div>
+              ) : (
+                /* By Hub — grouped by warehouse hub, each section listing its items/invoices/suppliers */
+                <div style={{ maxHeight: 360, overflowY: 'auto', padding: 12 }}>
+                  {hubGroups.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '30px 0', color: '#bbb', fontSize: 12 }}>ไม่มีข้อมูล</div>
+                  ) : hubGroups.map(g => {
+                    const hc = hubColor(g.hub)
+                    return (
+                      <div key={g.hub} style={{ marginBottom: 16 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                          <span style={{ fontSize: 11, fontWeight: 800, padding: '2px 10px', borderRadius: 10, background: hc.bg, color: hc.text, border: `1px solid ${hc.border}` }}>
+                            {g.hub}
+                          </span>
+                          <span style={{ fontSize: 11, color: '#8a7a6a' }}>{g.qty.toLocaleString()} pcs · {g.lines.length} รายการ</span>
+                        </div>
+                        <div style={{ overflowX: 'auto' }}>
+                          <table style={{ fontSize: 11, width: '100%', borderCollapse: 'collapse' }}>
+                            <thead>
+                              <tr style={{ background: '#f0ebe0' }}>
+                                {['Item no', 'Item name', 'Supplier', 'Invoice', 'QTY'].map(h => (
+                                  <th key={h} style={{ padding: '6px 10px', textAlign: h === 'QTY' ? 'right' : 'left', fontSize: 10, fontWeight: 800, color: '#8a7a6a', whiteSpace: 'nowrap', borderBottom: '1px solid #e2d8c8' }}>{h}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {g.lines.map(l => (
+                                <tr key={`${l.item_code}|${l.invoice_no}`} style={{ borderBottom: '1px solid #f5efe8' }}>
+                                  <td style={{ padding: '6px 10px', fontFamily: 'monospace', color: '#3a2a1a', whiteSpace: 'nowrap', fontWeight: 700 }}>{l.item_code}</td>
+                                  <td style={{ padding: '6px 10px', color: '#6a5a4a', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.description}</td>
+                                  <td style={{ padding: '6px 10px', color: '#5a4a3a', whiteSpace: 'nowrap' }}>{l.supplier}</td>
+                                  <td style={{ padding: '6px 10px', whiteSpace: 'nowrap' }}>
+                                    <Link href={`/dashboard/${l.invoice_id}`} style={{ color: '#3d8b82', textDecoration: 'none', fontWeight: 600 }}>{l.invoice_no}</Link>
+                                  </td>
+                                  <td style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 700, color: '#2a2a1a' }}>{l.qty.toLocaleString()}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               )}
             </div>

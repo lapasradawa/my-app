@@ -137,6 +137,27 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ ok: true })
   }
 
+  if (action === 'update_date') {
+    const { hub_arrival_date } = body
+    if (!hub_arrival_date) {
+      return NextResponse.json({ error: 'missing hub_arrival_date' }, { status: 400 })
+    }
+    // Only updates a request that's already confirmed — editing the ETA of a
+    // still-pending request should go through the normal confirm flow instead.
+    const { data, error } = await supabase
+      .from('container_hub_requests')
+      .update({ hub_arrival_date })
+      .eq('invoice_id', invoice_id)
+      .eq('container_name', container_name)
+      .eq('status', 'confirmed')
+      .select('id')
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    if (!data || data.length === 0) {
+      return NextResponse.json({ error: 'not_found', message: 'ไม่พบคำร้องที่ยืนยันแล้วสำหรับตู้นี้' }, { status: 404 })
+    }
+    return NextResponse.json({ ok: true })
+  }
+
   // Default: confirm — same guard so a stale "confirm" click after another
   // admin already rejected/confirmed the same row doesn't silently no-op or
   // overwrite it.

@@ -35,9 +35,12 @@ export default function AdminPage() {
   const [rows, setRows] = useState<PermRow[]>([])
   const [defaultPages, setDefaultPages] = useState<PageKey[]>(['po-matching'])
   const [hubRequests, setHubRequests] = useState<{ id: string; invoice_id: string; invoice_no: string; container_name: string; hub: string; requested_by: string; created_at: string }[]>([])
+  const [confirmedHubRequests, setConfirmedHubRequests] = useState<{ id: string; invoice_id: string; invoice_no: string; container_name: string; hub: string; confirmed_by: string | null; hub_arrival_date: string | null }[]>([])
   const [rejecting, setRejecting] = useState<string | null>(null) // container_name being rejected
   const [confirming, setConfirming] = useState<string | null>(null) // container_name being confirmed
   const [confirmDates, setConfirmDates] = useState<Record<string, string>>({})
+  const [editDates, setEditDates] = useState<Record<string, string>>({}) // confirmed requests — editable ETA
+  const [savingDate, setSavingDate] = useState<string | null>(null) // container_name being saved
   const [savingDefault, setSavingDefault] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<string | null>(null)
@@ -61,7 +64,29 @@ export default function AdminPage() {
     setRows(all.filter(r => r.email !== DEFAULT_EMAIL))
     const { data: hubs } = await supabase.from('container_hub_requests').select('id, invoice_id, invoice_no, container_name, hub, requested_by, created_at').eq('status', 'pending').order('created_at', { ascending: false })
     setHubRequests((hubs ?? []) as typeof hubRequests)
+    const { data: confirmedHubs } = await supabase.from('container_hub_requests').select('id, invoice_id, invoice_no, container_name, hub, confirmed_by, hub_arrival_date').eq('status', 'confirmed').order('hub_arrival_date', { ascending: true })
+    setConfirmedHubRequests((confirmedHubs ?? []) as typeof confirmedHubRequests)
     setLoading(false)
+  }
+
+  async function saveHubDate(r: typeof confirmedHubRequests[0]) {
+    const key = `${r.invoice_id}:${r.container_name}`
+    const newDate = editDates[key] ?? r.hub_arrival_date ?? ''
+    if (!newDate) { alert('กรุณาใส่วันที่'); return }
+    setSavingDate(r.container_name)
+    const res = await fetch('/api/hub-request', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ invoice_id: r.invoice_id, container_name: r.container_name, action: 'update_date', hub_arrival_date: newDate }),
+    })
+    setSavingDate(null)
+    if (!res.ok) {
+      alert('บันทึกไม่สำเร็จ — ลองโหลดหน้าใหม่')
+      return
+    }
+    setConfirmedHubRequests(prev => prev.map(x =>
+      x.invoice_id === r.invoice_id && x.container_name === r.container_name ? { ...x, hub_arrival_date: newDate } : x
+    ))
   }
 
   async function confirmHub(invoiceId: string, containerName: string) {
@@ -188,38 +213,89 @@ export default function AdminPage() {
           <h1 className="text-2xl font-bold text-gray-900">Admin — จัดการสิทธิ์ผู้ใช้</h1>
         </div>
 
-        {/* Hub routing requests */}
-        {hubRequests.length > 0 && (
-          <div className="bg-red-50 border border-red-200 rounded-xl p-5 mb-8">
-            <h2 className="text-sm font-bold text-red-900 mb-3">คำร้องเปลี่ยน Hub ({hubRequests.length} รายการ)</h2>
-            <div className="space-y-2">
-              {hubRequests.map(r => (
-                <div key={r.id} className="bg-white rounded-lg border border-red-100 px-4 py-3 flex items-center justify-between gap-4 flex-wrap">
-                  <div className="text-sm">
-                    <span className="font-mono font-bold text-gray-800">{r.container_name}</span>
-                    <span className="text-gray-400 mx-2">·</span>
-                    <span className="text-gray-600">{r.invoice_no}</span>
-                    <span className="text-gray-400 mx-2">→</span>
-                    <span className="font-semibold text-orange-700">Hub {r.hub}</span>
-                    <span className="text-xs text-gray-400 ml-2">โดย {r.requested_by}</span>
-                  </div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <a href={`/dashboard/${r.invoice_id}?container=${encodeURIComponent(r.container_name)}`} target="_blank" className="px-3 py-1 text-xs border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50">ดู Invoice</a>
-                    <div className="flex items-center gap-1">
-                      <label className="text-xs text-gray-500 whitespace-nowrap">วันเข้าคลัง:</label>
-                      <input
-                        type="date"
-                        value={confirmDates[`${r.invoice_id}:${r.container_name}`] ?? ''}
-                        onChange={e => setConfirmDates(prev => ({ ...prev, [`${r.invoice_id}:${r.container_name}`]: e.target.value }))}
-                        className="border border-gray-200 rounded px-2 py-0.5 text-xs outline-none focus:border-green-400"
-                      />
+        {/* Hub Management — pending hub-change requests + already-confirmed
+            ones (with an editable ETA). Kept as one titled card with each
+            list height-capped so it can't push the permissions section
+            (the page's main purpose) far down the page. */}
+        {(hubRequests.length > 0 || confirmedHubRequests.length > 0) && (
+          <div className="bg-white border border-gray-200 rounded-xl p-5 mb-8 shadow-sm">
+            <h2 className="text-base font-bold text-gray-900 mb-4">📦 Hub Management</h2>
+
+            {hubRequests.length > 0 && (
+              <div className={confirmedHubRequests.length > 0 ? 'mb-5' : ''}>
+                <h3 className="text-xs font-bold text-red-700 uppercase tracking-wide mb-2">รอการยืนยัน ({hubRequests.length})</h3>
+                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                  {hubRequests.map(r => (
+                    <div key={r.id} className="bg-red-50 rounded-lg border border-red-100 px-4 py-3 flex items-center justify-between gap-4 flex-wrap">
+                      <div className="text-sm">
+                        <span className="font-mono font-bold text-gray-800">{r.container_name}</span>
+                        <span className="text-gray-400 mx-2">·</span>
+                        <span className="text-gray-600">{r.invoice_no}</span>
+                        <span className="text-gray-400 mx-2">→</span>
+                        <span className="font-semibold text-orange-700">Hub {r.hub}</span>
+                        <span className="text-xs text-gray-400 ml-2">โดย {r.requested_by}</span>
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <a href={`/dashboard/${r.invoice_id}?container=${encodeURIComponent(r.container_name)}`} target="_blank" className="px-3 py-1 text-xs border border-gray-200 rounded-lg text-gray-600 hover:bg-white bg-white">ดู Invoice</a>
+                        <div className="flex items-center gap-1">
+                          <label className="text-xs text-gray-500 whitespace-nowrap">วันเข้าคลัง:</label>
+                          <input
+                            type="date"
+                            value={confirmDates[`${r.invoice_id}:${r.container_name}`] ?? ''}
+                            onChange={e => setConfirmDates(prev => ({ ...prev, [`${r.invoice_id}:${r.container_name}`]: e.target.value }))}
+                            className="border border-gray-200 rounded px-2 py-0.5 text-xs outline-none focus:border-green-400 bg-white"
+                          />
+                        </div>
+                        <button onClick={() => rejectHub(r)} disabled={rejecting === r.container_name || confirming === r.container_name} className="px-3 py-1 text-xs border border-red-200 text-red-500 rounded-lg hover:bg-red-100 bg-white font-medium disabled:opacity-50">✕ ปฏิเสธ</button>
+                        <button onClick={() => confirmHub(r.invoice_id, r.container_name)} disabled={confirming === r.container_name || rejecting === r.container_name} className="px-3 py-1 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium disabled:opacity-50">{confirming === r.container_name ? '...' : '✓ ยืนยัน'}</button>
+                      </div>
                     </div>
-                    <button onClick={() => rejectHub(r)} disabled={rejecting === r.container_name || confirming === r.container_name} className="px-3 py-1 text-xs border border-red-200 text-red-500 rounded-lg hover:bg-red-50 font-medium disabled:opacity-50">✕ ปฏิเสธ</button>
-                    <button onClick={() => confirmHub(r.invoice_id, r.container_name)} disabled={confirming === r.container_name || rejecting === r.container_name} className="px-3 py-1 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium disabled:opacity-50">{confirming === r.container_name ? '...' : '✓ ยืนยัน'}</button>
-                  </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </div>
+            )}
+
+            {confirmedHubRequests.length > 0 && (
+              <div>
+                <h3 className="text-xs font-bold text-blue-700 uppercase tracking-wide mb-2">ยืนยันแล้ว ({confirmedHubRequests.length})</h3>
+                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                  {confirmedHubRequests.map(r => {
+                    const key = `${r.invoice_id}:${r.container_name}`
+                    return (
+                      <div key={r.id} className="bg-blue-50 rounded-lg border border-blue-100 px-4 py-3 flex items-center justify-between gap-4 flex-wrap">
+                        <div className="text-sm">
+                          <span className="font-mono font-bold text-gray-800">{r.container_name}</span>
+                          <span className="text-gray-400 mx-2">·</span>
+                          <span className="text-gray-600">{r.invoice_no}</span>
+                          <span className="text-gray-400 mx-2">→</span>
+                          <span className="font-semibold text-blue-700">Hub {r.hub}</span>
+                          {r.confirmed_by && <span className="text-xs text-gray-400 ml-2">ยืนยันโดย {r.confirmed_by}</span>}
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <a href={`/dashboard/${r.invoice_id}?container=${encodeURIComponent(r.container_name)}`} target="_blank" className="px-3 py-1 text-xs border border-gray-200 rounded-lg text-gray-600 hover:bg-white bg-white">ดู Invoice</a>
+                          <div className="flex items-center gap-1">
+                            <label className="text-xs text-gray-500 whitespace-nowrap">วันเข้าคลัง:</label>
+                            <input
+                              type="date"
+                              value={editDates[key] ?? r.hub_arrival_date ?? ''}
+                              onChange={e => setEditDates(prev => ({ ...prev, [key]: e.target.value }))}
+                              className="border border-gray-200 rounded px-2 py-0.5 text-xs outline-none focus:border-blue-400 bg-white"
+                            />
+                          </div>
+                          <button
+                            onClick={() => saveHubDate(r)}
+                            disabled={savingDate === r.container_name || (editDates[key] ?? r.hub_arrival_date ?? '') === (r.hub_arrival_date ?? '')}
+                            className="px-3 py-1 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium disabled:opacity-50"
+                          >
+                            {savingDate === r.container_name ? '...' : 'บันทึก'}
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
