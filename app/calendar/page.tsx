@@ -15,6 +15,7 @@ interface CalInvoice {
   estimated_arrival_end: string | null
   eta_date: string | null
   supplier: string | null
+  container_names: string[] | null
 }
 
 interface HubContainer {
@@ -89,6 +90,7 @@ export default function CalendarPage() {
   const [loading, setLoading] = useState(true)
   const [hubMap, setHubMap] = useState<Map<string, string>>(new Map()) // invoice_id → hub label summary
   const [confirmedHubsMap, setConfirmedHubsMap] = useState<Map<string, Set<string>>>(new Map()) // invoice_id → set of confirmed hubs
+  const [containerHubMap, setContainerHubMap] = useState<Map<string, string>>(new Map()) // `${invoice_id}::${container_name}` → confirmed hub
   const [hubContainers, setHubContainers] = useState<HubContainer[]>([]) // confirmed hub containers with arrival date
   const [hubFilter, setHubFilter] = useState<HubFilter>('ทั้งหมด')
   const [curDate, setCurDate] = useState(() => {
@@ -103,7 +105,7 @@ export default function CalendarPage() {
 
   async function load() {
     const [{ data }, { data: hubs }] = await Promise.all([
-      supabase.from('invoices').select('id, invoice_no, status, estimated_arrival, estimated_arrival_end, eta_date, supplier').order('estimated_arrival', { ascending: true }),
+      supabase.from('invoices').select('id, invoice_no, status, estimated_arrival, estimated_arrival_end, eta_date, supplier, container_names').order('estimated_arrival', { ascending: true }),
       supabase.from('container_hub_requests').select('id, invoice_id, invoice_no, container_name, hub, hub_arrival_date, status').eq('status', 'confirmed'),
     ])
     if (data) setInvoices(data as CalInvoice[])
@@ -118,6 +120,12 @@ export default function CalendarPage() {
         cm.get(h.invoice_id)!.add(h.hub)
       }
       setConfirmedHubsMap(cm)
+      // containerHubMap: per-container override, so we can tell whether an
+      // invoice still has containers left at the default hub (มัยลาภ) even
+      // when some of its OTHER containers were moved elsewhere.
+      const chm = new Map<string, string>()
+      for (const h of hubRows) chm.set(`${h.invoice_id}::${h.container_name}`, h.hub)
+      setContainerHubMap(chm)
       // hubMap: non-default hubs only (for badge display)
       const result = new Map<string, string>()
       cm.forEach((hubSet, invId) => {
@@ -156,16 +164,28 @@ export default function CalendarPage() {
 
   const filteredInvoices = useMemo(() => {
     if (hubFilter === 'ทั้งหมด') return invoices
+    if (hubFilter === 'มัยลาภ') {
+      // Show if the invoice has at least one container still at the default
+      // hub — i.e. NOT every container was moved elsewhere. An invoice can
+      // have some containers confirmed to ขอนแก่น etc. while others were
+      // never requested and so remain at default; it must still show here.
+      return invoices.filter(inv => {
+        const containers = inv.container_names ?? []
+        if (containers.length === 0) {
+          // No container list to check per-container — fall back to the
+          // invoice-wide confirmed-hub set.
+          const hubs = confirmedHubsMap.get(inv.id)
+          return !hubs || hubs.size === 0 || (hubs.size === 1 && hubs.has('มัยลาภ'))
+        }
+        return containers.some(cn => (containerHubMap.get(`${inv.id}::${cn}`) ?? 'มัยลาภ') === 'มัยลาภ')
+      })
+    }
     return invoices.filter(inv => {
       const hubs = confirmedHubsMap.get(inv.id)
-      if (hubFilter === 'มัยลาภ') {
-        // Show if no non-default confirmed hubs (all containers default to มัยลาภ)
-        return !hubs || hubs.size === 0 || (hubs.size === 1 && hubs.has('มัยลาภ'))
-      }
       // Show if any container confirmed for this hub
       return hubs?.has(hubFilter) ?? false
     })
-  }, [invoices, confirmedHubsMap, hubFilter])
+  }, [invoices, confirmedHubsMap, containerHubMap, hubFilter])
 
   const monthArrivals = useMemo(() => filteredInvoices.filter(inv => inv.estimated_arrival?.startsWith(monthStr)), [filteredInvoices, monthStr])
   const monthEtas = useMemo(() => filteredInvoices.filter(inv => inv.eta_date?.startsWith(monthStr)), [filteredInvoices, monthStr])
