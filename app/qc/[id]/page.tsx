@@ -267,7 +267,7 @@ export default function QCDetailPage() {
             <span className="text-gray-300">|</span>
             <h1 className="text-lg font-bold text-gray-900 font-mono">{form.report_no}</h1>
             <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold ${form.status === 'closed' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
-              {form.status === 'closed' ? '✓ ปิดจบแล้ว' : '● เปิดอยู่'}
+              {form.status === 'closed' ? '✓ ปิดจบแล้ว / Closed' : '● เปิดอยู่ / Open'}
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -277,9 +277,9 @@ export default function QCDetailPage() {
             </button>
             <button onClick={() => requireUnlock(save)} disabled={saving}
               className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors disabled:opacity-50">
-              {saving ? 'กำลังบันทึก...' : saved ? '✓ บันทึกแล้ว' : 'บันทึก'}
+              {saving ? 'กำลังบันทึก...' : saved ? '✓ บันทึกแล้ว / Saved' : 'บันทึก / Save'}
             </button>
-            <button onClick={() => requireUnlock(deleteReport)} className="text-xs text-red-400 hover:text-red-600 px-2 py-2">ลบ</button>
+            <button onClick={() => requireUnlock(deleteReport)} className="text-xs text-red-400 hover:text-red-600 px-2 py-2">ลบ / Delete</button>
           </div>
         </div>
 
@@ -288,26 +288,26 @@ export default function QCDetailPage() {
           {/* Fixed info row */}
           <div className="grid grid-cols-3 divide-x divide-gray-100 bg-gray-50 border-b border-gray-200 text-xs">
             <div className="px-4 py-2.5">
-              <span className="text-gray-400 font-semibold uppercase tracking-wide text-[10px]">Subject</span>
+              <span className="text-gray-400 font-semibold uppercase tracking-wide text-[10px]">Subject / เรื่อง</span>
               <div className="font-semibold text-gray-700 mt-0.5">QUALITY CLAIM</div>
             </div>
             <div className="px-4 py-2.5">
-              <span className="text-gray-400 font-semibold uppercase tracking-wide text-[10px]">Customer Company</span>
+              <span className="text-gray-400 font-semibold uppercase tracking-wide text-[10px]">Customer Company / บริษัทลูกค้า</span>
               <div className="font-semibold text-gray-700 mt-0.5">RETAIL BUSINESS SOLUTION CO., LTD</div>
             </div>
             <div className="px-4 py-2.5">
-              <span className="text-gray-400 font-semibold uppercase tracking-wide text-[10px]">Address</span>
+              <span className="text-gray-400 font-semibold uppercase tracking-wide text-[10px]">Address / ที่อยู่</span>
               <div className="text-gray-600 mt-0.5">387 SUKHONTHASAWAT RD., LADPRAO, LADPRAO, BANGKOK, THAILAND 10230</div>
             </div>
           </div>
           {/* Editable fields */}
           <div className="p-5 grid grid-cols-3 gap-4">
             <div>
-              <label className={labelCls}>Report No.</label>
+              <label className={labelCls}>Report No. / เลขที่รายงาน</label>
               <input className={inputCls} value={form.report_no} onChange={e => set('report_no', e.target.value)} />
             </div>
             <div className="relative">
-              <label className={labelCls}>Supplier Company</label>
+              <label className={labelCls}>Supplier Company / บริษัทซัพพลายเออร์</label>
               <input className={inputCls} value={form.supplier_company}
                 onChange={e => { set('supplier_company', e.target.value); setSupplierSearch(e.target.value.toLowerCase()); setOpenSupplierDrop(true) }}
                 onFocus={() => { setSupplierSearch(''); setOpenSupplierDrop(true) }}
@@ -325,34 +325,34 @@ export default function QCDetailPage() {
               )}
             </div>
             <div>
-              <label className={labelCls}>Invoice No.</label>
+              <label className={labelCls}>Invoice No. / เลขที่ Invoice</label>
               <input className={inputCls} value={form.invoice_no} onChange={e => set('invoice_no', e.target.value)} placeholder="YG260039" />
             </div>
             <div>
-              <label className={labelCls}>PO No.</label>
+              <label className={labelCls}>PO No. / เลขที่ PO</label>
               <input className={inputCls} value={form.po_no} onChange={e => set('po_no', e.target.value)} placeholder="RBSYG04-GEN5" />
             </div>
             <div>
-              <label className={labelCls}>Destuffing Date</label>
+              <label className={labelCls}>Destuffing Date / วันที่ตรวจนับ</label>
               <input type="date" className={inputCls} value={form.destuffing_date} onChange={e => set('destuffing_date', e.target.value)} />
             </div>
             <div>
-              <label className={labelCls}>Issue Found Date</label>
+              <label className={labelCls}>Issue Found Date / วันที่พบปัญหา</label>
               <input type="date" className={inputCls} value={form.issue_found_date} onChange={e => set('issue_found_date', e.target.value)} />
             </div>
           </div>
         </div>
 
         {/* Part 1: ISSUE */}
-        <SectionHeader title="Part 1 : ISSUE" />
+        <SectionHeader title="Part 1 : ISSUE / ปัญหา" />
         <div className="bg-white border border-gray-300 border-t-0 rounded-b-lg p-5 mb-1">
-          <label className={labelCls}>Description</label>
+          <label className={labelCls}>Description / คำอธิบาย</label>
           <textarea className={`${inputCls} min-h-[80px] resize-y`} value={form.description}
             onChange={e => set('description', e.target.value)} placeholder="อธิบายปัญหาที่พบ..." />
 
           {/* Issue Types */}
           <div className="mt-4">
-            <label className={labelCls}>Issue Type</label>
+            <label className={labelCls}>Issue Type / ประเภทปัญหา</label>
             <div className="flex flex-wrap gap-2 mb-2">
               {(form.issue_types ?? []).map(t => (
                 <span key={t} className="inline-flex items-center gap-1 px-2.5 py-1 bg-orange-100 text-orange-700 rounded-full text-xs font-semibold">
@@ -424,7 +424,7 @@ export default function QCDetailPage() {
             <table className="w-full text-xs border-collapse">
               <thead>
                 <tr className="bg-gray-100">
-                  {['NO.', 'ITEM CODE', 'PRODUCT DESCRIPTION', 'QTY (PCS)', 'UNIT PRICE', 'TOTAL', 'QTY DEFECTIVE', 'REMARK', ''].map(h => (
+                  {['NO. / ลำดับ', 'ITEM CODE / รหัสสินค้า', 'PRODUCT DESCRIPTION / รายละเอียดสินค้า', 'QTY (PCS) / จำนวน', 'UNIT PRICE / ราคาต่อหน่วย', 'TOTAL / รวม', 'QTY DEFECTIVE / จำนวนชำรุด', 'REMARK / หมายเหตุ', ''].map(h => (
                     <th key={h} className="border border-gray-300 px-2 py-1.5 text-left font-semibold text-gray-600 whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -533,11 +533,11 @@ export default function QCDetailPage() {
         </div>
 
         {/* Part 2: CORRECTIVE ACTION */}
-        <SectionHeader title="Part 2 : CORRECTIVE ACTION" />
+        <SectionHeader title="Part 2 : CORRECTIVE ACTION / มาตรการแก้ไข" />
         <div className="bg-white border border-gray-300 border-t-0 rounded-b-lg p-5 mb-1">
           <div className="grid grid-cols-2 gap-6">
             <div>
-              <label className={labelCls}>Corrective Action</label>
+              <label className={labelCls}>Corrective Action / มาตรการแก้ไข</label>
               <div className="flex flex-col gap-2 mt-1">
                 {CA_OPTIONS.map(opt => (
                   <label key={opt} className="flex items-center gap-2 text-sm cursor-pointer">
@@ -549,7 +549,7 @@ export default function QCDetailPage() {
               </div>
             </div>
             <div>
-              <label className={labelCls}>Description / Comment</label>
+              <label className={labelCls}>Description / Comment / คำอธิบายเพิ่มเติม</label>
               <textarea className={`${inputCls} min-h-[120px] resize-y`} value={form.corrective_action_comment}
                 onChange={e => set('corrective_action_comment', e.target.value)} placeholder="รายละเอียดการแก้ไข..." />
             </div>
@@ -557,16 +557,16 @@ export default function QCDetailPage() {
         </div>
 
         {/* Part 3: PREVENTIVE ACTION */}
-        <SectionHeader title="Part 3 : PREVENTIVE ACTION (FILLED BY SUPPLIER)" />
+        <SectionHeader title="Part 3 : PREVENTIVE ACTION (FILLED BY SUPPLIER) / มาตรการป้องกัน (กรอกโดยซัพพลายเออร์)" />
         <div className="bg-white border border-gray-300 border-t-0 rounded-b-lg p-5 mb-1">
           <div className="grid grid-cols-2 gap-6">
             <div>
-              <label className={labelCls}>Root Cause</label>
+              <label className={labelCls}>Root Cause / สาเหตุของปัญหา</label>
               <textarea className={`${inputCls} min-h-[100px] resize-y`} value={form.root_cause}
                 onChange={e => set('root_cause', e.target.value)} placeholder="สาเหตุของปัญหา..." />
             </div>
             <div>
-              <label className={labelCls}>Action</label>
+              <label className={labelCls}>Action / มาตรการป้องกัน</label>
               <textarea className={`${inputCls} min-h-[100px] resize-y`} value={form.preventive_action}
                 onChange={e => set('preventive_action', e.target.value)} placeholder="มาตรการป้องกัน..." />
             </div>
@@ -574,28 +574,28 @@ export default function QCDetailPage() {
         </div>
 
         {/* Part 4: VERIFICATION */}
-        <SectionHeader title="Part 4 : VERIFICATION STATUS (FILLED BY RBS)" />
+        <SectionHeader title="Part 4 : VERIFICATION STATUS (FILLED BY RBS) / สถานะการตรวจสอบ (กรอกโดย RBS)" />
         <div className="bg-white border border-gray-300 border-t-0 rounded-b-lg p-5 mb-1">
           <div className="flex items-center gap-6">
             <label className="flex items-center gap-2 cursor-pointer">
               <input type="radio" name="verification" checked={form.verification_accepted === true}
                 onChange={() => set('verification_accepted', true)} className="w-4 h-4" />
-              <span className="text-sm font-semibold text-green-700">☑ ACCEPTED</span>
+              <span className="text-sm font-semibold text-green-700">☑ ACCEPTED / ยอมรับ</span>
             </label>
             <label className="flex items-center gap-2 cursor-pointer">
               <input type="radio" name="verification" checked={form.verification_accepted === false}
                 onChange={() => set('verification_accepted', false)} className="w-4 h-4" />
-              <span className="text-sm font-semibold text-red-600">☐ NOT ACCEPTED</span>
+              <span className="text-sm font-semibold text-red-600">☐ NOT ACCEPTED / ไม่ยอมรับ</span>
             </label>
             <label className="flex items-center gap-2 cursor-pointer">
               <input type="radio" name="verification" checked={form.verification_accepted === null}
                 onChange={() => set('verification_accepted', null)} className="w-4 h-4" />
-              <span className="text-sm text-gray-500">รอตรวจสอบ</span>
+              <span className="text-sm text-gray-500">รอตรวจสอบ / Pending</span>
             </label>
           </div>
           {form.verification_accepted === false && (
             <div className="mt-3">
-              <label className={labelCls}>Comment</label>
+              <label className={labelCls}>Comment / ความคิดเห็น</label>
               <input className={inputCls} value={form.verification_comment}
                 onChange={e => set('verification_comment', e.target.value)} placeholder="เหตุผลที่ไม่ยอมรับ..." />
             </div>
@@ -603,7 +603,7 @@ export default function QCDetailPage() {
         </div>
 
         {/* Part 5: PHOTO */}
-        <SectionHeader title="Part 5 : PHOTO" />
+        <SectionHeader title="Part 5 : PHOTO / รูปภาพ" />
         <div className="bg-white border border-gray-300 border-t-0 rounded-b-lg p-5 mb-1">
           {(form.photo_urls || []).length > 0 && (
             <div className="grid grid-cols-3 gap-3 mb-4">
@@ -634,18 +634,18 @@ export default function QCDetailPage() {
         <div className="bg-white rounded-xl border border-gray-200 p-5 mt-6">
           <div className="flex items-start justify-between flex-wrap gap-4">
             <div>
-              <div className="text-sm font-semibold text-gray-700 mb-3">สถานะการปิดจบงาน</div>
+              <div className="text-sm font-semibold text-gray-700 mb-3">สถานะการปิดจบงาน / Closure Status</div>
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => set('status', form.status === 'closed' ? 'open' : 'closed')}
                   className={`px-4 py-2 rounded-lg text-sm font-semibold border transition-colors ${form.status === 'closed' ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-600 border-gray-300 hover:border-green-400'}`}>
-                  {form.status === 'closed' ? '✓ ปิดจบแล้ว' : 'ทำเครื่องหมายว่าปิดจบ'}
+                  {form.status === 'closed' ? '✓ ปิดจบแล้ว / Closed' : 'ทำเครื่องหมายว่าปิดจบ / Mark as Closed'}
                 </button>
                 {form.status === 'open' && <span className="text-xs text-gray-400">หรืออัปโหลดหลักฐานเพื่อปิดอัตโนมัติ</span>}
               </div>
             </div>
             <div>
-              <div className="text-sm font-semibold text-gray-700 mb-3">หลักฐานการปิดจบ (PDF)</div>
+              <div className="text-sm font-semibold text-gray-700 mb-3">หลักฐานการปิดจบ (PDF) / Closure Evidence (PDF)</div>
               {form.closure_file_url ? (
                 <div className="flex flex-col gap-1">
                   <a href={form.closure_file_url} target="_blank" rel="noopener noreferrer"
@@ -670,7 +670,7 @@ export default function QCDetailPage() {
         <div className="flex justify-end mt-4 pb-8">
           <button onClick={() => requireUnlock(save)} disabled={saving}
             className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-6 py-2.5 rounded-lg transition-colors disabled:opacity-50">
-            {saving ? 'กำลังบันทึก...' : saved ? '✓ บันทึกแล้ว' : 'บันทึก'}
+            {saving ? 'กำลังบันทึก...' : saved ? '✓ บันทึกแล้ว / Saved' : 'บันทึก / Save'}
           </button>
         </div>
       </div>
