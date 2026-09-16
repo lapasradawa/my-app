@@ -21,6 +21,7 @@ interface InvoiceData {
   total_amount: number | null
   exchange_rate: number | null
   exchange_rates: ExchangeRateEntry[] | null
+  container_names: string[] | null
   rows: { code: string; description: string; qty: number; po: string; containers?: Record<string, number> }[] | null
 }
 interface HubReq {
@@ -205,7 +206,7 @@ export default function SummaryPage() {
     async function load() {
       // Stage 1: metadata only — KPI / charts appear immediately
       const [metaRes, poRes, hubRes] = await Promise.all([
-        supabase.from('invoices').select('id, invoice_no, supplier, vendor_code, bl_date, estimated_arrival, currency, total_amount, exchange_rate, exchange_rates').order('bl_date', { ascending: false }),
+        supabase.from('invoices').select('id, invoice_no, supplier, vendor_code, bl_date, estimated_arrival, currency, total_amount, exchange_rate, exchange_rates, container_names').order('bl_date', { ascending: false }),
         supabase.from('po_items').select('item_code, supplier, fob_price, currency'),
         supabase.from('container_hub_requests').select('invoice_id, invoice_no, container_name, hub, hub_arrival_date').eq('status', 'confirmed'),
       ])
@@ -409,6 +410,18 @@ export default function SummaryPage() {
   }, [invoices, selectedMonths, invoiceThbMap])
   const totalInvoices = useMemo(() => new Set(filteredLines.map(l => l.invoice_no)).size, [filteredLines])
   const totalSuppliers = useMemo(() => new Set(filteredLines.map(l => l.supplier)).size, [filteredLines])
+  // Containers entered the warehouse: sum of container_names per invoice, grouped by estimated_arrival (matches Report page "เข้าคลัง" tab)
+  const totalContainers = useMemo(() => {
+    let sum = 0
+    for (const inv of invoices) {
+      if (selectedMonths.size > 0) {
+        const mk = mKey(inv.estimated_arrival)
+        if (!mk || !selectedMonths.has(mk)) continue
+      }
+      sum += (inv.container_names ?? []).length
+    }
+    return sum
+  }, [invoices, selectedMonths])
 
   const lineSeries = useMemo(() => {
     const top4 = supplierSummary.slice(0, 4)
@@ -460,6 +473,7 @@ export default function SummaryPage() {
             { icon: '💰', value: totalActualThb > 0 ? `฿${fmt(totalActualThb, 0)}` : '—', label: 'Actual FOB THB', bg: '#d4962a' },
             { icon: '🏭', value: String(totalSuppliers), label: 'Suppliers', bg: '#c85a3a' },
             { icon: '📋', value: String(totalInvoices), label: 'Invoices', bg: '#6b5ea8' },
+            { icon: '🚢', value: String(totalContainers), label: 'ตู้เข้าคลัง / Containers', bg: '#2a7c9a' },
           ].map(card => (
             <div key={card.label} style={{ background: card.bg, borderRadius: 14, padding: '14px 20px', minWidth: 130, display: 'flex', alignItems: 'center', gap: 12 }}>
               <span style={{ fontSize: 26 }}>{card.icon}</span>
