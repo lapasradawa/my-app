@@ -91,7 +91,7 @@ export default function QCDetailPage() {
     else { setPwCallback(() => action); setShowPW(true) }
   }
   const [poItems, setPoItems] = useState<{ item_code: string; description: string; fob_price: number | null; currency: string | null }[]>([])
-  const [invoicesData, setInvoicesData] = useState<{ id: string; invoice_no: string; supplier: string | null; rows: { code?: string }[] }[]>([])
+  const [invoicesData, setInvoicesData] = useState<{ id: string; invoice_no: string; supplier: string | null; rows: { code?: string; description?: string }[] }[]>([])
   const [suppliers, setSuppliers] = useState<string[]>([])
   const [itemSearch, setItemSearch] = useState<string[]>([])
   const [openDropdown, setOpenDropdown] = useState<number | null>(null)
@@ -131,10 +131,17 @@ export default function QCDetailPage() {
   function getItemsForDropdown(invoice_no: string): { item_code: string; description: string; fob_price: number | null; currency: string | null; inInvoice: boolean }[] {
     if (!invoice_no) return poItems.map(p => ({ ...p, inInvoice: false }))
     const inv = invoicesData.find(i => i.invoice_no === invoice_no)
-    const codes = new Set((inv?.rows ?? []).map(r => r.code).filter(Boolean) as string[])
+    const invoiceRows = (inv?.rows ?? []).filter(r => r.code) as { code: string; description?: string }[]
+    const codes = new Set(invoiceRows.map(r => r.code))
+    const poCodes = new Set(poItems.map(p => p.item_code))
     const inInv = poItems.filter(p => codes.has(p.item_code)).map(p => ({ ...p, inInvoice: true }))
+    // Invoice line items with no matching po_items row (e.g. never uploaded via PO) still need to show up here.
+    const invoiceOnlyRows = Array.from(new Map(invoiceRows.filter(r => !poCodes.has(r.code)).map(r => [r.code, r])).values())
+    const invoiceOnly = invoiceOnlyRows.map(r => ({
+      item_code: r.code, description: r.description || '', fob_price: null, currency: null, inInvoice: true,
+    }))
     const others = poItems.filter(p => !codes.has(p.item_code)).map(p => ({ ...p, inInvoice: false }))
-    return [...inInv, ...others]
+    return [...inInv, ...invoiceOnly, ...others]
   }
 
   function set<K extends keyof typeof form>(k: K, v: typeof form[K]) {
