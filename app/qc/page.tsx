@@ -1,11 +1,31 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { isUnlocked, tryUnlock } from '@/lib/auth'
 import NavBar from '@/components/NavBar'
+
+// ── Period helpers ────────────────────────────────────────────────────────────
+function mKey(d: string | null): string | null {
+  if (!d) return null
+  return d.slice(0, 7)
+}
+function mLabel(k: string): string {
+  const [y, m] = k.split('-')
+  const names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  return `${names[parseInt(m) - 1]} ${y}`
+}
+function generateMonthKeys(count = 18): string[] {
+  const keys: string[] = []
+  const d = new Date()
+  for (let i = 0; i < count; i++) {
+    keys.unshift(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
+    d.setMonth(d.getMonth() - 1)
+  }
+  return keys
+}
 
 function PasswordGate({ onSuccess, onCancel }: { onSuccess: () => void; onCancel: () => void }) {
   const [pw, setPw] = useState('')
@@ -45,18 +65,31 @@ interface QCReport {
 }
 
 
-function currentMonth() {
-  const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-}
-
 export default function QCPage() {
   const router = useRouter()
   const [reports, setReports] = useState<QCReport[]>([])
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [showPW, setShowPW] = useState(false)
-  const [month, setMonth] = useState(currentMonth())
+
+  // ── Period filter ─────────────────────────────────────────────────────
+  const allMonthKeys = useMemo(() => generateMonthKeys(18), [])
+  const [selectedMonths, setSelectedMonths] = useState<Set<string>>(() => {
+    const now = new Date()
+    return new Set([`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`])
+  })
+  const [periodOpen, setPeriodOpen] = useState(false)
+  const toggleMonth = useCallback((k: string) => {
+    setSelectedMonths(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n })
+  }, [])
+
+  const filteredReports = useMemo(() => {
+    if (selectedMonths.size === 0) return reports
+    return reports.filter(r => {
+      const k = mKey(r.created_at)
+      return k !== null && selectedMonths.has(k)
+    })
+  }, [reports, selectedMonths])
 
   function requireUnlock(action: () => void) {
     if (isUnlocked()) { action() }
@@ -64,19 +97,13 @@ export default function QCPage() {
   }
   const [pendingAction, setPendingAction] = useState<(() => void) | null>(null)
 
-  useEffect(() => { loadReports() }, [month])
+  useEffect(() => { loadReports() }, [])
 
   async function loadReports() {
     setLoading(true)
-    const [y, m] = month.split('-').map(Number)
-    const start = `${month}-01`
-    const nextMonthDate = new Date(y, m, 1)
-    const end = `${nextMonthDate.getFullYear()}-${String(nextMonthDate.getMonth() + 1).padStart(2, '0')}-01`
     const { data } = await supabase
       .from('qc_reports')
       .select('id, report_no, supplier_company, invoice_no, issue_found_date, status, verification_accepted, created_at')
-      .gte('created_at', start)
-      .lt('created_at', end)
       .order('created_at', { ascending: false })
     if (data) setReports(data as QCReport[])
     setLoading(false)
@@ -115,29 +142,75 @@ export default function QCPage() {
             <h1 className="text-2xl font-bold text-gray-900">QC Report</h1>
             <p className="text-sm text-gray-500 mt-1">รายงานคุณภาพและการเคลม Supplier</p>
           </div>
-          <div className="flex items-center gap-2">
-            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">เดือน / Month</label>
-            <input type="month" value={month} onChange={e => setMonth(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400 bg-white" />
-            {month !== currentMonth() && (
-              <button onClick={() => setMonth(currentMonth())}
-                className="text-xs text-blue-600 hover:text-blue-800 font-medium px-2 py-2">
-                เดือนนี้ / This month
-              </button>
-            )}
-            <button onClick={() => requireUnlock(createNew)} disabled={creating}
-              className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors disabled:opacity-50">
-              {creating ? 'กำลังสร้าง...' : '+ สร้าง QC Report ใหม่'}
+          <button onClick={() => requireUnlock(createNew)} disabled={creating}
+            className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors disabled:opacity-50">
+            {creating ? 'กำลังสร้าง...' : '+ สร้าง QC Report ใหม่'}
+          </button>
+        </div>
+
+        {/* ── Period filter ──────────────────────────────────────────── */}
+        <div className="bg-gray-800 rounded-xl px-5 py-3 mb-5 flex items-center gap-3 flex-wrap relative">
+          <span className="text-xs font-bold text-gray-400 uppercase tracking-widest shrink-0">Period:</span>
+
+          <div className="relative">
+            <button onClick={() => setPeriodOpen(o => !o)}
+              className="flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-bold text-gray-200"
+              style={{ background: '#1e3a4a', border: '1px solid #2e5060', minWidth: 170 }}>
+              <span className="flex-1 text-left">
+                {selectedMonths.size === 0
+                  ? 'ทั้งหมด'
+                  : selectedMonths.size === 1
+                  ? mLabel([...selectedMonths][0])
+                  : `${selectedMonths.size} เดือนที่เลือก`}
+              </span>
+              <span className="text-gray-500 text-xs">{periodOpen ? '▲' : '▼'}</span>
             </button>
+
+            {periodOpen && (
+              <div className="absolute top-full left-0 mt-1 z-50 rounded-xl p-3 shadow-2xl"
+                style={{ background: '#1a2e3c', border: '1px solid #2e5060', minWidth: 280 }}>
+                <div className="flex gap-2 mb-3 pb-2" style={{ borderBottom: '1px solid #2a4455' }}>
+                  <button onClick={() => setSelectedMonths(new Set())}
+                    className="flex-1 py-1 rounded-lg text-xs font-bold"
+                    style={{ background: '#2a4455', color: '#8a9aaa' }}>ทั้งหมด</button>
+                  <button onClick={() => setPeriodOpen(false)}
+                    className="px-3 py-1 rounded-lg text-xs font-bold"
+                    style={{ background: '#d4962a', color: '#fff' }}>Done</button>
+                </div>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {allMonthKeys.map(k => (
+                    <button key={k} onClick={() => toggleMonth(k)}
+                      className="py-1.5 rounded-lg text-xs font-bold transition-all"
+                      style={selectedMonths.has(k)
+                        ? { background: '#d4962a', color: '#1a2d3a', border: '1px solid #d4962a' }
+                        : { background: 'transparent', color: '#8a9aaa', border: '1px solid #2a4455' }}>
+                      {mLabel(k)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
+
+          {[...selectedMonths].sort().map(k => (
+            <span key={k} className="flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold"
+              style={{ background: '#d4962a', color: '#fff' }}>
+              {mLabel(k)}
+              <button onClick={() => toggleMonth(k)} className="ml-1 opacity-75 hover:opacity-100 leading-none">×</button>
+            </span>
+          ))}
+
+          {selectedMonths.size > 0 && (
+            <span className="ml-auto text-xs text-gray-400">{filteredReports.length} QC Report</span>
+          )}
         </div>
 
         {loading ? (
           <div className="text-center py-16 text-gray-400 text-sm">กำลังโหลด...</div>
-        ) : reports.length === 0 ? (
+        ) : filteredReports.length === 0 ? (
           <div className="text-center py-16 text-gray-400">
             <div className="text-4xl mb-3">📋</div>
-            <p className="text-sm">ไม่มี QC Report ในเดือนนี้</p>
+            <p className="text-sm">ไม่มี QC Report ในช่วงเวลาที่เลือก</p>
             <p className="text-xs mt-1">ลองเลือกเดือนอื่น หรือกด "สร้าง QC Report ใหม่" เพื่อเริ่มต้น</p>
           </div>
         ) : (
@@ -154,7 +227,7 @@ export default function QCPage() {
                 </tr>
               </thead>
               <tbody>
-                {reports.map((r, i) => (
+                {filteredReports.map((r, i) => (
                   <tr key={r.id}
                     onClick={() => router.push(`/qc/${r.id}`)}
                     className={`border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors ${i % 2 === 0 ? '' : 'bg-gray-50/50'}`}>
