@@ -196,7 +196,7 @@ export default function SummaryPage() {
   })
   const [selectedItem, setSelectedItem] = useState<string | null>(null)
   const [itemSearch, setItemSearch] = useState('')
-  const [view, setView] = useState<'items' | 'detail' | 'hub'>('items')
+  const [view, setView] = useState<'items' | 'detail' | 'hub' | 'containers'>('items')
   const [periodOpen, setPeriodOpen] = useState(false)
 
   const allMonthKeys = useMemo(() => generateMonthKeys(18), [])
@@ -411,17 +411,19 @@ export default function SummaryPage() {
   const totalInvoices = useMemo(() => new Set(filteredLines.map(l => l.invoice_no)).size, [filteredLines])
   const totalSuppliers = useMemo(() => new Set(filteredLines.map(l => l.supplier)).size, [filteredLines])
   // Containers entered the warehouse: sum of container_names per invoice, grouped by estimated_arrival (matches Report page "เข้าคลัง" tab)
-  const totalContainers = useMemo(() => {
-    let sum = 0
-    for (const inv of invoices) {
-      if (selectedMonths.size > 0) {
-        const mk = mKey(inv.estimated_arrival)
-        if (!mk || !selectedMonths.has(mk)) continue
-      }
-      sum += (inv.container_names ?? []).length
-    }
-    return sum
+  const invoicesInPeriod = useMemo(() => {
+    return invoices.filter(inv => {
+      if (selectedMonths.size === 0) return true
+      const mk = mKey(inv.estimated_arrival)
+      return mk !== null && selectedMonths.has(mk)
+    })
   }, [invoices, selectedMonths])
+  const totalContainers = useMemo(() =>
+    invoicesInPeriod.reduce((sum, inv) => sum + (inv.container_names ?? []).length, 0),
+    [invoicesInPeriod])
+  const invoiceContainerRows = useMemo(() =>
+    [...invoicesInPeriod].sort((a, b) => (b.estimated_arrival || '').localeCompare(a.estimated_arrival || '')),
+    [invoicesInPeriod])
 
   const lineSeries = useMemo(() => {
     const top4 = supplierSummary.slice(0, 4)
@@ -742,6 +744,11 @@ export default function SummaryPage() {
                     background: view === 'hub' ? '#d4962a' : 'transparent', color: view === 'hub' ? '#fff' : '#8a7a6a' }}>
                   By Hub
                 </button>
+                <button onClick={() => setView('containers')}
+                  style={{ padding: '4px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer', border: 'none',
+                    background: view === 'containers' ? '#d4962a' : 'transparent', color: view === 'containers' ? '#fff' : '#8a7a6a' }}>
+                  ตู้ต่อ Invoice
+                </button>
                 <input type="text" placeholder="Search item code / name…" value={itemSearch} onChange={e => setItemSearch(e.target.value)}
                   style={{ flex: 1, border: '1px solid #e2d8c8', borderRadius: 8, padding: '5px 10px', fontSize: 11, background: '#fff', outline: 'none', color: '#3a2a1a' }} />
                 <button onClick={exportExcel}
@@ -824,7 +831,7 @@ export default function SummaryPage() {
                     </div>
                   )}
                 </div>
-              ) : (
+              ) : view === 'hub' ? (
                 /* By Hub — grouped by warehouse hub, each section listing its items/invoices/suppliers */
                 <div style={{ maxHeight: 360, overflowY: 'auto', padding: 12 }}>
                   {hubGroups.length === 0 ? (
@@ -866,6 +873,48 @@ export default function SummaryPage() {
                       </div>
                     )
                   })}
+                </div>
+              ) : (
+                /* ตู้ต่อ Invoice — how many containers each invoice has, within the selected period */
+                <div style={{ overflowX: 'auto', maxHeight: 360, overflowY: 'auto' }}>
+                  <table style={{ fontSize: 11, width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ background: '#f0ebe0', position: 'sticky', top: 0, zIndex: 1 }}>
+                        {['Invoice', 'Supplier', 'เข้าคลัง', 'Hub', 'จำนวนตู้'].map(h => (
+                          <th key={h} style={{ padding: '8px 10px', textAlign: h === 'จำนวนตู้' ? 'right' : 'left', fontSize: 10, fontWeight: 800, color: '#8a7a6a', whiteSpace: 'nowrap', borderBottom: '1px solid #e2d8c8' }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {invoiceContainerRows.map((inv, i) => (
+                        <tr key={inv.id} style={{ borderBottom: '1px solid #f5efe8', background: i % 2 === 0 ? '#fff' : '#faf7f2' }}>
+                          <td style={{ padding: '7px 10px', whiteSpace: 'nowrap' }}>
+                            <Link href={`/dashboard/${inv.id}`} style={{ color: '#3d8b82', textDecoration: 'none', fontWeight: 700 }}>{inv.invoice_no}</Link>
+                          </td>
+                          <td style={{ padding: '7px 10px', color: '#5a4a3a', whiteSpace: 'nowrap' }}>{inv.supplier || '—'}</td>
+                          <td style={{ padding: '7px 10px', color: '#6a5a4a', whiteSpace: 'nowrap' }}>{inv.estimated_arrival || '—'}</td>
+                          <td style={{ padding: '7px 10px', whiteSpace: 'nowrap' }}>
+                            {(invoiceHubMap.get(inv.id) ?? []).map(hub => {
+                              const hc = hubColor(hub)
+                              return <span key={hub} style={{ display: 'inline-block', fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 8, background: hc.bg, color: hc.text, border: `1px solid ${hc.border}`, marginRight: 3 }}>{hub}</span>
+                            })}
+                          </td>
+                          <td style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 800, color: '#2a7c9a' }}>{(inv.container_names ?? []).length}</td>
+                        </tr>
+                      ))}
+                      {invoiceContainerRows.length === 0 && (
+                        <tr><td colSpan={5} style={{ textAlign: 'center', padding: '30px 0', color: '#bbb', fontSize: 12 }}>ไม่มีข้อมูล</td></tr>
+                      )}
+                    </tbody>
+                    {invoiceContainerRows.length > 0 && (
+                      <tfoot>
+                        <tr style={{ background: '#f0ebe0' }}>
+                          <td colSpan={4} style={{ padding: '8px 10px', fontWeight: 800, color: '#8a7a6a', textAlign: 'right' }}>รวม</td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 900, color: '#2a7c9a' }}>{totalContainers}</td>
+                        </tr>
+                      </tfoot>
+                    )}
+                  </table>
                 </div>
               )}
             </div>
