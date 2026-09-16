@@ -45,12 +45,18 @@ interface QCReport {
 }
 
 
+function currentMonth() {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+}
+
 export default function QCPage() {
   const router = useRouter()
   const [reports, setReports] = useState<QCReport[]>([])
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [showPW, setShowPW] = useState(false)
+  const [month, setMonth] = useState(currentMonth())
 
   function requireUnlock(action: () => void) {
     if (isUnlocked()) { action() }
@@ -58,12 +64,19 @@ export default function QCPage() {
   }
   const [pendingAction, setPendingAction] = useState<(() => void) | null>(null)
 
-  useEffect(() => { loadReports() }, [])
+  useEffect(() => { loadReports() }, [month])
 
   async function loadReports() {
+    setLoading(true)
+    const [y, m] = month.split('-').map(Number)
+    const start = `${month}-01`
+    const nextMonthDate = new Date(y, m, 1)
+    const end = `${nextMonthDate.getFullYear()}-${String(nextMonthDate.getMonth() + 1).padStart(2, '0')}-01`
     const { data } = await supabase
       .from('qc_reports')
       .select('id, report_no, supplier_company, invoice_no, issue_found_date, status, verification_accepted, created_at')
+      .gte('created_at', start)
+      .lt('created_at', end)
       .order('created_at', { ascending: false })
     if (data) setReports(data as QCReport[])
     setLoading(false)
@@ -97,15 +110,26 @@ export default function QCPage() {
       <NavBar />
 
       <div className="max-w-5xl mx-auto px-6 py-8">
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">QC Report</h1>
             <p className="text-sm text-gray-500 mt-1">รายงานคุณภาพและการเคลม Supplier</p>
           </div>
-          <button onClick={() => requireUnlock(createNew)} disabled={creating}
-            className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors disabled:opacity-50">
-            {creating ? 'กำลังสร้าง...' : '+ สร้าง QC Report ใหม่'}
-          </button>
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">เดือน / Month</label>
+            <input type="month" value={month} onChange={e => setMonth(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-400 bg-white" />
+            {month !== currentMonth() && (
+              <button onClick={() => setMonth(currentMonth())}
+                className="text-xs text-blue-600 hover:text-blue-800 font-medium px-2 py-2">
+                เดือนนี้ / This month
+              </button>
+            )}
+            <button onClick={() => requireUnlock(createNew)} disabled={creating}
+              className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors disabled:opacity-50">
+              {creating ? 'กำลังสร้าง...' : '+ สร้าง QC Report ใหม่'}
+            </button>
+          </div>
         </div>
 
         {loading ? (
@@ -113,8 +137,8 @@ export default function QCPage() {
         ) : reports.length === 0 ? (
           <div className="text-center py-16 text-gray-400">
             <div className="text-4xl mb-3">📋</div>
-            <p className="text-sm">ยังไม่มี QC Report</p>
-            <p className="text-xs mt-1">กด "สร้าง QC Report ใหม่" เพื่อเริ่มต้น</p>
+            <p className="text-sm">ไม่มี QC Report ในเดือนนี้</p>
+            <p className="text-xs mt-1">ลองเลือกเดือนอื่น หรือกด "สร้าง QC Report ใหม่" เพื่อเริ่มต้น</p>
           </div>
         ) : (
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
