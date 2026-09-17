@@ -124,9 +124,10 @@ export default function QCPage() {
       ? parseInt(existing[0].report_no.split('-').pop() || '0') + 1
       : 1
     const report_no = `RBSQC${yy}/${mm}-${String(seq).padStart(3, '0')}`
+    const { data: { user } } = await supabase.auth.getUser()
     const { data, error } = await supabase
       .from('qc_reports')
-      .insert({ report_no, status: 'open', items: [], corrective_actions: [] })
+      .insert({ report_no, status: 'open', items: [], corrective_actions: [], created_by: user?.email ?? null })
       .select('id').single()
     if (!error && data) router.push(`/qc/${data.id}`)
     setCreating(false)

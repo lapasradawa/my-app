@@ -49,7 +49,7 @@ interface QCReport {
   description: string; items: QCItem[]; corrective_actions: string[]; corrective_action_comment: string
   root_cause: string; preventive_action: string; verification_accepted: boolean | null
   verification_comment: string; status: string; closure_file_url: string | null
-  photo_urls: string[]; issue_types: string[]
+  photo_urls: string[]; issue_types: string[]; created_by: string | null
 }
 
 const EMPTY: Omit<QCReport, 'id'> = {
@@ -58,7 +58,7 @@ const EMPTY: Omit<QCReport, 'id'> = {
   items: [], corrective_actions: [], corrective_action_comment: '',
   root_cause: '', preventive_action: '', verification_accepted: null,
   verification_comment: '', status: 'open', closure_file_url: null,
-  photo_urls: [], issue_types: [],
+  photo_urls: [], issue_types: [], created_by: null,
 }
 
 const EMPTY_ITEM: QCItem = { item_code: '', product_description: '', qty: 0, unit_price: 0, total: 0, qty_defective: 0, remark: '' }
@@ -269,6 +269,9 @@ export default function QCDetailPage() {
             <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold ${form.status === 'closed' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
               {form.status === 'closed' ? '✓ ปิดจบแล้ว / Closed' : '● เปิดอยู่ / Open'}
             </span>
+            {form.created_by && (
+              <span className="text-xs text-gray-400">สร้างโดย / Created by: <span className="font-medium text-gray-600">{form.created_by}</span></span>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <button onClick={handleExport} disabled={exporting}
