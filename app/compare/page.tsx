@@ -63,6 +63,7 @@ export default function ComparePage() {
   const [exportingMulti, setExportingMulti] = useState(false)
   const [sortByDdp, setSortByDdp] = useState(false)
   const [excludedSuppliers, setExcludedSuppliers] = useState<Set<string>>(new Set())
+  const [sortItemsBySaving, setSortItemsBySaving] = useState<'none' | 'desc' | 'asc'>('none')
 
   const [uploadProject, setUploadProject] = useState('')
   const [uploadSupplier, setUploadSupplier] = useState('')
@@ -392,6 +393,28 @@ export default function ComparePage() {
       .sort((a, b) => a.ddp_thb - b.ddp_thb)
   }
 
+  // Cost saving of the cheapest non-ทุนไทย supplier vs ทุนไทย for one item —
+  // null when either side is missing a price (nothing to compare against).
+  function cheapestSavingThb(row: TableRow, supplierList: string[]): number | null {
+    const thaiP = row.prices[THAI_COST]
+    const cheapest = rankNonThai(row, supplierList)[0]
+    if (!thaiP || !cheapest) return null
+    return thaiP.fob_price - cheapest.ddp_thb
+  }
+
+  // Sorts items by the cheapest supplier's saving vs ทุนไทย; items with no
+  // saving to compute (missing ทุนไทย or no other supplier price) sink to the
+  // bottom regardless of direction.
+  function sortRowsBySaving(rows: TableRow[], supplierList: string[], direction: 'asc' | 'desc'): TableRow[] {
+    const withSaving = rows
+      .map(row => ({ row, saving: cheapestSavingThb(row, supplierList) }))
+      .filter((x): x is { row: TableRow; saving: number } => x.saving !== null)
+      .sort((a, b) => direction === 'desc' ? b.saving - a.saving : a.saving - b.saving)
+      .map(x => x.row)
+    const withoutSaving = rows.filter(row => cheapestSavingThb(row, supplierList) === null)
+    return [...withSaving, ...withoutSaving]
+  }
+
   function buildSheetAoa(supplierList: string[], rows: TableRow[]): (string | number)[][] {
     const header = ['Item Code', 'Description',
       ...supplierList.flatMap(s => {
@@ -468,9 +491,14 @@ export default function ComparePage() {
     })
     ws.addRow([])
 
-    const rankHeaders = Array.from({ length: rankCount }, (_, i) =>
-      rankCount === 1 ? 'DDP Price (THB)' : i === 0 ? 'DDP Price Cheapest (THB)' : i === rankCount - 1 ? 'DDP Price Most Expensive (THB)' : `DDP Price Rank ${i + 1} (THB)`
-    )
+    // Each rank now takes 3 columns: DDP THB, Saving vs ทุนไทย (THB), Saving vs ทุนไทย (%) —
+    // all colored by that rank's supplier for the row.
+    const COLS_PER_RANK = 3
+    const rankLabel = (i: number) => rankCount === 1 ? 'DDP Price' : i === 0 ? 'DDP Price Cheapest' : i === rankCount - 1 ? 'DDP Price Most Expensive' : `DDP Price Rank ${i + 1}`
+    const rankHeaders = Array.from({ length: rankCount }, (_, i) => {
+      const label = rankLabel(i)
+      return [`${label} (THB)`, `${label} — Saving vs ทุนไทย (THB)`, `${label} — Saving vs ทุนไทย (%)`]
+    }).flat()
     const headers = ['Item Code', 'Description', ...rankHeaders, ...(hasThai ? ['ทุนไทย (THB)'] : [])]
     const headerRow = ws.addRow(headers)
     headerRow.font = { bold: true }
@@ -482,21 +510,32 @@ export default function ComparePage() {
     rows.forEach(row => {
       const ranked = rankNonThai(row, supplierList)
       const thaiPrice = row.prices[THAI_COST]
+      const rankCells = Array.from({ length: rankCount }, (_, i) => {
+        const r = ranked[i]
+        if (!r) return ['', '', '']
+        const ddpThb = Math.round(r.ddp_thb * 100) / 100
+        if (!thaiPrice) return [ddpThb, '', '']
+        const savingThb = Math.round((thaiPrice.fob_price - r.ddp_thb) * 100) / 100
+        const savingPct = thaiPrice.fob_price > 0 ? Math.round((savingThb / thaiPrice.fob_price) * 100 * 100) / 100 : ''
+        return [ddpThb, savingThb, savingPct]
+      }).flat() as (string | number)[]
       const rowData = [
         row.item_code, row.description,
-        ...Array.from({ length: rankCount }, (_, i) => ranked[i] ? Math.round(ranked[i].ddp_thb * 100) / 100 : ''),
+        ...rankCells,
         ...(hasThai ? [thaiPrice ? thaiPrice.fob_price : ''] : []),
       ]
       const exRow = ws.addRow(rowData)
       Array.from({ length: rankCount }, (_, i) => {
         const r = ranked[i]
         if (!r) return
-        const cell = exRow.getCell(3 + i)
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + supBg(r.supplier, supplierList) } }
-        cell.font = { color: { argb: 'FF' + supFg(r.supplier) }, bold: true }
+        for (let c = 0; c < COLS_PER_RANK; c++) {
+          const cell = exRow.getCell(3 + i * COLS_PER_RANK + c)
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + supBg(r.supplier, supplierList) } }
+          cell.font = { color: { argb: 'FF' + supFg(r.supplier) }, bold: true }
+        }
       })
       if (hasThai && thaiPrice) {
-        const cell = exRow.getCell(3 + rankCount)
+        const cell = exRow.getCell(3 + rankCount * COLS_PER_RANK)
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF99F6E4' } }
         cell.font = { color: { argb: 'FF0F766E' }, bold: true }
       }
@@ -508,7 +547,8 @@ export default function ComparePage() {
     if (sortByDdp) {
       const workbook = new ExcelJSWorkbook()
       const rankCount = Math.max(1, supplierList.filter(s => s !== THAI_COST).length)
-      addRankedSheet(workbook, 'Cost Compare', supplierList, rows, rankCount)
+      const orderedRows = sortItemsBySaving === 'none' ? rows : sortRowsBySaving(rows, supplierList, sortItemsBySaving)
+      addRankedSheet(workbook, 'Cost Compare', supplierList, orderedRows, rankCount)
       const buffer = await workbook.xlsx.writeBuffer()
       downloadWorkbookBuffer(buffer, `CostCompare_${selectedProject}_${new Date().toISOString().slice(0, 10)}.xlsx`)
       return
@@ -541,7 +581,8 @@ export default function ComparePage() {
           const { suppliers: rawSupplierList, rows } = await fetchProjectTable(project)
           const supplierList = rawSupplierList.filter(s => !excludedSuppliers.has(s))
           const rankCount = Math.max(1, supplierList.filter(s => s !== THAI_COST).length)
-          addRankedSheet(workbook, toSafeSheetName(project, usedNames), supplierList, rows, rankCount)
+          const orderedRows = sortItemsBySaving === 'none' ? rows : sortRowsBySaving(rows, supplierList, sortItemsBySaving)
+          addRankedSheet(workbook, toSafeSheetName(project, usedNames), supplierList, orderedRows, rankCount)
         }
         const buffer = await workbook.xlsx.writeBuffer()
         downloadWorkbookBuffer(buffer, `CostCompare_Multi_${new Date().toISOString().slice(0, 10)}.xlsx`)
@@ -902,6 +943,25 @@ export default function ComparePage() {
                 }`}>
                 {sortByDdp ? '✓ เรียงตาม DDP (ถูก→แพง)' : 'เรียงตาม DDP (ถูก→แพง)'}
               </button>
+              {sortByDdp && (
+                <div className="flex items-center gap-1 border border-gray-300 rounded-lg p-0.5" title="เรียงลำดับ item ใน Export ตาม Cost Saving ของ supplier ที่ถูกที่สุด เทียบกับทุนไทย">
+                  {([
+                    ['none', 'ไม่เรียง'],
+                    ['desc', 'Saving มาก→น้อย'],
+                    ['asc', 'Saving น้อย→มาก'],
+                  ] as const).map(([val, label]) => (
+                    <button key={val}
+                      onClick={() => setSortItemsBySaving(val)}
+                      className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                        sortItemsBySaving === val
+                          ? 'bg-teal-600 text-white'
+                          : 'text-gray-500 hover:bg-gray-100'
+                      }`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
               <input
                 type="text" value={search} onChange={e => setSearch(e.target.value)}
                 placeholder="ค้นหา เช่น Pole, Connector..."
