@@ -62,6 +62,7 @@ export default function ComparePage() {
   const [exportProjects, setExportProjects] = useState<Set<string>>(new Set())
   const [exportingMulti, setExportingMulti] = useState(false)
   const [sortByDdp, setSortByDdp] = useState(false)
+  const [excludedSuppliers, setExcludedSuppliers] = useState<Set<string>>(new Set())
 
   const [uploadProject, setUploadProject] = useState('')
   const [uploadSupplier, setUploadSupplier] = useState('')
@@ -503,15 +504,16 @@ export default function ComparePage() {
   }
 
   async function exportExcel(rows: TableRow[]) {
+    const supplierList = suppliers.filter(s => !excludedSuppliers.has(s))
     if (sortByDdp) {
       const workbook = new ExcelJSWorkbook()
-      const rankCount = Math.max(1, suppliers.filter(s => s !== THAI_COST).length)
-      addRankedSheet(workbook, 'Cost Compare', suppliers, rows, rankCount)
+      const rankCount = Math.max(1, supplierList.filter(s => s !== THAI_COST).length)
+      addRankedSheet(workbook, 'Cost Compare', supplierList, rows, rankCount)
       const buffer = await workbook.xlsx.writeBuffer()
       downloadWorkbookBuffer(buffer, `CostCompare_${selectedProject}_${new Date().toISOString().slice(0, 10)}.xlsx`)
       return
     }
-    const aoa = buildSheetAoa(suppliers, rows)
+    const aoa = buildSheetAoa(supplierList, rows)
     const ws = XLSX.utils.aoa_to_sheet(aoa)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Cost Compare')
@@ -536,7 +538,8 @@ export default function ComparePage() {
       if (sortByDdp) {
         const workbook = new ExcelJSWorkbook()
         for (const project of projectNames) {
-          const { suppliers: supplierList, rows } = await fetchProjectTable(project)
+          const { suppliers: rawSupplierList, rows } = await fetchProjectTable(project)
+          const supplierList = rawSupplierList.filter(s => !excludedSuppliers.has(s))
           const rankCount = Math.max(1, supplierList.filter(s => s !== THAI_COST).length)
           addRankedSheet(workbook, toSafeSheetName(project, usedNames), supplierList, rows, rankCount)
         }
@@ -546,7 +549,8 @@ export default function ComparePage() {
       }
       const wb = XLSX.utils.book_new()
       for (const project of projectNames) {
-        const { suppliers: supplierList, rows } = await fetchProjectTable(project)
+        const { suppliers: rawSupplierList, rows } = await fetchProjectTable(project)
+        const supplierList = rawSupplierList.filter(s => !excludedSuppliers.has(s))
         const aoa = buildSheetAoa(supplierList, rows)
         const ws = XLSX.utils.aoa_to_sheet(aoa)
         XLSX.utils.book_append_sheet(wb, ws, toSafeSheetName(project, usedNames))
@@ -847,6 +851,31 @@ export default function ComparePage() {
                     className="mt-3 flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors">
                     {exportingMulti ? 'กำลัง Export...' : `↓ Export ${exportProjects.size} Project ที่เลือก`}
                   </button>
+                )}
+                {allSuppliers.length > 0 && (
+                  <div className="mt-4 pt-3 border-t border-gray-100">
+                    <p className="text-xs font-semibold text-gray-500 mb-2">
+                      ไม่รวม Supplier ตอน Export (ติ๊กเพื่อไม่เอา){excludedSuppliers.size > 0 && ` — ไม่รวม ${excludedSuppliers.size} รายการ`}
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {allSuppliers.map(s => (
+                        <button key={s} type="button"
+                          onClick={() => setExcludedSuppliers(prev => {
+                            const next = new Set(prev)
+                            next.has(s) ? next.delete(s) : next.add(s)
+                            return next
+                          })}
+                          title="ติ๊กเพื่อไม่รวม supplier นี้ตอน Export"
+                          className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+                            excludedSuppliers.has(s)
+                              ? 'bg-red-50 text-red-400 border-red-200 line-through'
+                              : 'bg-white text-gray-500 border-gray-300 hover:border-red-300 hover:text-red-500'
+                          }`}>
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 )}
               </>
             )}
