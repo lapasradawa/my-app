@@ -393,25 +393,27 @@ export default function ComparePage() {
       .sort((a, b) => a.ddp_thb - b.ddp_thb)
   }
 
-  // Cost saving of the cheapest non-ทุนไทย supplier vs ทุนไทย for one item —
-  // null when either side is missing a price (nothing to compare against).
-  function cheapestSavingThb(row: TableRow, supplierList: string[]): number | null {
+  // Cost saving % of the cheapest non-ทุนไทย supplier vs ทุนไทย for one item —
+  // percentage rather than THB so items of very different price scales are
+  // compared fairly. null when either side is missing a price, or ทุนไทย's
+  // price is 0 (nothing to divide by).
+  function cheapestSavingPct(row: TableRow, supplierList: string[]): number | null {
     const thaiP = row.prices[THAI_COST]
     const cheapest = rankNonThai(row, supplierList)[0]
-    if (!thaiP || !cheapest) return null
-    return thaiP.fob_price - cheapest.ddp_thb
+    if (!thaiP || !cheapest || thaiP.fob_price <= 0) return null
+    return ((thaiP.fob_price - cheapest.ddp_thb) / thaiP.fob_price) * 100
   }
 
-  // Sorts items by the cheapest supplier's saving vs ทุนไทย; items with no
+  // Sorts items by the cheapest supplier's saving % vs ทุนไทย; items with no
   // saving to compute (missing ทุนไทย or no other supplier price) sink to the
   // bottom regardless of direction.
   function sortRowsBySaving(rows: TableRow[], supplierList: string[], direction: 'asc' | 'desc'): TableRow[] {
     const withSaving = rows
-      .map(row => ({ row, saving: cheapestSavingThb(row, supplierList) }))
+      .map(row => ({ row, saving: cheapestSavingPct(row, supplierList) }))
       .filter((x): x is { row: TableRow; saving: number } => x.saving !== null)
       .sort((a, b) => direction === 'desc' ? b.saving - a.saving : a.saving - b.saving)
       .map(x => x.row)
-    const withoutSaving = rows.filter(row => cheapestSavingThb(row, supplierList) === null)
+    const withoutSaving = rows.filter(row => cheapestSavingPct(row, supplierList) === null)
     return [...withSaving, ...withoutSaving]
   }
 
@@ -516,8 +518,10 @@ export default function ComparePage() {
         const ddpThb = Math.round(r.ddp_thb * 100) / 100
         if (!thaiPrice) return [ddpThb, '', '']
         const savingThb = Math.round((thaiPrice.fob_price - r.ddp_thb) * 100) / 100
-        const savingPct = thaiPrice.fob_price > 0 ? Math.round((savingThb / thaiPrice.fob_price) * 100 * 100) / 100 : ''
-        return [ddpThb, savingThb, savingPct]
+        // Stored as a ratio (0.1234), not 12.34 — the cell's numFmt below
+        // renders it as "12.34%" the way Excel expects native percentages.
+        const savingRatio = thaiPrice.fob_price > 0 ? savingThb / thaiPrice.fob_price : ''
+        return [ddpThb, savingThb, savingRatio]
       }).flat() as (string | number)[]
       const rowData = [
         row.item_code, row.description,
@@ -532,6 +536,7 @@ export default function ComparePage() {
           const cell = exRow.getCell(3 + i * COLS_PER_RANK + c)
           cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + supBg(r.supplier, supplierList) } }
           cell.font = { color: { argb: 'FF' + supFg(r.supplier) }, bold: true }
+          if (c === 2 && typeof cell.value === 'number') cell.numFmt = '0.00%'
         }
       })
       if (hasThai && thaiPrice) {
@@ -944,7 +949,7 @@ export default function ComparePage() {
                 {sortByDdp ? '✓ เรียงตาม DDP (ถูก→แพง)' : 'เรียงตาม DDP (ถูก→แพง)'}
               </button>
               {sortByDdp && (
-                <div className="flex items-center gap-1 border border-gray-300 rounded-lg p-0.5" title="เรียงลำดับ item ใน Export ตาม Cost Saving ของ supplier ที่ถูกที่สุด เทียบกับทุนไทย">
+                <div className="flex items-center gap-1 border border-gray-300 rounded-lg p-0.5" title="เรียงลำดับ item ใน Export ตาม % Cost Saving ของ supplier ที่ถูกที่สุด เทียบกับทุนไทย">
                   {([
                     ['none', 'ไม่เรียง'],
                     ['desc', 'Saving มาก→น้อย'],
