@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import * as XLSX from 'xlsx'
+import { Workbook as ExcelJSWorkbook, type Buffer as ExcelJSBuffer } from 'exceljs'
 import { supabase } from '@/lib/supabase'
 import { parsePO } from '@/lib/po-parser'
 import { isUnlocked } from '@/lib/auth'
@@ -57,6 +58,10 @@ export default function ComparePage() {
   const [supplierDates, setSupplierDates] = useState<Record<string, string>>({})
   const [tableRows, setTableRows] = useState<TableRow[]>([])
   const [loadingTable, setLoadingTable] = useState(false)
+
+  const [exportProjects, setExportProjects] = useState<Set<string>>(new Set())
+  const [exportingMulti, setExportingMulti] = useState(false)
+  const [sortByDdp, setSortByDdp] = useState(false)
 
   const [uploadProject, setUploadProject] = useState('')
   const [uploadSupplier, setUploadSupplier] = useState('')
@@ -122,57 +127,68 @@ export default function ComparePage() {
     }
   }
 
-  async function loadProject(project: string) {
-    setSelectedProject(project)
-    setLoadingTable(true)
+  // Pure fetch+build, no state writes — shared by the single-project view and
+  // the multi-project export (which needs each project's own supplier set).
+  async function fetchProjectTable(project: string): Promise<{ suppliers: string[]; supplierDates: Record<string, string>; rows: TableRow[] }> {
     const { data } = await supabase
       .from('po_items').select('*').eq('project', project)
       .order('uploaded_at', { ascending: false })
-    if (data) {
-      const seen = new Set<string>()
-      const latest: POItemDB[] = []
-      for (const item of data as POItemDB[]) {
-        const key = `${item.supplier}__${item.item_code}`
-        if (!seen.has(key)) { seen.add(key); latest.push(item) }
-      }
-      // Pick description: prefer non-ทุนไทย suppliers (system data), fallback to ทุนไทย file
-      const descMap = new Map<string, string>()
-      const descDate = new Map<string, string>()
-      for (const item of latest) {
-        if (item.supplier === THAI_COST || !item.description) continue
-        const cur = descDate.get(item.item_code)
-        if (!cur || item.uploaded_at > cur) {
-          descMap.set(item.item_code, item.description)
-          descDate.set(item.item_code, item.uploaded_at)
-        }
-      }
-      // Fill missing descriptions from ทุนไทย file
-      for (const item of latest) {
-        if (item.supplier !== THAI_COST || !item.description) continue
-        if (!descMap.has(item.item_code)) descMap.set(item.item_code, item.description)
-      }
+    if (!data) return { suppliers: [], supplierDates: {}, rows: [] }
 
-      const supplierSet = new Set<string>()
-      const itemMap = new Map<string, TableRow>()
-      const dates: Record<string, string> = {}
-      for (const item of latest) {
-        supplierSet.add(item.supplier)
-        if (!itemMap.has(item.item_code)) {
-          itemMap.set(item.item_code, {
-            item_code: item.item_code,
-            description: descMap.get(item.item_code) ?? '',
-            prices: {},
-          })
-        }
-        itemMap.get(item.item_code)!.prices[item.supplier] = {
-          fob_price: item.fob_price, currency: item.currency, uploaded_at: item.uploaded_at,
-        }
-        if (!dates[item.supplier] || item.uploaded_at > dates[item.supplier]) dates[item.supplier] = item.uploaded_at
-      }
-      setSuppliers([...supplierSet].sort())
-      setSupplierDates(dates)
-      setTableRows([...itemMap.values()].sort((a, b) => a.item_code.localeCompare(b.item_code)))
+    const seen = new Set<string>()
+    const latest: POItemDB[] = []
+    for (const item of data as POItemDB[]) {
+      const key = `${item.supplier}__${item.item_code}`
+      if (!seen.has(key)) { seen.add(key); latest.push(item) }
     }
+    // Pick description: prefer non-ทุนไทย suppliers (system data), fallback to ทุนไทย file
+    const descMap = new Map<string, string>()
+    const descDate = new Map<string, string>()
+    for (const item of latest) {
+      if (item.supplier === THAI_COST || !item.description) continue
+      const cur = descDate.get(item.item_code)
+      if (!cur || item.uploaded_at > cur) {
+        descMap.set(item.item_code, item.description)
+        descDate.set(item.item_code, item.uploaded_at)
+      }
+    }
+    // Fill missing descriptions from ทุนไทย file
+    for (const item of latest) {
+      if (item.supplier !== THAI_COST || !item.description) continue
+      if (!descMap.has(item.item_code)) descMap.set(item.item_code, item.description)
+    }
+
+    const supplierSet = new Set<string>()
+    const itemMap = new Map<string, TableRow>()
+    const dates: Record<string, string> = {}
+    for (const item of latest) {
+      supplierSet.add(item.supplier)
+      if (!itemMap.has(item.item_code)) {
+        itemMap.set(item.item_code, {
+          item_code: item.item_code,
+          description: descMap.get(item.item_code) ?? '',
+          prices: {},
+        })
+      }
+      itemMap.get(item.item_code)!.prices[item.supplier] = {
+        fob_price: item.fob_price, currency: item.currency, uploaded_at: item.uploaded_at,
+      }
+      if (!dates[item.supplier] || item.uploaded_at > dates[item.supplier]) dates[item.supplier] = item.uploaded_at
+    }
+    return {
+      suppliers: [...supplierSet].sort(),
+      supplierDates: dates,
+      rows: [...itemMap.values()].sort((a, b) => a.item_code.localeCompare(b.item_code)),
+    }
+  }
+
+  async function loadProject(project: string) {
+    setSelectedProject(project)
+    setLoadingTable(true)
+    const result = await fetchProjectTable(project)
+    setSuppliers(result.suppliers)
+    setSupplierDates(result.supplierDates)
+    setTableRows(result.rows)
     setLoadingTable(false)
   }
 
@@ -352,30 +368,6 @@ export default function ComparePage() {
     if (data) setHistory({ item_code, supplier, entries: data as POItemDB[] })
   }
 
-  function exportExcel(rows: TableRow[]) {
-    const header = ['Item Code', 'Description',
-      ...suppliers.flatMap(s => {
-        if (s === THAI_COST) return [`${s} (THB)`]
-        const currency = rows.find(r => r.prices[s])?.prices[s]?.currency ?? 'CNY'
-        return [`${s} FOB ${currency}`, `${s} FOB THB`, `${s} DDP THB`]
-      })
-    ]
-    const data = rows.map(row => [
-      row.item_code, row.description,
-      ...suppliers.flatMap(s => {
-        const p = row.prices[s]
-        if (s === THAI_COST) return [p ? p.fob_price : ''] as (string | number)[]
-        if (!p) return ['', '', ''] as (string | number)[]
-        const fobThb = p.fob_price * getRate(p.currency)
-        return [p.fob_price, fobThb, fobThb * settings.ddp_multiplier] as (string | number)[]
-      })
-    ])
-    const ws = XLSX.utils.aoa_to_sheet([header, ...data])
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Cost Compare')
-    XLSX.writeFile(wb, `CostCompare_${selectedProject}_${new Date().toISOString().slice(0, 10)}.xlsx`)
-  }
-
   function getRate(currency: string) {
     if (currency === 'THB') return 1
     return currency === 'USD' ? settings.usd_rate : settings.cny_rate
@@ -384,6 +376,185 @@ export default function ComparePage() {
   function toDdpThb(s: string, p: LatestPrice): number {
     if (s === THAI_COST) return p.fob_price
     return p.fob_price * getRate(p.currency) * settings.ddp_multiplier
+  }
+
+  // Per-row ranking of every non-ทุนไทย supplier present, cheapest DDP first —
+  // ทุนไทย is intentionally excluded here since it's always shown as its own
+  // fixed rightmost column instead of taking part in the ranking.
+  function rankNonThai(row: TableRow, supplierList: string[]) {
+    return supplierList
+      .filter(s => s !== THAI_COST && row.prices[s])
+      .map(s => {
+        const p = row.prices[s]
+        return { supplier: s, fob_price: p.fob_price, currency: p.currency, ddp_thb: toDdpThb(s, p) }
+      })
+      .sort((a, b) => a.ddp_thb - b.ddp_thb)
+  }
+
+  function buildSheetAoa(supplierList: string[], rows: TableRow[]): (string | number)[][] {
+    const header = ['Item Code', 'Description',
+      ...supplierList.flatMap(s => {
+        if (s === THAI_COST) return [`${s} (THB)`]
+        const currency = rows.find(r => r.prices[s])?.prices[s]?.currency ?? 'CNY'
+        return [`${s} FOB ${currency}`, `${s} FOB THB`, `${s} DDP THB`]
+      })
+    ]
+    const data = rows.map(row => [
+      row.item_code, row.description,
+      ...supplierList.flatMap(s => {
+        const p = row.prices[s]
+        if (s === THAI_COST) return [p ? p.fob_price : ''] as (string | number)[]
+        if (!p) return ['', '', ''] as (string | number)[]
+        const fobThb = p.fob_price * getRate(p.currency)
+        return [p.fob_price, fobThb, fobThb * settings.ddp_multiplier] as (string | number)[]
+      })
+    ])
+    return [header, ...data]
+  }
+
+  // Same fixed supplier→color map as Order Plan's export, so a supplier reads
+  // as the same color in both files.
+  const SUP_COLOR: Record<string, { bg: string; fg: string }> = {
+    'KNCD':     { bg: 'C6EFC5', fg: '166534' },
+    'LITELON':  { bg: 'FDDCB5', fg: '9A3412' },
+    'MK':       { bg: 'D5B8FF', fg: '4C1D95' },
+    'SGL':      { bg: 'FFF2CC', fg: '92400E' },
+    'YONGGUAN': { bg: 'DCDCDC', fg: '374151' },
+    'YG':       { bg: 'DCDCDC', fg: '374151' },
+    'YPN':      { bg: 'BDD7EE', fg: '1E3A8A' },
+  }
+  const FALLBACK_BG = ['FFD0D0', 'B3E5FC', 'FEF9C3', 'E0F2FE', 'F3E8FF', 'FCE7F3']
+  function supBg(s: string, supplierList: string[]) {
+    return SUP_COLOR[s]?.bg ?? FALLBACK_BG[Math.max(0, supplierList.indexOf(s)) % FALLBACK_BG.length]
+  }
+  function supFg(s: string) {
+    return SUP_COLOR[s]?.fg ?? '374151'
+  }
+
+  function downloadWorkbookBuffer(buffer: ExcelJSBuffer, filename: string) {
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = filename; a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  // DDP-sorted variant: one DDP-THB column per rank (cheapest → most
+  // expensive) instead of one fixed column per supplier name, since which
+  // supplier is cheapest can differ row-by-row — mirrors Order Plan's
+  // ranking exactly, including its color-per-supplier + legend row instead
+  // of a plain supplier-name column (ทุนไทย pinned as its own fixed column
+  // at the far right instead of Order Plan's leftmost placement).
+  function addRankedSheet(workbook: ExcelJSWorkbook, sheetName: string, supplierList: string[], rows: TableRow[], rankCount: number) {
+    const ws = workbook.addWorksheet(sheetName)
+    const hasThai = supplierList.includes(THAI_COST)
+    const legendSuppliers = supplierList.filter(s => s !== THAI_COST)
+
+    const legendRow = ws.addRow(['Supplier Color:', ...(hasThai ? [THAI_COST] : []), ...legendSuppliers])
+    legendRow.getCell(1).font = { bold: true }
+    let col = 2
+    if (hasThai) {
+      const c = legendRow.getCell(col++)
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF99F6E4' } }
+      c.font = { bold: true, color: { argb: 'FF0F766E' } }
+      c.alignment = { horizontal: 'center' }
+    }
+    legendSuppliers.forEach(s => {
+      const c = legendRow.getCell(col++)
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + supBg(s, supplierList) } }
+      c.font = { bold: true, color: { argb: 'FF' + supFg(s) } }
+      c.alignment = { horizontal: 'center' }
+    })
+    ws.addRow([])
+
+    const rankHeaders = Array.from({ length: rankCount }, (_, i) =>
+      rankCount === 1 ? 'DDP Price (THB)' : i === 0 ? 'DDP Price Cheapest (THB)' : i === rankCount - 1 ? 'DDP Price Most Expensive (THB)' : `DDP Price Rank ${i + 1} (THB)`
+    )
+    const headers = ['Item Code', 'Description', ...rankHeaders, ...(hasThai ? ['ทุนไทย (THB)'] : [])]
+    const headerRow = ws.addRow(headers)
+    headerRow.font = { bold: true }
+    headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9D9D9' } }
+    ws.getColumn(1).width = 20
+    ws.getColumn(2).width = 42
+    headers.slice(2).forEach((_, i) => { ws.getColumn(i + 3).width = 16 })
+
+    rows.forEach(row => {
+      const ranked = rankNonThai(row, supplierList)
+      const thaiPrice = row.prices[THAI_COST]
+      const rowData = [
+        row.item_code, row.description,
+        ...Array.from({ length: rankCount }, (_, i) => ranked[i] ? Math.round(ranked[i].ddp_thb * 100) / 100 : ''),
+        ...(hasThai ? [thaiPrice ? thaiPrice.fob_price : ''] : []),
+      ]
+      const exRow = ws.addRow(rowData)
+      Array.from({ length: rankCount }, (_, i) => {
+        const r = ranked[i]
+        if (!r) return
+        const cell = exRow.getCell(3 + i)
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + supBg(r.supplier, supplierList) } }
+        cell.font = { color: { argb: 'FF' + supFg(r.supplier) }, bold: true }
+      })
+      if (hasThai && thaiPrice) {
+        const cell = exRow.getCell(3 + rankCount)
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF99F6E4' } }
+        cell.font = { color: { argb: 'FF0F766E' }, bold: true }
+      }
+    })
+  }
+
+  async function exportExcel(rows: TableRow[]) {
+    if (sortByDdp) {
+      const workbook = new ExcelJSWorkbook()
+      const rankCount = Math.max(1, suppliers.filter(s => s !== THAI_COST).length)
+      addRankedSheet(workbook, 'Cost Compare', suppliers, rows, rankCount)
+      const buffer = await workbook.xlsx.writeBuffer()
+      downloadWorkbookBuffer(buffer, `CostCompare_${selectedProject}_${new Date().toISOString().slice(0, 10)}.xlsx`)
+      return
+    }
+    const aoa = buildSheetAoa(suppliers, rows)
+    const ws = XLSX.utils.aoa_to_sheet(aoa)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Cost Compare')
+    XLSX.writeFile(wb, `CostCompare_${selectedProject}_${new Date().toISOString().slice(0, 10)}.xlsx`)
+  }
+
+  function toSafeSheetName(name: string, used: Set<string>): string {
+    let safe = name.replace(/[:\\/?*[\]]/g, ' ').trim().slice(0, 31) || 'Sheet'
+    let n = 2
+    while (used.has(safe.toLowerCase())) {
+      const suffix = ` (${n++})`
+      safe = safe.slice(0, 31 - suffix.length) + suffix
+    }
+    used.add(safe.toLowerCase())
+    return safe
+  }
+
+  async function exportMultipleProjects(projectNames: string[]) {
+    setExportingMulti(true)
+    try {
+      const usedNames = new Set<string>()
+      if (sortByDdp) {
+        const workbook = new ExcelJSWorkbook()
+        for (const project of projectNames) {
+          const { suppliers: supplierList, rows } = await fetchProjectTable(project)
+          const rankCount = Math.max(1, supplierList.filter(s => s !== THAI_COST).length)
+          addRankedSheet(workbook, toSafeSheetName(project, usedNames), supplierList, rows, rankCount)
+        }
+        const buffer = await workbook.xlsx.writeBuffer()
+        downloadWorkbookBuffer(buffer, `CostCompare_Multi_${new Date().toISOString().slice(0, 10)}.xlsx`)
+        return
+      }
+      const wb = XLSX.utils.book_new()
+      for (const project of projectNames) {
+        const { suppliers: supplierList, rows } = await fetchProjectTable(project)
+        const aoa = buildSheetAoa(supplierList, rows)
+        const ws = XLSX.utils.aoa_to_sheet(aoa)
+        XLSX.utils.book_append_sheet(wb, ws, toSafeSheetName(project, usedNames))
+      }
+      XLSX.writeFile(wb, `CostCompare_Multi_${new Date().toISOString().slice(0, 10)}.xlsx`)
+    } finally {
+      setExportingMulti(false)
+    }
   }
 
   function fmtDate(iso: string) {
@@ -636,22 +807,48 @@ export default function ComparePage() {
 
           {/* Project selector */}
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 self-start">
-            <p className="text-sm font-semibold text-gray-700 mb-3">เลือก Project</p>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-semibold text-gray-700">เลือก Project</p>
+              <span className="text-xs text-gray-400">ติ๊ก ☑ เพื่อเลือกหลาย Project สำหรับ Export</span>
+            </div>
             {projects.length === 0 ? (
               <p className="text-sm text-gray-400">ยังไม่มี Project — อัปโหลด PO ก่อน</p>
             ) : (
-              <div className="flex flex-wrap gap-2">
-                {projects.map(p => (
-                  <button key={p} onClick={() => loadProject(p)}
-                    className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
-                      selectedProject === p
-                        ? 'bg-blue-600 text-white border-blue-600'
-                        : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400 hover:text-blue-600'
-                    }`}>
-                    {p}
+              <>
+                <div className="flex flex-wrap gap-2">
+                  {projects.map(p => (
+                    <div key={p} className="flex items-center gap-1">
+                      <input
+                        type="checkbox"
+                        checked={exportProjects.has(p)}
+                        onChange={() => setExportProjects(prev => {
+                          const next = new Set(prev)
+                          next.has(p) ? next.delete(p) : next.add(p)
+                          return next
+                        })}
+                        title="เลือกสำหรับ Export หลาย Project"
+                        className="w-3.5 h-3.5 accent-green-600"
+                      />
+                      <button onClick={() => loadProject(p)}
+                        className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
+                          selectedProject === p
+                            ? 'bg-blue-600 text-white border-blue-600'
+                            : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400 hover:text-blue-600'
+                        }`}>
+                        {p}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                {exportProjects.size > 0 && (
+                  <button
+                    onClick={() => exportMultipleProjects([...exportProjects])}
+                    disabled={exportingMulti}
+                    className="mt-3 flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors">
+                    {exportingMulti ? 'กำลัง Export...' : `↓ Export ${exportProjects.size} Project ที่เลือก`}
                   </button>
-                ))}
-              </div>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -666,6 +863,16 @@ export default function ComparePage() {
                   ? `${tableRows.filter(r => (r.item_code + ' ' + r.description).toLowerCase().includes(search.toLowerCase())).length} / ${tableRows.length} รายการ`
                   : `${tableRows.length} รายการ`}
               </span>
+              <button
+                onClick={() => setSortByDdp(v => !v)}
+                title="เรียงคอลัมน์ Supplier ตามราคา DDP จากถูกไปแพง (ทุนไทย อยู่ขวาสุดเสมอ)"
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                  sortByDdp
+                    ? 'bg-amber-500 text-white border-amber-500'
+                    : 'bg-white text-gray-600 border-gray-300 hover:border-amber-400 hover:text-amber-600'
+                }`}>
+                {sortByDdp ? '✓ เรียงตาม DDP (ถูก→แพง)' : 'เรียงตาม DDP (ถูก→แพง)'}
+              </button>
               <input
                 type="text" value={search} onChange={e => setSearch(e.target.value)}
                 placeholder="ค้นหา เช่น Pole, Connector..."
@@ -695,6 +902,93 @@ export default function ComparePage() {
                 return filteredRows.length === 0 ? (
                   <div className="text-center py-12 text-gray-400">ไม่พบรายการที่ตรงกับ "{search}"</div>
                 ) : (
+                sortByDdp ? (() => {
+                  const rankCount = Math.max(1, suppliers.filter(s => s !== THAI_COST).length)
+                  const hasThai = suppliers.includes(THAI_COST)
+                  return (
+                  <table className="text-xs border-collapse" style={{ minWidth: 420 + rankCount * 160 + (hasThai ? 120 : 0) }}>
+                    <thead>
+                      <tr className="bg-gray-800 text-white">
+                        <th className="px-3 py-2.5 text-left sticky left-0 z-30 bg-gray-800 border-r border-gray-600 whitespace-nowrap" style={{ minWidth: 160 }}>
+                          Item Code
+                        </th>
+                        <th className="px-3 py-2.5 text-left sticky z-30 bg-gray-800 border-r border-gray-600" style={{ minWidth: 240, left: 160 }}>
+                          Description
+                        </th>
+                        {Array.from({ length: rankCount }, (_, i) => (
+                          <th key={i} className="px-3 py-2 text-center border-l border-gray-600 whitespace-nowrap" style={{ minWidth: 150 }}>
+                            {rankCount === 1 ? 'DDP' : i === 0 ? 'DDP 1 (ถูกสุด)' : i === rankCount - 1 ? `DDP ${i + 1} (แพงสุด)` : `DDP ${i + 1}`}
+                          </th>
+                        ))}
+                        {hasThai && (
+                          <th className="px-3 py-2 text-center border-l border-gray-600 whitespace-nowrap" style={{ minWidth: 110 }}>
+                            <div className="flex items-center justify-center gap-2">
+                              <span className="font-semibold">{THAI_COST}</span>
+                              <button
+                                onClick={() => requireUnlock(() => openManageModal(THAI_COST))}
+                                title="จัดการไฟล์ที่อัปโหลด"
+                                className="text-gray-400 hover:text-white transition-colors text-xs leading-none">
+                                ⋯
+                              </button>
+                            </div>
+                            <div className="font-normal text-gray-400 text-xs">
+                              {supplierDates[THAI_COST] ? `as of ${fmtDate(supplierDates[THAI_COST])}` : '—'}
+                            </div>
+                          </th>
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredRows.map(row => {
+                        const ddpValues = suppliers
+                          .filter(s => row.prices[s])
+                          .map(s => ({ s, ddp: toDdpThb(s, row.prices[s]) }))
+                        const minDdp = ddpValues.length > 1 ? Math.min(...ddpValues.map(v => v.ddp)) : null
+                        const ranked = rankNonThai(row, suppliers)
+                        const thaiP = row.prices[THAI_COST]
+
+                        return (
+                          <tr key={row.item_code} className="border-b border-gray-100 hover:bg-blue-50/20 group">
+                            <td className="px-3 py-2 font-mono text-gray-800 sticky left-0 bg-white group-hover:bg-blue-50 z-10 border-r border-gray-100 whitespace-nowrap">
+                              {row.item_code}
+                            </td>
+                            <td className="px-3 py-2 text-gray-600 sticky bg-white group-hover:bg-blue-50 z-10 border-r border-gray-200" style={{ left: 160 }}>
+                              {row.description}
+                            </td>
+                            {Array.from({ length: rankCount }, (_, i) => {
+                              const r = ranked[i]
+                              if (!r) return <td key={i} className="px-3 py-2 text-center text-gray-200 border-l border-gray-100">—</td>
+                              const isBest = minDdp !== null && Math.abs(r.ddp_thb - minDdp) < 0.005
+                              return (
+                                <td key={i}
+                                  className="px-3 py-2 border-l border-gray-100 cursor-pointer hover:bg-blue-50/40"
+                                  onClick={() => showHistory(row.item_code, r.supplier)}>
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="text-gray-400 text-[11px] truncate max-w-[70px]" title={r.supplier}>{r.supplier}</span>
+                                    <span className={`font-semibold ${isBest ? 'text-green-600' : 'text-gray-700'}`}>{fmtN(r.ddp_thb)}</span>
+                                  </div>
+                                </td>
+                              )
+                            })}
+                            {hasThai && (
+                              thaiP ? (() => {
+                                const isBest = minDdp !== null && Math.abs(thaiP.fob_price - minDdp) < 0.005
+                                return (
+                                  <td
+                                    className={`px-3 py-2 text-right font-semibold border-l border-gray-100 cursor-pointer hover:underline ${isBest ? 'text-green-600 bg-green-50' : 'text-gray-700'}`}
+                                    onClick={() => showHistory(row.item_code, THAI_COST)}>
+                                    {fmtN(thaiP.fob_price)}
+                                  </td>
+                                )
+                              })() : <td className="px-3 py-2 text-center text-gray-200 border-l border-gray-100">—</td>
+                            )}
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                  )
+                })() : (
                 <table className="text-xs border-collapse" style={{ minWidth: 420 + suppliers.length * 270 }}>
                   <thead>
                     <tr className="bg-gray-800 text-white">
@@ -807,7 +1101,7 @@ export default function ComparePage() {
                     })}
                   </tbody>
                 </table>
-                )
+                ))
               })()}
             </div>
           </>

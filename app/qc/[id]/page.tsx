@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { exportQCReportExcel, type QCItem } from '@/lib/qc-excel'
+import { exportQCReportPDF } from '@/lib/qc-pdf'
 import { isUnlocked, tryUnlock } from '@/lib/auth'
 
 function PasswordGate({ onSuccess, onCancel }: { onSuccess: () => void; onCancel: () => void }) {
@@ -82,6 +83,7 @@ export default function QCDetailPage() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [exporting, setExporting] = useState(false)
+  const [exportingPdf, setExportingPdf] = useState(false)
   const [uploadingClosure, setUploadingClosure] = useState(false)
   const [showPW, setShowPW] = useState(false)
   const [pwCallback, setPwCallback] = useState<(() => void) | null>(null)
@@ -228,6 +230,16 @@ export default function QCDetailPage() {
     setExporting(false)
   }
 
+  async function handleExportPDF() {
+    setExportingPdf(true)
+    try {
+      await exportQCReportPDF({ ...form })
+    } catch (err) {
+      alert('Export PDF ไม่สำเร็จ: ' + (err instanceof Error ? err.message : String(err)))
+    }
+    setExportingPdf(false)
+  }
+
   async function deleteReport() {
     if (!confirm(`ลบ Report ${form.report_no} ใช่ไหม? ไม่สามารถกู้คืนได้`)) return
     await supabase.from('qc_reports').delete().eq('id', id)
@@ -277,6 +289,10 @@ export default function QCDetailPage() {
             <button onClick={handleExport} disabled={exporting}
               className="bg-green-600 hover:bg-green-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors disabled:opacity-50">
               {exporting ? 'กำลัง Export...' : '↓ Export Excel'}
+            </button>
+            <button onClick={handleExportPDF} disabled={exportingPdf}
+              className="bg-red-600 hover:bg-red-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors disabled:opacity-50">
+              {exportingPdf ? 'กำลัง Export...' : '↓ Export PDF'}
             </button>
             <button onClick={() => requireUnlock(save)} disabled={saving}
               className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors disabled:opacity-50">
