@@ -278,6 +278,21 @@ function buildBreakdownTable(
   return { columns, rows }
 }
 
+function sortAggItems(items: AggItem[], sortKey: SortKey, sortDir: 'asc' | 'desc'): AggItem[] {
+  const arr = [...items]
+  const dir = sortDir === 'asc' ? 1 : -1
+  arr.sort((a, b) => {
+    switch (sortKey) {
+      case 'code': return a.code.localeCompare(b.code) * dir
+      case 'description': return (a.description || '').localeCompare(b.description || '') * dir
+      case 'qty': return (a.qty - b.qty) * dir
+      case 'eta': return (a.etaStart === b.etaStart ? a.code.localeCompare(b.code) : a.etaStart.localeCompare(b.etaStart)) * dir
+      default: return 0
+    }
+  })
+  return arr
+}
+
 function breakdownColumnHeader(col: BreakdownColumn): string {
   const parts = [
     col.hub !== DEFAULT_HUB ? `Hub ${col.hub}` : null,
@@ -371,20 +386,23 @@ export default function WeeklyInboundPlanPage() {
     [invoices, hubArrival, projectMap, wMonStr, wSunStr, supplierFilter, hubFilter, projectFilter]
   )
 
-  const sortedItems = useMemo(() => {
-    const arr = [...filteredItems]
-    const dir = sortDir === 'asc' ? 1 : -1
-    arr.sort((a, b) => {
-      switch (sortKey) {
-        case 'code': return a.code.localeCompare(b.code) * dir
-        case 'description': return (a.description || '').localeCompare(b.description || '') * dir
-        case 'qty': return (a.qty - b.qty) * dir
-        case 'eta': return (a.etaStart === b.etaStart ? a.code.localeCompare(b.code) : a.etaStart.localeCompare(b.etaStart)) * dir
-        default: return 0
-      }
-    })
-    return arr
-  }, [filteredItems, sortKey, sortDir])
+  const sortedItems = useMemo(() => sortAggItems(filteredItems, sortKey, sortDir), [filteredItems, sortKey, sortDir])
+
+  // ── Custom export date range — defaults to the on-screen week, but can be
+  // widened/narrowed to any range (e.g. "1–7 ต.ค.") independently of it.
+  // Resets to match whenever the on-screen week changes via prev/next/today.
+  const [exportStart, setExportStart] = useState(wMonStr)
+  const [exportEnd, setExportEnd] = useState(wSunStr)
+  const [prevWeekKey, setPrevWeekKey] = useState(`${wMonStr}|${wSunStr}`)
+  if (`${wMonStr}|${wSunStr}` !== prevWeekKey) {
+    setPrevWeekKey(`${wMonStr}|${wSunStr}`)
+    setExportStart(wMonStr)
+    setExportEnd(wSunStr)
+  }
+  // Swapped defensively so picking the end date before the start date (or
+  // vice versa) still exports the intended range instead of an empty one.
+  const effExportStart = exportStart <= exportEnd ? exportStart : exportEnd
+  const effExportEnd = exportStart <= exportEnd ? exportEnd : exportStart
 
   const totalPages = Math.max(1, Math.ceil(sortedItems.length / PAGE_SIZE))
   const pagedItems = sortedItems.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
@@ -418,9 +436,17 @@ export default function WeeklyInboundPlanPage() {
   }, [weekMon, filteredItems])
   const maxEtaCount = Math.max(1, ...etaByDate.map(e => e.count))
 
+  // Export always rebuilds from the raw invoices/hub data over the chosen
+  // [effExportStart, effExportEnd] range — independent from the on-screen
+  // week — so a custom range like "1–7 ต.ค." doesn't require navigating the
+  // week selector at all.
   function exportExcel() {
+    const items = sortAggItems(
+      buildAggItems(invoices, hubArrival, projectMap, effExportStart, effExportEnd, supplierFilter, hubFilter, projectFilter),
+      sortKey, sortDir,
+    )
     const header = ['Item Code', 'Description', 'จำนวนรวม (pcs)', 'กำหนดเข้าคลัง', 'Supplier', 'Hub', 'Project']
-    const body = sortedItems.map(i => [
+    const body = items.map(i => [
       i.code, i.description || '-', i.qty, formatEtaRange(i.etaStart, i.etaEnd),
       i.suppliers.join(', '), i.hubs.join(', '), projectMap.get(i.code) || '-',
     ])
@@ -428,18 +454,18 @@ export default function WeeklyInboundPlanPage() {
     ws['!cols'] = [{ wch: 20 }, { wch: 36 }, { wch: 14 }, { wch: 16 }, { wch: 24 }, { wch: 20 }, { wch: 16 }]
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Weekly Inbound Plan')
-    XLSX.writeFile(wb, `Weekly_Inbound_Plan_W${getWeekNum(weekMon)}_${ds(weekMon)}.xlsx`)
+    XLSX.writeFile(wb, `Weekly_Inbound_Plan_${effExportStart}_to_${effExportEnd}.xlsx`)
   }
 
   function exportBreakdownExcel() {
-    const { columns, rows } = breakdownTable
+    const { columns, rows } = buildBreakdownTable(invoices, hubArrival, projectMap, effExportStart, effExportEnd, supplierFilter, hubFilter, projectFilter)
     const header = ['Item Code', 'Description', ...columns.map(breakdownColumnHeader)]
     const body = rows.map(r => [r.code, r.description || '-', ...columns.map(c => r.values[c.key] || 0)])
     const ws = XLSX.utils.aoa_to_sheet([header, ...body])
     ws['!cols'] = [{ wch: 20 }, { wch: 36 }, ...columns.map(() => ({ wch: 18 }))]
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Breakdown')
-    XLSX.writeFile(wb, `Weekly_Inbound_Breakdown_W${getWeekNum(weekMon)}_${ds(weekMon)}.xlsx`)
+    XLSX.writeFile(wb, `Weekly_Inbound_Breakdown_${effExportStart}_to_${effExportEnd}.xlsx`)
   }
 
   return (
@@ -492,11 +518,22 @@ export default function WeeklyInboundPlanPage() {
             </div>
             <button
               onClick={view === 'breakdown' ? exportBreakdownExcel : exportExcel}
-              disabled={view === 'breakdown' ? breakdownTable.rows.length === 0 : sortedItems.length === 0}
+              disabled={loading}
               className="flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-40 transition-colors">
               ↓ Export
             </button>
           </div>
+        </div>
+
+        {/* Export date range — independent of the week selector above, so a
+            range like "1–7 ต.ค." can be exported without navigating weeks */}
+        <div className="flex items-center gap-2 flex-wrap mb-6 -mt-3 text-sm">
+          <span className="text-xs text-gray-400">ช่วงวันที่สำหรับ Export:</span>
+          <input type="date" value={exportStart} onChange={e => setExportStart(e.target.value)}
+            className="border border-gray-300 rounded-lg px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white" />
+          <span className="text-xs text-gray-400">ถึง</span>
+          <input type="date" value={exportEnd} onChange={e => setExportEnd(e.target.value)}
+            className="border border-gray-300 rounded-lg px-2 py-1 text-xs outline-none focus:border-blue-400 bg-white" />
         </div>
 
         {loading ? (
