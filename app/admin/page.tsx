@@ -35,6 +35,8 @@ export default function AdminPage() {
   const [rows, setRows] = useState<PermRow[]>([])
   const [defaultPages, setDefaultPages] = useState<PageKey[]>(['po-matching'])
   const [hubRequests, setHubRequests] = useState<{ id: string; invoice_id: string; invoice_no: string; container_name: string; hub: string; requested_by: string; created_at: string }[]>([])
+  const [lineFailures, setLineFailures] = useState<{ id: string; context: string; invoice_id: string | null; invoice_no: string | null; container_name: string | null; status_code: number | null; response_body: string | null; error_message: string | null; created_at: string }[]>([])
+  const [dismissingFailure, setDismissingFailure] = useState<string | null>(null)
   const [confirmedHubRequests, setConfirmedHubRequests] = useState<{ id: string; invoice_id: string; invoice_no: string; container_name: string; hub: string; confirmed_by: string | null; hub_arrival_date: string | null }[]>([])
   const [rejecting, setRejecting] = useState<string | null>(null) // container_name being rejected
   const [confirming, setConfirming] = useState<string | null>(null) // container_name being confirmed
@@ -66,7 +68,20 @@ export default function AdminPage() {
     setHubRequests((hubs ?? []) as typeof hubRequests)
     const { data: confirmedHubs } = await supabase.from('container_hub_requests').select('id, invoice_id, invoice_no, container_name, hub, confirmed_by, hub_arrival_date').eq('status', 'confirmed').order('hub_arrival_date', { ascending: true })
     setConfirmedHubRequests((confirmedHubs ?? []) as typeof confirmedHubRequests)
+    const { data: failures } = await supabase
+      .from('line_notification_failures')
+      .select('id, context, invoice_id, invoice_no, container_name, status_code, response_body, error_message, created_at')
+      .eq('resolved', false)
+      .order('created_at', { ascending: false })
+    setLineFailures((failures ?? []) as typeof lineFailures)
     setLoading(false)
+  }
+
+  async function dismissLineFailure(id: string) {
+    setDismissingFailure(id)
+    await supabase.from('line_notification_failures').update({ resolved: true }).eq('id', id)
+    setLineFailures(prev => prev.filter(f => f.id !== id))
+    setDismissingFailure(null)
   }
 
   async function saveHubDate(r: typeof confirmedHubRequests[0]) {
@@ -212,6 +227,37 @@ export default function AdminPage() {
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-gray-900">Admin — จัดการสิทธิ์ผู้ใช้</h1>
         </div>
+
+        {/* LINE notification failures — only rendered when something's actually
+            wrong, so it adds zero clutter the rest of the time. */}
+        {lineFailures.length > 0 && (
+          <div className="bg-white border border-red-200 rounded-xl p-5 mb-8 shadow-sm">
+            <h2 className="text-base font-bold text-gray-900 mb-1">🔔 แจ้งเตือน LINE ส่งไม่สำเร็จ ({lineFailures.length})</h2>
+            <p className="text-xs text-gray-500 mb-3">อาจเกิดจากโควตาข้อความ LINE เต็มในเดือนนี้ หรือ token มีปัญหา — เช็คโควตาได้ที่ LINE Official Account Manager (manager.line.biz)</p>
+            <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+              {lineFailures.map(f => (
+                <div key={f.id} className="bg-red-50 rounded-lg border border-red-100 px-4 py-3 flex items-center justify-between gap-4 flex-wrap">
+                  <div className="text-sm">
+                    <span className="font-mono text-xs text-gray-500">{new Date(f.created_at).toLocaleString('th-TH')}</span>
+                    <span className="text-gray-400 mx-2">·</span>
+                    <span className="font-semibold text-gray-800">{f.context}</span>
+                    {f.container_name && <><span className="text-gray-400 mx-2">·</span><span className="font-mono text-gray-700">{f.container_name}</span></>}
+                    {f.invoice_no && <><span className="text-gray-400 mx-2">·</span><span className="text-gray-600">{f.invoice_no}</span></>}
+                    <div className="text-xs text-red-600 mt-1">
+                      {f.status_code ? `LINE ตอบกลับ ${f.status_code}: ${f.response_body?.slice(0, 200)}` : f.error_message}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => dismissLineFailure(f.id)}
+                    disabled={dismissingFailure === f.id}
+                    className="px-3 py-1 text-xs border border-gray-200 rounded-lg text-gray-600 hover:bg-white bg-white disabled:opacity-50">
+                    {dismissingFailure === f.id ? '...' : 'ปิดการแจ้งเตือน'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Hub Management — pending hub-change requests + already-confirmed
             ones (with an editable ETA). Kept as one titled card with each

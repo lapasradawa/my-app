@@ -15,6 +15,34 @@ function getSupabase() {
 const HUBS = ['มัยลาภ', 'ขอนแก่น', 'พิษณุโลก', 'สุราษฎร์ธานี'] as const
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://import-project-zeta.vercel.app'
 
+// Sends a LINE push and — since fetch() only rejects on network failure, never
+// on a non-2xx response — records both response errors and thrown ones to
+// line_notification_failures so a bad token or an exhausted monthly quota
+// shows up in the admin UI instead of failing completely silently.
+async function sendLineNotification(
+  supabase: ReturnType<typeof getSupabase>,
+  lineToken: string,
+  lineGroupId: string,
+  text: string,
+  ctx: { context: string; invoice_id: string; invoice_no?: string | null; container_name: string },
+) {
+  try {
+    const res = await fetch('https://api.line.me/v2/bot/message/push', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${lineToken}` },
+      body: JSON.stringify({ to: lineGroupId, messages: [{ type: 'text', text }] }),
+    })
+    if (!res.ok) {
+      const responseBody = await res.text().catch(() => '')
+      console.error('LINE notification rejected', res.status, responseBody)
+      await supabase.from('line_notification_failures').insert({ ...ctx, status_code: res.status, response_body: responseBody.slice(0, 2000) })
+    }
+  } catch (e) {
+    console.error('LINE notification failed', e)
+    await supabase.from('line_notification_failures').insert({ ...ctx, error_message: e instanceof Error ? e.message : String(e) })
+  }
+}
+
 export async function POST(req: NextRequest) {
   let supabase: ReturnType<typeof getSupabase>
   try {
@@ -64,21 +92,9 @@ export async function POST(req: NextRequest) {
       '',
       `📄 ดู Invoice: ${invoiceLink}`,
     ].join('\n')
-    try {
-      await fetch('https://api.line.me/v2/bot/message/push', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${lineToken}`,
-        },
-        body: JSON.stringify({
-          to: lineGroupId,
-          messages: [{ type: 'text', text: message }],
-        }),
-      })
-    } catch (e) {
-      console.error('LINE notification failed', e)
-    }
+    await sendLineNotification(supabase, lineToken, lineGroupId, message, {
+      context: 'hub_request_created', invoice_id, invoice_no, container_name,
+    })
   }
 
   return NextResponse.json({ ok: true })
@@ -122,16 +138,11 @@ export async function PATCH(req: NextRequest) {
     const lineToken = process.env.LINE_CHANNEL_ACCESS_TOKEN
     const lineGroupId = process.env.LINE_GROUP_ID
     if (lineToken && lineGroupId) {
-      try {
-        await fetch('https://api.line.me/v2/bot/message/push', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${lineToken}` },
-          body: JSON.stringify({
-            to: lineGroupId,
-            messages: [{ type: 'text', text: `❌ ปฏิเสธคำขอเปลี่ยน Hub\n\nตู้: ${container_name}\nInvoice: ${invoice_no}\nHub ที่ขอ: ${hub}\nขอโดย: ${requested_by}` }],
-          }),
-        })
-      } catch {}
+      await sendLineNotification(
+        supabase, lineToken, lineGroupId,
+        `❌ ปฏิเสธคำขอเปลี่ยน Hub\n\nตู้: ${container_name}\nInvoice: ${invoice_no}\nHub ที่ขอ: ${hub}\nขอโดย: ${requested_by}`,
+        { context: 'hub_request_rejected', invoice_id, invoice_no, container_name },
+      )
     }
 
     return NextResponse.json({ ok: true })

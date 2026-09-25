@@ -16,11 +16,17 @@ export default function NavBar({ onUnlock, onLock }: Props) {
   const pathname = usePathname()
   const { canAccess, isAdmin } = usePermissions()
   const [pendingCount, setPendingCount] = useState(0)
+  const [failureCount, setFailureCount] = useState(0)
 
   useEffect(() => {
     if (!isAdmin) return
     supabase.from('container_hub_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending')
       .then(({ count }) => setPendingCount(count ?? 0))
+    // Reuses the same "Admin" badge as the pending hub-request count above,
+    // rather than adding a second badge, so a broken LINE notification
+    // doesn't add more nav clutter — it just adds to the one number.
+    supabase.from('line_notification_failures').select('id', { count: 'exact', head: true }).eq('resolved', false)
+      .then(({ count }) => setFailureCount(count ?? 0))
   }, [isAdmin, pathname])
 
   const cls = (href: string) =>
@@ -129,9 +135,9 @@ export default function NavBar({ onUnlock, onLock }: Props) {
       {isAdmin && (
         <Link href="/admin" className={`relative ${cls('/admin')}`}>
           Admin
-          {pendingCount > 0 && (
+          {(pendingCount + failureCount) > 0 && (
             <span className="absolute -top-1.5 -right-3 bg-red-500 text-white text-[9px] font-bold rounded-full min-w-[16px] h-4 flex items-center justify-center px-1 leading-none">
-              {pendingCount}
+              {pendingCount + failureCount}
             </span>
           )}
         </Link>
