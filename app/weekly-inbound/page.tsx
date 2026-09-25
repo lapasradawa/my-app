@@ -171,6 +171,122 @@ function buildAggItems(
   return Array.from(map.values())
 }
 
+// One column per (invoice, hub-destination) that's actually arriving within
+// the selected week: one per confirmed explicit-hub container (e.g. "Hub
+// ขอนแก่น"), plus one per invoice for the มัยลาภ "leftover" quantity — total
+// invoice qty minus whatever was routed to an explicit hub — regardless of
+// which day that leftover portion's own containers individually arrive.
+interface BreakdownColumn {
+  key: string
+  invoiceNo: string
+  hub: string
+  containerName?: string
+  dateStart: string
+  dateEnd: string
+}
+
+interface BreakdownRow {
+  code: string
+  description: string
+  values: Record<string, number> // column key -> qty
+}
+
+interface BreakdownTable {
+  columns: BreakdownColumn[]
+  rows: BreakdownRow[]
+}
+
+function buildBreakdownTable(
+  invoices: InvoiceRow[],
+  hubArrival: Map<string, ContainerHubInfo>,
+  projectMap: Map<string, string>,
+  wMonStr: string,
+  wSunStr: string,
+  supplierFilter: string,
+  hubFilter: string,
+  projectFilter: string,
+): BreakdownTable {
+  const columns: BreakdownColumn[] = []
+  const columnKeys = new Set<string>()
+  const rowMap = new Map<string, BreakdownRow>()
+
+  function addQty(code: string, description: string, key: string, qty: number) {
+    let r = rowMap.get(code)
+    if (!r) { r = { code, description, values: {} }; rowMap.set(code, r) }
+    if (!r.description && description) r.description = description
+    r.values[key] = (r.values[key] ?? 0) + qty
+  }
+
+  for (const inv of invoices) {
+    if (supplierFilter && inv.supplier !== supplierFilter) continue
+    const containerNames = inv.container_names ?? []
+    if (containerNames.length === 0 || !inv.rows) continue
+
+    // Containers explicitly confirmed to a non-default hub (any date) — used
+    // both to build this invoice's own hub columns and to compute the
+    // มัยลาภ leftover below.
+    const explicitHubOf = new Map<string, ContainerHubInfo>()
+    for (const cName of containerNames) {
+      const hubInfo = hubArrival.get(`${inv.id}::${cName}`)
+      if (hubInfo && hubInfo.hub !== DEFAULT_HUB) explicitHubOf.set(cName, hubInfo)
+    }
+
+    // 1) One column per explicit-hub container arriving this week
+    for (const [cName, hubInfo] of explicitHubOf) {
+      if (hubFilter && hubInfo.hub !== hubFilter) continue
+      if (hubInfo.date < wMonStr || hubInfo.date > wSunStr) continue
+      const key = `${inv.id}::${cName}`
+      let any = false
+      for (const row of inv.rows) {
+        if (projectFilter && (projectMap.get(row.code) ?? '') !== projectFilter) continue
+        const qty = row.containers?.[cName] || 0
+        if (qty <= 0) continue
+        any = true
+        addQty(row.code, row.description || '', key, qty)
+      }
+      if (any && !columnKeys.has(key)) {
+        columnKeys.add(key)
+        columns.push({ key, invoiceNo: inv.invoice_no, hub: hubInfo.hub, containerName: cName, dateStart: hubInfo.date, dateEnd: hubInfo.date })
+      }
+    }
+
+    // 2) One column per invoice for the มัยลาภ leftover (total qty minus
+    // whatever was routed to an explicit hub), keyed off the invoice's own ETA
+    if (hubFilter && hubFilter !== DEFAULT_HUB) continue
+    if (!inv.estimated_arrival) continue
+    const etaStart = inv.estimated_arrival
+    const etaEnd = inv.estimated_arrival_end || inv.estimated_arrival
+    if (etaEnd < wMonStr || etaStart > wSunStr) continue
+    const key = `${inv.id}::${DEFAULT_HUB}`
+    let any = false
+    for (const row of inv.rows) {
+      if (projectFilter && (projectMap.get(row.code) ?? '') !== projectFilter) continue
+      const explicitQty = [...explicitHubOf.keys()].reduce((sum, cName) => sum + (row.containers?.[cName] || 0), 0)
+      const leftover = row.qty - explicitQty
+      if (leftover <= 0) continue
+      any = true
+      addQty(row.code, row.description || '', key, leftover)
+    }
+    if (any && !columnKeys.has(key)) {
+      columnKeys.add(key)
+      columns.push({ key, invoiceNo: inv.invoice_no, hub: DEFAULT_HUB, dateStart: etaStart, dateEnd: etaEnd })
+    }
+  }
+
+  columns.sort((a, b) => a.dateStart === b.dateStart ? a.invoiceNo.localeCompare(b.invoiceNo) : a.dateStart.localeCompare(b.dateStart))
+  const rows = Array.from(rowMap.values()).sort((a, b) => a.code.localeCompare(b.code))
+  return { columns, rows }
+}
+
+function breakdownColumnHeader(col: BreakdownColumn): string {
+  const parts = [
+    col.hub !== DEFAULT_HUB ? `Hub ${col.hub}` : null,
+    col.invoiceNo + (col.containerName ? ` / ตู้${col.containerName}` : ''),
+    formatEtaRange(col.dateStart, col.dateEnd),
+  ]
+  return parts.filter(Boolean).join('\n')
+}
+
 export default function WeeklyInboundPlanPage() {
   const [invoices, setInvoices] = useState<InvoiceRow[]>([])
   const [hubArrival, setHubArrival] = useState<Map<string, ContainerHubInfo>>(new Map()) // `${invoice_id}::${container_name}` -> {hub, date}
@@ -185,6 +301,7 @@ export default function WeeklyInboundPlanPage() {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
   const [page, setPage] = useState(1)
   const [detailItem, setDetailItem] = useState<AggItem | null>(null)
+  const [view, setView] = useState<'summary' | 'breakdown'>('summary')
 
   const weekSun = useMemo(() => addDays(weekMon, 6), [weekMon])
 
@@ -249,6 +366,11 @@ export default function WeeklyInboundPlanPage() {
     [invoices, hubArrival, projectMap, wMonStr, wSunStr, supplierFilter, hubFilter, projectFilter]
   )
 
+  const breakdownTable = useMemo(
+    () => buildBreakdownTable(invoices, hubArrival, projectMap, wMonStr, wSunStr, supplierFilter, hubFilter, projectFilter),
+    [invoices, hubArrival, projectMap, wMonStr, wSunStr, supplierFilter, hubFilter, projectFilter]
+  )
+
   const sortedItems = useMemo(() => {
     const arr = [...filteredItems]
     const dir = sortDir === 'asc' ? 1 : -1
@@ -309,6 +431,17 @@ export default function WeeklyInboundPlanPage() {
     XLSX.writeFile(wb, `Weekly_Inbound_Plan_W${getWeekNum(weekMon)}_${ds(weekMon)}.xlsx`)
   }
 
+  function exportBreakdownExcel() {
+    const { columns, rows } = breakdownTable
+    const header = ['Item Code', 'Description', ...columns.map(breakdownColumnHeader)]
+    const body = rows.map(r => [r.code, r.description || '-', ...columns.map(c => r.values[c.key] || 0)])
+    const ws = XLSX.utils.aoa_to_sheet([header, ...body])
+    ws['!cols'] = [{ wch: 20 }, { wch: 36 }, ...columns.map(() => ({ wch: 18 }))]
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Breakdown')
+    XLSX.writeFile(wb, `Weekly_Inbound_Breakdown_W${getWeekNum(weekMon)}_${ds(weekMon)}.xlsx`)
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <NavBar />
@@ -347,7 +480,19 @@ export default function WeeklyInboundPlanPage() {
               <option value="">All Hubs</option>
               {ALL_HUBS.map(h => <option key={h} value={h}>{h}</option>)}
             </select>
-            <button onClick={exportExcel} disabled={sortedItems.length === 0}
+            <div className="flex items-center bg-gray-100 rounded-lg p-0.5">
+              <button onClick={() => setView('summary')}
+                className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${view === 'summary' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+                สรุปรวม
+              </button>
+              <button onClick={() => setView('breakdown')}
+                className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${view === 'breakdown' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+                แยกตาม Invoice/Hub
+              </button>
+            </div>
+            <button
+              onClick={view === 'breakdown' ? exportBreakdownExcel : exportExcel}
+              disabled={view === 'breakdown' ? breakdownTable.rows.length === 0 : sortedItems.length === 0}
               className="flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-40 transition-colors">
               ↓ Export
             </button>
@@ -356,6 +501,50 @@ export default function WeeklyInboundPlanPage() {
 
         {loading ? (
           <p className="text-sm text-gray-400">กำลังโหลด...</p>
+        ) : view === 'breakdown' ? (
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            {breakdownTable.rows.length === 0 ? (
+              <div className="text-center py-16 text-gray-400">
+                <p className="text-4xl mb-3">📭</p>
+                <p className="text-sm">ไม่มีสินค้าเข้าคลังในสัปดาห์นี้</p>
+              </div>
+            ) : (
+              <div className="overflow-auto max-h-[75vh]">
+                <table className="text-sm border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50 text-gray-500 text-xs border-b border-gray-200">
+                      <th className="sticky left-0 bg-gray-50 px-4 py-2 text-left align-bottom z-10 whitespace-nowrap">Item Code</th>
+                      <th className="sticky left-[104px] bg-gray-50 px-4 py-2 text-left align-bottom z-10 whitespace-nowrap">Description</th>
+                      {breakdownTable.columns.map(col => (
+                        <th key={col.key} className="px-3 py-2 text-right align-bottom whitespace-nowrap">
+                          <div className="flex flex-col items-end gap-0.5">
+                            {col.hub !== DEFAULT_HUB && (
+                              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: hubColor(col.hub).bg, color: hubColor(col.hub).text }}>{col.hub}</span>
+                            )}
+                            <span className="font-mono text-[11px] text-gray-700">{col.invoiceNo}{col.containerName ? ` / ${col.containerName}` : ''}</span>
+                            <span className="text-[10px] text-gray-400">{formatEtaRange(col.dateStart, col.dateEnd)}</span>
+                          </div>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {breakdownTable.rows.map(row => (
+                      <tr key={row.code} className="border-b border-gray-100 hover:bg-gray-50">
+                        <td className="sticky left-0 bg-white px-4 py-2 font-mono text-xs font-semibold text-gray-800 whitespace-nowrap">{row.code}</td>
+                        <td className="sticky left-[104px] bg-white px-4 py-2 text-gray-600 whitespace-nowrap">{row.description || '-'}</td>
+                        {breakdownTable.columns.map(col => (
+                          <td key={col.key} className="px-3 py-2 text-right text-gray-700 whitespace-nowrap">
+                            {row.values[col.key] ? row.values[col.key].toLocaleString() : ''}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         ) : (
           <>
             {/* Summary cards */}
