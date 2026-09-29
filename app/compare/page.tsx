@@ -45,6 +45,31 @@ interface TableRow {
 
 const THAI_COST = 'ทุนไทย'
 
+// Excel ROUNDUP-style: always rounds away from zero, never down — e.g. 12.341
+// becomes 12.35, not 12.34 — so every price/derived value in this page
+// actually HAS only 2 decimal places (not just displayed with 2). A tiny
+// epsilon compensates for binary floating-point noise (e.g. 12.30 * 100 can
+// come out as 1229.999999999998) so an already-exact value isn't bumped up.
+function roundUp2(value: number): number {
+  if (value == null || !isFinite(value)) return value
+  const sign = value < 0 ? -1 : 1
+  // "+ 0" normalizes a -0 result (e.g. from an input of exactly 0) back to
+  // +0, so it displays as "0.00" instead of a confusing "-0.00".
+  return (sign * Math.ceil(Math.abs(value) * 100 - 1e-9) / 100) + 0
+}
+
+// Same rule applied to a ratio (0.1234) backing an "X.XX%" cell, so once
+// expressed as a percentage it also only has 2 real decimal places.
+function roundUpPercent(ratio: number): number {
+  return roundUp2(ratio * 100) / 100
+}
+
+// True when a raw parsed value carries more than 2 decimal places (beyond
+// floating-point noise) — used to warn before an upload silently rounds it.
+function hasExtraDecimals(value: number): boolean {
+  return Math.abs(Math.round(value * 100) - value * 100) > 1e-6
+}
+
 export default function ComparePage() {
   const [settings, setSettings] = useState<Settings>({ cny_rate: 4.85, usd_rate: 33.00, ddp_multiplier: 1.11 })
   const [editSettings, setEditSettings] = useState(false)
@@ -173,7 +198,10 @@ export default function ComparePage() {
         })
       }
       itemMap.get(item.item_code)!.prices[item.supplier] = {
-        fob_price: item.fob_price, currency: item.currency, uploaded_at: item.uploaded_at,
+        // Defensively rounded on read too, so rows stored before this fix
+        // (or ever written with extra precision) still display/export as
+        // exactly 2 decimals without needing a data migration.
+        fob_price: roundUp2(item.fob_price), currency: item.currency, uploaded_at: item.uploaded_at,
       }
       if (!dates[item.supplier] || item.uploaded_at > dates[item.supplier]) dates[item.supplier] = item.uploaded_at
     }
@@ -333,6 +361,18 @@ export default function ComparePage() {
         parsedItems = parsePO(buf).items
       }
       if (parsedItems.length === 0) { alert('ไม่พบข้อมูล item ในไฟล์'); return }
+
+      // ราคาทุกตัวในระบบต้องมีทศนิยมจริงแค่ 2 ตำแหน่ง (ปัดขึ้น ไม่ใช่แค่ปัดตอนแสดงผล) —
+      // เตือนก่อนบันทึกเพราะเป็นการเปลี่ยนค่าที่อัปโหลดจริง แต่ยังกดยืนยันเพื่ออัปโหลดต่อได้
+      const impreciseCount = parsedItems.filter(i => hasExtraDecimals(i.fob_price)).length
+      if (impreciseCount > 0) {
+        const proceed = confirm(
+          `พบ ${impreciseCount} รายการที่ราคามีทศนิยมมากกว่า 2 ตำแหน่ง\nระบบจะปัดขึ้น (round up) ให้เหลือ 2 ตำแหน่งก่อนบันทึก\n\nต้องการอัปโหลดต่อหรือไม่?`
+        )
+        if (!proceed) return
+      }
+      parsedItems = parsedItems.map(i => ({ ...i, fob_price: roundUp2(i.fob_price) }))
+
       if (replaceMode) {
         const { error } = await supabase.from('po_items').delete().eq('project', proj).eq('supplier', supp)
         if (error) { alert('ลบข้อมูลเดิมไม่สำเร็จ: ' + error.message); return }
@@ -375,9 +415,16 @@ export default function ComparePage() {
     return currency === 'USD' ? settings.usd_rate : settings.cny_rate
   }
 
+  // Rounded up at each conversion step (not just at the final display), so
+  // the FOB-THB and DDP-THB columns are each independently exact to 2
+  // decimals rather than only the end-to-end product being close to it.
+  function fobToThb(p: LatestPrice): number {
+    return roundUp2(p.fob_price * getRate(p.currency))
+  }
+
   function toDdpThb(s: string, p: LatestPrice): number {
     if (s === THAI_COST) return p.fob_price
-    return p.fob_price * getRate(p.currency) * settings.ddp_multiplier
+    return roundUp2(fobToThb(p) * settings.ddp_multiplier)
   }
 
   // Per-row ranking of every non-ทุนไทย supplier present, cheapest DDP first —
@@ -431,8 +478,7 @@ export default function ComparePage() {
         const p = row.prices[s]
         if (s === THAI_COST) return [p ? p.fob_price : ''] as (string | number)[]
         if (!p) return ['', '', ''] as (string | number)[]
-        const fobThb = p.fob_price * getRate(p.currency)
-        return [p.fob_price, fobThb, fobThb * settings.ddp_multiplier] as (string | number)[]
+        return [p.fob_price, fobToThb(p), toDdpThb(s, p)] as (string | number)[]
       })
     ])
     return [header, ...data]
@@ -515,12 +561,12 @@ export default function ComparePage() {
       const rankCells = Array.from({ length: rankCount }, (_, i) => {
         const r = ranked[i]
         if (!r) return ['', '', '']
-        const ddpThb = Math.round(r.ddp_thb * 100) / 100
+        const ddpThb = r.ddp_thb // already rounded up to 2 decimals by toDdpThb
         if (!thaiPrice) return [ddpThb, '', '']
-        const savingThb = Math.round((thaiPrice.fob_price - r.ddp_thb) * 100) / 100
+        const savingThb = roundUp2(thaiPrice.fob_price - r.ddp_thb)
         // Stored as a ratio (0.1234), not 12.34 — the cell's numFmt below
         // renders it as "12.34%" the way Excel expects native percentages.
-        const savingRatio = thaiPrice.fob_price > 0 ? savingThb / thaiPrice.fob_price : ''
+        const savingRatio = thaiPrice.fob_price > 0 ? roundUpPercent(savingThb / thaiPrice.fob_price) : ''
         return [ddpThb, savingThb, savingRatio]
       }).flat() as (string | number)[]
       const rowData = [
@@ -1170,9 +1216,8 @@ export default function ComparePage() {
                                 <td className="px-3 py-2 text-center text-gray-200 border-r border-gray-100">—</td>
                               </Fragment>
                             )
-                            const rate = getRate(p.currency)
-                            const fobThb = p.fob_price * rate
-                            const ddpThb = fobThb * settings.ddp_multiplier
+                            const fobThb = fobToThb(p)
+                            const ddpThb = toDdpThb(s, p)
                             const isBest = minDdp !== null && Math.abs(ddpThb - minDdp) < 0.005
                             return (
                               <Fragment key={s}>
@@ -1284,9 +1329,9 @@ export default function ComparePage() {
                       <td className="py-2">{fmtDate(e.uploaded_at)}</td>
                       <td className="py-2 text-xs">{e.file_name || e.document_no || '—'}</td>
                       {history.supplier === THAI_COST
-                        ? <td className="py-2 text-right font-semibold text-teal-700">{fmtN(e.fob_price)} THB</td>
-                        : <><td className="py-2 text-right">{fmtN(e.fob_price)} {e.currency}</td>
-                           <td className="py-2 text-right font-semibold">{fmtN(e.fob_price * getRate(e.currency) * settings.ddp_multiplier)}</td></>
+                        ? <td className="py-2 text-right font-semibold text-teal-700">{fmtN(roundUp2(e.fob_price))} THB</td>
+                        : <><td className="py-2 text-right">{fmtN(roundUp2(e.fob_price))} {e.currency}</td>
+                           <td className="py-2 text-right font-semibold">{fmtN(roundUp2(roundUp2(e.fob_price * getRate(e.currency)) * settings.ddp_multiplier))}</td></>
                       }
                     </tr>
                   ))}
