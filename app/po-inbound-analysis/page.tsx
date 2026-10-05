@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import Link from 'next/link'
+import * as XLSX from 'xlsx'
 import { supabase } from '@/lib/supabase'
 import NavBar from '@/components/NavBar'
 
@@ -210,6 +211,18 @@ export default function POInboundAnalysisPage() {
   const monthly = useMemo(() => months.map(k => allMonthly.get(k)!), [months, allMonthly])
   const chartMonthly = useMemo(() => chartMonths.map(k => allMonthly.get(k)!), [chartMonths, allMonthly])
 
+  // One row per month (the full Period-picker pool, not just the selected
+  // months) — a monthly trend table, independent of the KPI/table filter.
+  function exportExcel() {
+    const header = ['Month', 'ยอดเปิด PO (THB)', 'ยอด Invoice เข้าคลังเดือนนั้น (THB)', 'ยอดจ่ายจริงเดือนนั้น (THB)']
+    const body = monthly.map(m => [mLabel(m.month), Math.round(m.poTotal), Math.round(m.inboundTotal), Math.round(m.paymentTotal)])
+    const ws = XLSX.utils.aoa_to_sheet([header, ...body])
+    ws['!cols'] = [{ wch: 14 }, { wch: 20 }, { wch: 28 }, { wch: 22 }]
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'PO Inbound Analysis')
+    XLSX.writeFile(wb, `PO_Inbound_Analysis_${new Date().toISOString().slice(0, 10)}.xlsx`)
+  }
+
   // Empty selection (like Invoice Summary) means "all months" — everything
   // below (KPI cards + detail tables) is filtered/summed over this set.
   const inPeriod = useMemo(
@@ -354,6 +367,10 @@ export default function POInboundAnalysisPage() {
                 <Legend color={COLOR_INBOUND} label="Inbound (ประมาณการณ์)" />
                 <Legend color={COLOR_PAYMENT} label="จ่ายจริง" />
                 <span style={{ fontSize: 10, color: '#bbb', marginLeft: 'auto' }}>คลิกเดือนเพื่อเลือก/ยกเลิกช่วงเวลา</span>
+                <button onClick={exportExcel}
+                  style={{ padding: '5px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, background: '#3d8b82', color: '#fff', border: 'none', cursor: 'pointer', flexShrink: 0 }}>
+                  ↓ Export Excel
+                </button>
               </div>
               <GroupedBarChart
                 months={chartMonths}
