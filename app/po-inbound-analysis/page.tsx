@@ -231,9 +231,9 @@ export default function POInboundAnalysisPage() {
             <div style={{ fontSize: 13, color: '#7a9aaa', marginTop: 4 }}>เปรียบเทียบ PO ที่เปิด / สินค้าเข้าคลัง (ประมาณการณ์) / ยอดจ่ายจริง รายเดือน</div>
           </div>
           {[
-            { icon: '📝', value: fmtThb(kpi.po), label: 'PO เปิด (ประมาณการณ์)', bg: COLOR_PO },
-            { icon: '🚢', value: fmtThb(kpi.inbound), label: 'Inbound (ประมาณการณ์)', bg: COLOR_INBOUND },
-            { icon: '💰', value: fmtThb(kpi.payment), label: 'จ่ายจริง', bg: COLOR_PAYMENT },
+            { icon: '📝', value: fmtThb(kpi.po), label: 'PO เปิด', bg: COLOR_PO },
+            { icon: '🚢', value: fmtThb(kpi.inbound), label: 'Inbound', bg: COLOR_INBOUND },
+            { icon: '💰', value: fmtThb(kpi.payment), label: 'Payment', bg: COLOR_PAYMENT },
           ].map(card => (
             <div key={card.label} style={{ background: card.bg, borderRadius: 14, padding: '14px 20px', minWidth: 160, display: 'flex', alignItems: 'center', gap: 12 }}>
               <span style={{ fontSize: 26 }}>{card.icon}</span>
@@ -392,6 +392,7 @@ export default function POInboundAnalysisPage() {
                 title="ยอดจ่ายจริงเดือนนี้"
                 color={COLOR_PAYMENT}
                 total={kpi.payment}
+                totalLabel="Actual THB"
                 emptyLabel="ไม่มีรายการจ่ายเงินในเดือนนี้"
                 headers={['Invoice No.', 'Supplier', 'วันที่จ่าย', 'ยอดจ่ายจริง (THB)']}
               >
@@ -428,10 +429,11 @@ function Legend({ color, label }: { color: string; label: string }) {
   )
 }
 
-function DetailTable({ title, color, total, emptyLabel, headers, children }: {
+function DetailTable({ title, color, total, totalLabel = 'est. THB', emptyLabel, headers, children }: {
   title: string
   color: string
   total: number
+  totalLabel?: string
   emptyLabel: string
   headers: string[]
   children: ReactNode
@@ -442,7 +444,7 @@ function DetailTable({ title, color, total, emptyLabel, headers, children }: {
       <div style={{ padding: '10px 16px', borderBottom: '1px solid #e2d8c8', background: '#f5efe4', display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ width: 8, height: 8, borderRadius: 2, background: color, display: 'inline-block' }} />
         <span style={{ fontSize: 12, fontWeight: 800, color: '#3a2a1a' }}>{title}</span>
-        <span style={{ fontSize: 12, fontWeight: 900, color, marginLeft: 'auto' }}>{fmtThb(total)} (est. THB)</span>
+        <span style={{ fontSize: 12, fontWeight: 900, color, marginLeft: 'auto' }}>{fmtThb(total)} ({totalLabel})</span>
       </div>
       {!hasRows ? (
         <div style={{ textAlign: 'center', padding: '20px 0', color: '#bbb', fontSize: 12 }}>{emptyLabel}</div>
