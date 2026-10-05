@@ -106,7 +106,11 @@ export default function POInboundAnalysisPage() {
   const [cnyRate, setCnyRate] = useState(4.85)
   const [usdRate, setUsdRate] = useState(33.0)
   const [loading, setLoading] = useState(true)
-  const [selectedMonth, setSelectedMonth] = useState<string>(() => generateMonthKeys(1)[0])
+  const [selectedMonths, setSelectedMonths] = useState<Set<string>>(() => {
+    const now = new Date()
+    return new Set([`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`])
+  })
+  const [periodOpen, setPeriodOpen] = useState(false)
 
   useEffect(() => {
     async function load() {
@@ -127,7 +131,10 @@ export default function POInboundAnalysisPage() {
     load()
   }, [])
 
-  const months = useMemo(() => generateMonthKeys(12), [])
+  const months = useMemo(() => generateMonthKeys(18), [])
+  const toggleMonth = (k: string) => {
+    setSelectedMonths(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n })
+  }
 
   const monthly = useMemo(() => months.map(month => {
     const poList = poUploads.filter(u => mKey(u.po_date) === month)
@@ -144,13 +151,30 @@ export default function POInboundAnalysisPage() {
     }
   }), [months, poUploads, invoices, cnyRate, usdRate])
 
-  const selected = monthly.find(m => m.month === selectedMonth) ?? monthly[monthly.length - 1]
+  // Empty selection (like Invoice Summary) means "all months" — everything
+  // below (KPI cards + detail tables) is filtered/summed over this set.
+  const inPeriod = useMemo(
+    () => selectedMonths.size === 0 ? monthly : monthly.filter(m => selectedMonths.has(m.month)),
+    [monthly, selectedMonths]
+  )
+
+  const selectedPoList = useMemo(() => inPeriod.flatMap(m => m.poList), [inPeriod])
+  const selectedInboundList = useMemo(() => inPeriod.flatMap(m => m.inboundList), [inPeriod])
+  const selectedPaymentList = useMemo(() => inPeriod.flatMap(m => m.paymentList), [inPeriod])
 
   const kpi = useMemo(() => ({
-    po: monthly.reduce((s, m) => s + m.poTotal, 0),
-    inbound: monthly.reduce((s, m) => s + m.inboundTotal, 0),
-    payment: monthly.reduce((s, m) => s + m.paymentTotal, 0),
-  }), [monthly])
+    po: inPeriod.reduce((s, m) => s + m.poTotal, 0),
+    inbound: inPeriod.reduce((s, m) => s + m.inboundTotal, 0),
+    payment: inPeriod.reduce((s, m) => s + m.paymentTotal, 0),
+  }), [inPeriod])
+
+  const periodLabel = selectedMonths.size === 0
+    ? 'All months'
+    : selectedMonths.size === months.length
+    ? 'All months'
+    : selectedMonths.size === 1
+    ? mLabel([...selectedMonths][0])
+    : `${selectedMonths.size} months selected`
 
   return (
     <div style={{ background: '#ede5d4', minHeight: '100vh', fontFamily: 'system-ui,-apple-system,sans-serif' }}>
@@ -165,9 +189,9 @@ export default function POInboundAnalysisPage() {
             <div style={{ fontSize: 13, color: '#7a9aaa', marginTop: 4 }}>เปรียบเทียบ PO ที่เปิด / สินค้าเข้าคลัง (ประมาณการณ์) / ยอดจ่ายจริง รายเดือน</div>
           </div>
           {[
-            { icon: '📝', value: fmtThb(kpi.po), label: 'PO เปิด (12 เดือน, ประมาณการณ์)', bg: COLOR_PO },
-            { icon: '🚢', value: fmtThb(kpi.inbound), label: 'Inbound (12 เดือน, ประมาณการณ์)', bg: COLOR_INBOUND },
-            { icon: '💰', value: fmtThb(kpi.payment), label: 'จ่ายจริง (12 เดือน)', bg: COLOR_PAYMENT },
+            { icon: '📝', value: fmtThb(kpi.po), label: 'PO เปิด (ประมาณการณ์)', bg: COLOR_PO },
+            { icon: '🚢', value: fmtThb(kpi.inbound), label: 'Inbound (ประมาณการณ์)', bg: COLOR_INBOUND },
+            { icon: '💰', value: fmtThb(kpi.payment), label: 'จ่ายจริง', bg: COLOR_PAYMENT },
           ].map(card => (
             <div key={card.label} style={{ background: card.bg, borderRadius: 14, padding: '14px 20px', minWidth: 160, display: 'flex', alignItems: 'center', gap: 12 }}>
               <span style={{ fontSize: 26 }}>{card.icon}</span>
@@ -175,6 +199,69 @@ export default function POInboundAnalysisPage() {
                 <div style={{ fontSize: 20, fontWeight: 900, color: '#fff', lineHeight: 1.1 }}>{card.value}</div>
                 <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.75)', fontWeight: 600, marginTop: 2 }}>{card.label}</div>
               </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Period dropdown bar ── */}
+      <div style={{ background: '#18303c', padding: '10px 32px', position: 'relative', zIndex: 30 }}>
+        <div style={{ maxWidth: 1400, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 10, fontWeight: 800, color: '#5a8a9a', textTransform: 'uppercase', letterSpacing: '0.12em' }}>Period:</span>
+
+          <div style={{ position: 'relative' }}>
+            <button onClick={() => setPeriodOpen(o => !o)} style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '6px 14px', borderRadius: 8, cursor: 'pointer',
+              background: '#1e3a4a', border: '1px solid #2e5060',
+              color: '#d4c8a8', fontSize: 11, fontWeight: 700,
+              minWidth: 200,
+            }}>
+              <span style={{ flex: 1, textAlign: 'left' }}>
+                {selectedMonths.size === 0 ? 'Select period…' : periodLabel}
+              </span>
+              <span style={{ fontSize: 9, color: '#5a8a9a' }}>{periodOpen ? '▲' : '▼'}</span>
+            </button>
+
+            {periodOpen && (
+              <div style={{
+                position: 'absolute', top: 'calc(100% + 6px)', left: 0,
+                background: '#1a2e3c', border: '1px solid #2e5060', borderRadius: 12,
+                boxShadow: '0 8px 32px rgba(0,0,0,0.4)', padding: 12, minWidth: 280, zIndex: 100,
+              }}>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 10, paddingBottom: 8, borderBottom: '1px solid #2a4455' }}>
+                  <button onClick={() => setSelectedMonths(new Set(months))}
+                    style={{ flex: 1, padding: '4px 0', borderRadius: 6, border: 'none', background: '#3d8b82', color: '#fff', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>
+                    All
+                  </button>
+                  <button onClick={() => setSelectedMonths(new Set())}
+                    style={{ flex: 1, padding: '4px 0', borderRadius: 6, border: 'none', background: '#2a4455', color: '#8a9aaa', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>
+                    Clear
+                  </button>
+                  <button onClick={() => setPeriodOpen(false)}
+                    style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: '#d4962a', color: '#fff', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>
+                    Done
+                  </button>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 5 }}>
+                  {months.map(k => (
+                    <button key={k} onClick={() => toggleMonth(k)} style={{
+                      padding: '5px 4px', borderRadius: 6, cursor: 'pointer', fontSize: 10, fontWeight: 700,
+                      background: selectedMonths.has(k) ? '#d4962a' : 'transparent',
+                      color: selectedMonths.has(k) ? '#1a2d3a' : '#8a9aaa',
+                      border: selectedMonths.has(k) ? '1px solid #d4962a' : '1px solid #2a4455',
+                      transition: 'all 0.12s',
+                    }}>{mLabel(k)}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {selectedMonths.size > 0 && selectedMonths.size < months.length && [...selectedMonths].sort().map(k => (
+            <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#d4962a', borderRadius: 6, padding: '3px 8px' }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: '#1a2d3a' }}>{mLabel(k)}</span>
+              <button onClick={() => toggleMonth(k)} style={{ background: 'none', border: 'none', color: '#1a2d3a', fontSize: 11, cursor: 'pointer', padding: 0, lineHeight: 1, opacity: 0.7 }}>×</button>
             </div>
           ))}
         </div>
@@ -192,22 +279,22 @@ export default function POInboundAnalysisPage() {
                 <Legend color={COLOR_PO} label="PO เปิด (ประมาณการณ์)" />
                 <Legend color={COLOR_INBOUND} label="Inbound (ประมาณการณ์)" />
                 <Legend color={COLOR_PAYMENT} label="จ่ายจริง" />
-                <span style={{ fontSize: 10, color: '#bbb', marginLeft: 'auto' }}>คลิกเดือนเพื่อดูรายละเอียด</span>
+                <span style={{ fontSize: 10, color: '#bbb', marginLeft: 'auto' }}>คลิกเดือนเพื่อเลือก/ยกเลิกช่วงเวลา</span>
               </div>
               <GroupedBarChart
                 months={months}
                 poValues={monthly.map(m => m.poTotal)}
                 inboundValues={monthly.map(m => m.inboundTotal)}
                 paymentValues={monthly.map(m => m.paymentTotal)}
-                selectedMonth={selectedMonth}
-                onSelect={setSelectedMonth}
+                selectedMonths={selectedMonths}
+                onSelect={toggleMonth}
               />
             </div>
 
             {/* ── Detail panel ── */}
             <div style={{ marginBottom: 12 }}>
-              <span style={{ fontSize: 15, fontWeight: 900, color: '#3a2a1a' }}>{mLabel(selected.month)}</span>
-              <span style={{ fontSize: 11, color: '#9a8a7a', marginLeft: 8 }}>รายละเอียด PO / Inbound / Payment ของเดือนนี้</span>
+              <span style={{ fontSize: 15, fontWeight: 900, color: '#3a2a1a' }}>{periodLabel}</span>
+              <span style={{ fontSize: 11, color: '#9a8a7a', marginLeft: 8 }}>รายละเอียด PO / Inbound / Payment ของช่วงเวลาที่เลือก</span>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16 }}>
@@ -215,11 +302,11 @@ export default function POInboundAnalysisPage() {
               <DetailTable
                 title="PO ที่เปิดเดือนนี้"
                 color={COLOR_PO}
-                total={selected.poTotal}
+                total={kpi.po}
                 emptyLabel="ไม่มี PO ที่เปิดในเดือนนี้"
                 headers={['PO No.', 'Supplier', 'Project', 'วันที่เปิด PO', 'FOB (Original Currency)']}
               >
-                {selected.poList.map(u => (
+                {selectedPoList.map(u => (
                   <tr key={u.id} style={{ borderBottom: '1px solid #f5efe8' }}>
                     <td style={{ padding: '7px 10px', whiteSpace: 'nowrap' }}>
                       <Link href={`/po-builder/${u.id}`} style={{ color: COLOR_PO, textDecoration: 'none', fontWeight: 700 }}>
@@ -240,11 +327,11 @@ export default function POInboundAnalysisPage() {
               <DetailTable
                 title="Invoice ที่ประมาณการณ์เข้าคลังเดือนนี้"
                 color={COLOR_INBOUND}
-                total={selected.inboundTotal}
+                total={kpi.inbound}
                 emptyLabel="ไม่มี Invoice ที่ประมาณการณ์เข้าคลังในเดือนนี้"
                 headers={['Invoice No.', 'Supplier', 'ประมาณการณ์เข้าคลัง', 'FOB (Original Currency)']}
               >
-                {selected.inboundList.map(i => (
+                {selectedInboundList.map(i => (
                   <tr key={i.id} style={{ borderBottom: '1px solid #f5efe8' }}>
                     <td style={{ padding: '7px 10px', whiteSpace: 'nowrap' }}>
                       <Link href={`/dashboard/${i.id}`} style={{ color: COLOR_INBOUND, textDecoration: 'none', fontWeight: 700 }}>{i.invoice_no}</Link>
@@ -262,11 +349,11 @@ export default function POInboundAnalysisPage() {
               <DetailTable
                 title="ยอดจ่ายจริงเดือนนี้"
                 color={COLOR_PAYMENT}
-                total={selected.paymentTotal}
+                total={kpi.payment}
                 emptyLabel="ไม่มีรายการจ่ายเงินในเดือนนี้"
                 headers={['Invoice No.', 'Supplier', 'วันที่จ่าย', 'ยอดจ่ายจริง (THB)']}
               >
-                {selected.paymentList.map(i => {
+                {selectedPaymentList.map(i => {
                   const actual = invoiceActualThb(i)
                   return (
                     <tr key={i.id} style={{ borderBottom: '1px solid #f5efe8' }}>
@@ -335,12 +422,12 @@ function DetailTable({ title, color, total, emptyLabel, headers, children }: {
   )
 }
 
-function GroupedBarChart({ months, poValues, inboundValues, paymentValues, selectedMonth, onSelect }: {
+function GroupedBarChart({ months, poValues, inboundValues, paymentValues, selectedMonths, onSelect }: {
   months: string[]
   poValues: number[]
   inboundValues: number[]
   paymentValues: number[]
-  selectedMonth: string
+  selectedMonths: Set<string>
   onSelect: (month: string) => void
 }) {
   const W = 1100, H = 230, padL = 46, padR = 10, padT = 10, padB = 28
@@ -365,7 +452,7 @@ function GroupedBarChart({ months, poValues, inboundValues, paymentValues, selec
       })}
       {months.map((m, i) => {
         const gx = padL + i * groupW
-        const isSel = m === selectedMonth
+        const isSel = selectedMonths.size > 0 && selectedMonths.size < months.length && selectedMonths.has(m)
         return (
           <g key={m} onClick={() => onSelect(m)} style={{ cursor: 'pointer' }}>
             {isSel && <rect x={gx} y={padT} width={groupW} height={cH} fill="#d4962a" opacity={0.1} />}
