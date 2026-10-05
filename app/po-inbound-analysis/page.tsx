@@ -59,6 +59,9 @@ function fmt(n: number, dec = 2) {
 function fmtThb(n: number) {
   return `฿${Math.round(n).toLocaleString()}`
 }
+function fmtMillions(n: number) {
+  return `${(n / 1e6).toFixed(2)} M`
+}
 function fmtCompact(n: number) {
   if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`
   if (n >= 1e3) return `${(n / 1e3).toFixed(0)}K`
@@ -136,20 +139,59 @@ export default function POInboundAnalysisPage() {
     setSelectedMonths(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n })
   }
 
-  const monthly = useMemo(() => months.map(month => {
-    const poList = poUploads.filter(u => mKey(u.po_date) === month)
-    const inboundList = invoices.filter(i => mKey(i.estimated_arrival) === month)
-    const paymentList = invoices.filter(i => mKey(i.payment_date) === month)
-    return {
-      month,
-      poList,
-      inboundList,
-      paymentList,
-      poTotal: poList.reduce((s, u) => s + poToThb(u, cnyRate, usdRate), 0),
-      inboundTotal: inboundList.reduce((s, i) => s + invoiceEstimateThb(i, cnyRate, usdRate), 0),
-      paymentTotal: paymentList.reduce((s, i) => s + (invoiceActualThb(i) ?? 0), 0),
+  // The chart's own window — fixed starting at CHART_ANCHOR (the month real
+  // data actually begins, Apr 2026) instead of always trailing 12 months
+  // behind today, so it doesn't open mostly empty. It only starts rolling
+  // forward like a normal trailing window once enough time has passed that
+  // "today minus 11 months" would land AFTER the anchor on its own — it
+  // follows the Period picker's selection, which is independent of this.
+  const CHART_ANCHOR = '2026-04'
+  const chartMonths = useMemo(() => {
+    const now = new Date()
+    const d = new Date(now.getFullYear(), now.getMonth() - 11, 1)
+    const rollingStart = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+    const start = rollingStart > CHART_ANCHOR ? rollingStart : CHART_ANCHOR
+    const sd = new Date(start + '-01T00:00:00')
+    const keys: string[] = []
+    for (let i = 0; i < 12; i++) {
+      keys.push(`${sd.getFullYear()}-${String(sd.getMonth() + 1).padStart(2, '0')}`)
+      sd.setMonth(sd.getMonth() + 1)
     }
-  }), [months, poUploads, invoices, cnyRate, usdRate])
+    return keys
+  }, [])
+
+  // Per-month aggregates, computed once for the union of every month key
+  // either the Period picker (months) or the chart (chartMonths) might need.
+  const allMonthly = useMemo(() => {
+    const keys = new Set([...months, ...chartMonths])
+    const map = new Map<string, {
+      month: string
+      poList: POUploadRow[]
+      inboundList: InvoiceRow[]
+      paymentList: InvoiceRow[]
+      poTotal: number
+      inboundTotal: number
+      paymentTotal: number
+    }>()
+    for (const month of keys) {
+      const poList = poUploads.filter(u => mKey(u.po_date) === month)
+      const inboundList = invoices.filter(i => mKey(i.estimated_arrival) === month)
+      const paymentList = invoices.filter(i => mKey(i.payment_date) === month)
+      map.set(month, {
+        month,
+        poList,
+        inboundList,
+        paymentList,
+        poTotal: poList.reduce((s, u) => s + poToThb(u, cnyRate, usdRate), 0),
+        inboundTotal: inboundList.reduce((s, i) => s + invoiceEstimateThb(i, cnyRate, usdRate), 0),
+        paymentTotal: paymentList.reduce((s, i) => s + (invoiceActualThb(i) ?? 0), 0),
+      })
+    }
+    return map
+  }, [months, chartMonths, poUploads, invoices, cnyRate, usdRate])
+
+  const monthly = useMemo(() => months.map(k => allMonthly.get(k)!), [months, allMonthly])
+  const chartMonthly = useMemo(() => chartMonths.map(k => allMonthly.get(k)!), [chartMonths, allMonthly])
 
   // Empty selection (like Invoice Summary) means "all months" — everything
   // below (KPI cards + detail tables) is filtered/summed over this set.
@@ -282,10 +324,10 @@ export default function POInboundAnalysisPage() {
                 <span style={{ fontSize: 10, color: '#bbb', marginLeft: 'auto' }}>คลิกเดือนเพื่อเลือก/ยกเลิกช่วงเวลา</span>
               </div>
               <GroupedBarChart
-                months={months}
-                poValues={monthly.map(m => m.poTotal)}
-                inboundValues={monthly.map(m => m.inboundTotal)}
-                paymentValues={monthly.map(m => m.paymentTotal)}
+                months={chartMonths}
+                poValues={chartMonthly.map(m => m.poTotal)}
+                inboundValues={chartMonthly.map(m => m.inboundTotal)}
+                paymentValues={chartMonthly.map(m => m.paymentTotal)}
                 selectedMonths={selectedMonths}
                 onSelect={toggleMonth}
               />
@@ -430,7 +472,8 @@ function GroupedBarChart({ months, poValues, inboundValues, paymentValues, selec
   selectedMonths: Set<string>
   onSelect: (month: string) => void
 }) {
-  const W = 1100, H = 230, padL = 46, padR = 10, padT = 10, padB = 28
+  // Extra top padding (padT) leaves room for each bar's rotated value label.
+  const W = 1100, H = 230, padL = 46, padR = 10, padT = 36, padB = 28
   const cW = W - padL - padR, cH = H - padT - padB
   const maxVal = Math.max(...poValues, ...inboundValues, ...paymentValues, 1)
   const n = Math.max(months.length, 1)
@@ -439,6 +482,17 @@ function GroupedBarChart({ months, poValues, inboundValues, paymentValues, selec
   const yPos = (v: number) => padT + cH - (v / maxVal) * cH
   const barH = (v: number) => (v / maxVal) * cH
 
+  function ValueLabel({ x, v }: { x: number; v: number }) {
+    if (v <= 0) return null
+    const y = yPos(v) - 4
+    return (
+      <text x={x} y={y} textAnchor="start" fontSize={7} fill="#1a1a1a" fontWeight={700}
+        transform={`rotate(-90 ${x} ${y})`}>
+        {fmtMillions(v)}
+      </text>
+    )
+  }
+
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ maxHeight: 260 }}>
       {[0, 0.25, 0.5, 0.75, 1].map(frac => {
@@ -446,7 +500,7 @@ function GroupedBarChart({ months, poValues, inboundValues, paymentValues, selec
         return (
           <g key={frac}>
             <line x1={padL} x2={W - padR} y1={y} y2={y} stroke="#e2d8c8" strokeWidth={1} />
-            <text x={padL - 6} y={y + 3} textAnchor="end" fontSize={9} fill="#bbb">{fmtCompact(maxVal * frac)}</text>
+            <text x={padL - 6} y={y + 3} textAnchor="end" fontSize={9} fill="#1a1a1a">{fmtCompact(maxVal * frac)}</text>
           </g>
         )
       })}
@@ -459,7 +513,10 @@ function GroupedBarChart({ months, poValues, inboundValues, paymentValues, selec
             <rect x={gx + barW * 0.3} y={yPos(poValues[i])} width={barW} height={barH(poValues[i])} fill={COLOR_PO} rx={2} />
             <rect x={gx + barW * 1.5} y={yPos(inboundValues[i])} width={barW} height={barH(inboundValues[i])} fill={COLOR_INBOUND} rx={2} />
             <rect x={gx + barW * 2.7} y={yPos(paymentValues[i])} width={barW} height={barH(paymentValues[i])} fill={COLOR_PAYMENT} rx={2} />
-            <text x={gx + groupW / 2} y={H - 8} textAnchor="middle" fontSize={9} fill={isSel ? '#d4962a' : '#bbb'} fontWeight={isSel ? 800 : 400}>
+            <ValueLabel x={gx + barW * 0.3 + barW / 2} v={poValues[i]} />
+            <ValueLabel x={gx + barW * 1.5 + barW / 2} v={inboundValues[i]} />
+            <ValueLabel x={gx + barW * 2.7 + barW / 2} v={paymentValues[i]} />
+            <text x={gx + groupW / 2} y={H - 8} textAnchor="middle" fontSize={9} fill="#1a1a1a" fontWeight={isSel ? 800 : 500}>
               {mLabel(m).slice(0, 3)}
             </text>
           </g>
