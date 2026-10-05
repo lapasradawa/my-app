@@ -214,10 +214,25 @@ export default function POInboundAnalysisPage() {
   // One row per month (the full Period-picker pool, not just the selected
   // months) — a monthly trend table, independent of the KPI/table filter.
   function exportExcel() {
-    const header = ['Month', 'ยอดเปิด PO (THB)', 'ยอด Invoice เข้าคลังเดือนนั้น (THB)', 'ยอดจ่ายจริงเดือนนั้น (THB)']
-    const body = monthly.map(m => [mLabel(m.month), Math.round(m.poTotal), Math.round(m.inboundTotal), Math.round(m.paymentTotal)])
+    const header = [
+      'Month',
+      'ยอดเปิด PO (THB)', 'ยอดเปิด PO (CNY)', 'ยอดเปิด PO (USD)',
+      'ยอด Invoice เข้าคลังเดือนนั้น (THB)', 'Invoice เข้าคลัง (CNY)', 'Invoice เข้าคลัง (USD)',
+      'ยอดจ่ายจริงเดือนนั้น (THB)',
+    ]
+    const r2 = (n: number) => Math.round(n * 100) / 100
+    const body = monthly.map(m => {
+      const poCcy = sumByCurrency(m.poList, u => u.currency, u => u.total_amount)
+      const inboundCcy = sumByCurrency(m.inboundList, i => i.currency, i => i.total_amount)
+      return [
+        mLabel(m.month),
+        Math.round(m.poTotal), r2(poCcy.get('CNY') ?? 0), r2(poCcy.get('USD') ?? 0),
+        Math.round(m.inboundTotal), r2(inboundCcy.get('CNY') ?? 0), r2(inboundCcy.get('USD') ?? 0),
+        Math.round(m.paymentTotal),
+      ]
+    })
     const ws = XLSX.utils.aoa_to_sheet([header, ...body])
-    ws['!cols'] = [{ wch: 14 }, { wch: 20 }, { wch: 28 }, { wch: 22 }]
+    ws['!cols'] = [{ wch: 14 }, { wch: 18 }, { wch: 16 }, { wch: 16 }, { wch: 26 }, { wch: 16 }, { wch: 16 }, { wch: 22 }]
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'PO Inbound Analysis')
     XLSX.writeFile(wb, `PO_Inbound_Analysis_${new Date().toISOString().slice(0, 10)}.xlsx`)
