@@ -41,8 +41,12 @@ export default function NavBar({ onUnlock, onLock }: Props) {
   const summaryCount = [canAccess('po-inbound-analysis'), canAccess('summary'), canAccess('qc'), canAccess('po-summary')].filter(Boolean).length
   const showSummaryDropdown = summaryCount >= 2
 
+  // z-40: several pages (Invoice/QC/PO-Inbound Summary) render their own
+  // "Period" bar directly below this nav at z-index 30 — NavBar must sit
+  // above that (but below full-screen modals at z-50), or its dropdowns get
+  // visually clipped by that bar instead of layering on top of it.
   return (
-    <nav className="bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-6 text-sm shrink-0 sticky top-0 z-20 shadow-sm flex-wrap">
+    <nav className="bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-6 text-sm shrink-0 sticky top-0 z-40 shadow-sm flex-wrap">
       <span className="font-bold text-gray-900">Import PO</span>
 
       {canAccess('po-matching') && (
