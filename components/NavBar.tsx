@@ -37,8 +37,8 @@ export default function NavBar({ onUnlock, onLock }: Props) {
   const calendarActive = pathname === '/calendar' || pathname === '/weekly-inbound'
 
   // Summary dropdown active when on /summary or /qc/summary
-  const summaryActive = pathname === '/summary' || pathname === '/qc/summary' || pathname === '/po-summary'
-  const summaryCount = [canAccess('summary'), canAccess('qc'), canAccess('po-summary')].filter(Boolean).length
+  const summaryActive = pathname === '/summary' || pathname === '/qc/summary' || pathname === '/po-summary' || pathname === '/po-inbound-analysis'
+  const summaryCount = [canAccess('po-inbound-analysis'), canAccess('summary'), canAccess('qc'), canAccess('po-summary')].filter(Boolean).length
   const showSummaryDropdown = summaryCount >= 2
 
   return (
@@ -87,6 +87,9 @@ export default function NavBar({ onUnlock, onLock }: Props) {
       )}
 
       {/* Direct links when user has access to only one summary page */}
+      {!showSummaryDropdown && canAccess('po-inbound-analysis') && (
+        <Link href="/po-inbound-analysis" className={cls('/po-inbound-analysis')}>PO & Inbound Analysis</Link>
+      )}
       {!showSummaryDropdown && canAccess('summary') && (
         <Link href="/summary" className={cls('/summary')}>Invoice Summary</Link>
       )}
@@ -104,6 +107,11 @@ export default function NavBar({ onUnlock, onLock }: Props) {
           </span>
           <div className="absolute left-0 top-full pt-1 hidden group-hover:block z-50">
             <div className="bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[150px]">
+              {canAccess('po-inbound-analysis') && (
+                <Link href="/po-inbound-analysis" className={`block px-4 py-2 text-sm hover:bg-blue-50 ${pathname === '/po-inbound-analysis' ? 'text-blue-600' : 'text-gray-700'}`}>
+                  PO & Inbound Analysis
+                </Link>
+              )}
               {canAccess('summary') && (
                 <Link href="/summary" className={`block px-4 py-2 text-sm hover:bg-blue-50 ${pathname === '/summary' ? 'text-blue-600' : 'text-gray-700'}`}>
                   Invoice Summary

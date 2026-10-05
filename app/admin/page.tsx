@@ -26,6 +26,7 @@ const ALL_PAGES: { key: PageKey; label: string }[] = [
   { key: 'qc',           label: 'QC Report' },
   { key: 'guide',        label: 'Guide' },
   { key: 'po-summary',  label: 'PO Summary' },
+  { key: 'po-inbound-analysis', label: 'PO & Inbound Analysis' },
 ]
 
 export default function AdminPage() {
