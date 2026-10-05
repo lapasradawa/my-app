@@ -59,6 +59,23 @@ function fmt(n: number, dec = 2) {
 function fmtThb(n: number) {
   return `฿${Math.round(n).toLocaleString()}`
 }
+function sumByCurrency<T>(items: T[], getCurrency: (t: T) => string | null, getAmount: (t: T) => number | null): Map<string, number> {
+  const map = new Map<string, number>()
+  for (const item of items) {
+    const ccy = getCurrency(item)
+    const amt = getAmount(item)
+    if (!ccy || amt == null) continue
+    map.set(ccy, (map.get(ccy) ?? 0) + amt)
+  }
+  return map
+}
+function fmtByCurrency(map: Map<string, number>): string {
+  return Array.from(map.entries())
+    .filter(([, v]) => v > 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(([ccy, amt]) => `${ccy} ${fmt(amt, 2)}`)
+    .join(' · ')
+}
 function fmtMillions(n: number) {
   return `${(n / 1e6).toFixed(2)} M`
 }
@@ -204,6 +221,21 @@ export default function POInboundAnalysisPage() {
   const selectedInboundList = useMemo(() => inPeriod.flatMap(m => m.inboundList), [inPeriod])
   const selectedPaymentList = useMemo(() => inPeriod.flatMap(m => m.paymentList), [inPeriod])
 
+  // Original-currency totals (e.g. "CNY 123,456.00 · USD 7,890.00") shown
+  // alongside each table's THB total, since FOB is always in native currency.
+  const poCurrencyBreakdown = useMemo(
+    () => fmtByCurrency(sumByCurrency(selectedPoList, u => u.currency, u => u.total_amount)),
+    [selectedPoList]
+  )
+  const inboundCurrencyBreakdown = useMemo(
+    () => fmtByCurrency(sumByCurrency(selectedInboundList, i => i.currency, i => i.total_amount)),
+    [selectedInboundList]
+  )
+  const paymentCurrencyBreakdown = useMemo(
+    () => fmtByCurrency(sumByCurrency(selectedPaymentList, i => i.currency, i => i.total_amount)),
+    [selectedPaymentList]
+  )
+
   const kpi = useMemo(() => ({
     po: inPeriod.reduce((s, m) => s + m.poTotal, 0),
     inbound: inPeriod.reduce((s, m) => s + m.inboundTotal, 0),
@@ -345,6 +377,7 @@ export default function POInboundAnalysisPage() {
                 title="PO ที่เปิดเดือนนี้"
                 color={COLOR_PO}
                 total={kpi.po}
+                currencyBreakdown={poCurrencyBreakdown}
                 emptyLabel="ไม่มี PO ที่เปิดในเดือนนี้"
                 headers={['PO No.', 'Supplier', 'Project', 'วันที่เปิด PO', 'FOB (Original Currency)']}
               >
@@ -370,6 +403,7 @@ export default function POInboundAnalysisPage() {
                 title="Invoice ที่ประมาณการณ์เข้าคลังเดือนนี้"
                 color={COLOR_INBOUND}
                 total={kpi.inbound}
+                currencyBreakdown={inboundCurrencyBreakdown}
                 emptyLabel="ไม่มี Invoice ที่ประมาณการณ์เข้าคลังในเดือนนี้"
                 headers={['Invoice No.', 'Supplier', 'ประมาณการณ์เข้าคลัง', 'FOB (Original Currency)']}
               >
@@ -393,6 +427,7 @@ export default function POInboundAnalysisPage() {
                 color={COLOR_PAYMENT}
                 total={kpi.payment}
                 totalLabel="Actual THB"
+                currencyBreakdown={paymentCurrencyBreakdown}
                 emptyLabel="ไม่มีรายการจ่ายเงินในเดือนนี้"
                 headers={['Invoice No.', 'Supplier', 'วันที่จ่าย', 'ยอดจ่ายจริง (THB)']}
               >
@@ -429,11 +464,12 @@ function Legend({ color, label }: { color: string; label: string }) {
   )
 }
 
-function DetailTable({ title, color, total, totalLabel = 'est. THB', emptyLabel, headers, children }: {
+function DetailTable({ title, color, total, totalLabel = 'est. THB', currencyBreakdown, emptyLabel, headers, children }: {
   title: string
   color: string
   total: number
   totalLabel?: string
+  currencyBreakdown?: string
   emptyLabel: string
   headers: string[]
   children: ReactNode
@@ -441,10 +477,11 @@ function DetailTable({ title, color, total, totalLabel = 'est. THB', emptyLabel,
   const hasRows = Array.isArray(children) ? children.length > 0 : !!children
   return (
     <div style={{ background: '#faf5ee', border: '1px solid #e2d8c8', borderRadius: 16, overflow: 'hidden' }}>
-      <div style={{ padding: '10px 16px', borderBottom: '1px solid #e2d8c8', background: '#f5efe4', display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div style={{ padding: '10px 16px', borderBottom: '1px solid #e2d8c8', background: '#f5efe4', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <span style={{ width: 8, height: 8, borderRadius: 2, background: color, display: 'inline-block' }} />
         <span style={{ fontSize: 12, fontWeight: 800, color: '#3a2a1a' }}>{title}</span>
         <span style={{ fontSize: 12, fontWeight: 900, color, marginLeft: 'auto' }}>{fmtThb(total)} ({totalLabel})</span>
+        {currencyBreakdown && <span style={{ fontSize: 10, color: '#9a8a7a', fontWeight: 600 }}>{currencyBreakdown}</span>}
       </div>
       {!hasRows ? (
         <div style={{ textAlign: 'center', padding: '20px 0', color: '#bbb', fontSize: 12 }}>{emptyLabel}</div>
