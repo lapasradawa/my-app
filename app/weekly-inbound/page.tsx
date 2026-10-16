@@ -124,8 +124,14 @@ function buildAggItems(
 
   for (const inv of invoices) {
     if (supplierFilter && inv.supplier !== supplierFilter) continue
-    const containerNames = inv.container_names ?? []
-    if (containerNames.length === 0 || !inv.rows) continue
+    if (!inv.rows) continue
+    // Invoices with no parsed container breakdown (single-shipment files with
+    // no container numbers in the source — row.containers is {} for every
+    // row) are treated as one implicit container named after the invoice
+    // itself, so they still show up here instead of being silently skipped.
+    const realContainerNames = inv.container_names ?? []
+    const hasRealContainers = realContainerNames.length > 0
+    const containerNames = hasRealContainers ? realContainerNames : [inv.invoice_no]
 
     for (const containerName of containerNames) {
       const hubInfo = hubArrival.get(`${inv.id}::${containerName}`)
@@ -147,7 +153,7 @@ function buildAggItems(
 
       for (const row of inv.rows) {
         if (projectFilter && (projectMap.get(row.code) ?? '') !== projectFilter) continue
-        const qty = row.containers?.[containerName] || 0
+        const qty = hasRealContainers ? (row.containers?.[containerName] || 0) : row.qty
         if (qty <= 0) continue
         let agg = map.get(row.code)
         if (!agg) {
@@ -219,8 +225,14 @@ function buildBreakdownTable(
 
   for (const inv of invoices) {
     if (supplierFilter && inv.supplier !== supplierFilter) continue
-    const containerNames = inv.container_names ?? []
-    if (containerNames.length === 0 || !inv.rows) continue
+    if (!inv.rows) continue
+    // Same fallback as buildAggItems: an invoice with no parsed container
+    // breakdown is treated as one implicit container named after the invoice
+    // itself (hub requests against it use invoice_no as container_name too).
+    const realContainerNames = inv.container_names ?? []
+    const hasRealContainers = realContainerNames.length > 0
+    const containerNames = hasRealContainers ? realContainerNames : [inv.invoice_no]
+    const qtyOf = (row: ResultRow, cName: string) => hasRealContainers ? (row.containers?.[cName] || 0) : row.qty
 
     // Containers explicitly confirmed to a non-default hub (any date) — used
     // both to build this invoice's own hub columns and to compute the
@@ -239,14 +251,14 @@ function buildBreakdownTable(
       let any = false
       for (const row of inv.rows) {
         if (projectFilter && (projectMap.get(row.code) ?? '') !== projectFilter) continue
-        const qty = row.containers?.[cName] || 0
+        const qty = qtyOf(row, cName)
         if (qty <= 0) continue
         any = true
         addQty(row.code, row.description || '', key, qty)
       }
       if (any && !columnKeys.has(key)) {
         columnKeys.add(key)
-        columns.push({ key, invoiceNo: inv.invoice_no, hub: hubInfo.hub, containerName: cName, dateStart: hubInfo.date, dateEnd: hubInfo.date })
+        columns.push({ key, invoiceNo: inv.invoice_no, hub: hubInfo.hub, containerName: hasRealContainers ? cName : undefined, dateStart: hubInfo.date, dateEnd: hubInfo.date })
       }
     }
 
@@ -261,7 +273,7 @@ function buildBreakdownTable(
     let any = false
     for (const row of inv.rows) {
       if (projectFilter && (projectMap.get(row.code) ?? '') !== projectFilter) continue
-      const explicitQty = [...explicitHubOf.keys()].reduce((sum, cName) => sum + (row.containers?.[cName] || 0), 0)
+      const explicitQty = [...explicitHubOf.keys()].reduce((sum, cName) => sum + qtyOf(row, cName), 0)
       const leftover = row.qty - explicitQty
       if (leftover <= 0) continue
       any = true

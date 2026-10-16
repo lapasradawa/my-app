@@ -54,6 +54,11 @@ interface LineItem {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+// An invoice with no parsed container breakdown is still one real shipment —
+// counted as 1, not 0 (same convention used across /calendar, /weekly-inbound).
+function containerCount(inv: { container_names: string[] | null }): number {
+  return Math.max((inv.container_names ?? []).length, 1)
+}
 function mKey(d: string | null): string | null {
   if (!d) return null
   const dt = new Date(d + 'T00:00:00')
@@ -334,9 +339,18 @@ export default function SummaryPage() {
       if (!inv.rows) continue
       const supplier = inv.supplier || '—'
       const mk = mKey(inv.bl_date || inv.estimated_arrival)
+      // Invoices with no parsed container breakdown (row.containers is {} for
+      // every row) are treated as one implicit container named after the
+      // invoice itself — same convention as /weekly-inbound and the hub
+      // request popup on the invoice detail page — so they still show up
+      // here instead of being silently dropped.
+      const hasRealContainers = (inv.container_names ?? []).length > 0
       for (const row of inv.rows) {
-        if (!row.code || !row.containers) continue
-        for (const [containerName, qty] of Object.entries(row.containers)) {
+        if (!row.code) continue
+        const entries: [string, number][] = hasRealContainers
+          ? Object.entries(row.containers ?? {})
+          : [[inv.invoice_no, row.qty]]
+        for (const [containerName, qty] of entries) {
           if (!qty || qty <= 0) continue
           // No confirmed hub-change request for this container → still at
           // the default hub (มัยลาภ), same convention used on /calendar.
@@ -419,7 +433,7 @@ export default function SummaryPage() {
     })
   }, [invoices, selectedMonths])
   const totalContainers = useMemo(() =>
-    invoicesInPeriod.reduce((sum, inv) => sum + (inv.container_names ?? []).length, 0),
+    invoicesInPeriod.reduce((sum, inv) => sum + containerCount(inv), 0),
     [invoicesInPeriod])
   const invoiceContainerRows = useMemo(() =>
     [...invoicesInPeriod].sort((a, b) => (b.estimated_arrival || '').localeCompare(a.estimated_arrival || '')),
@@ -899,7 +913,7 @@ export default function SummaryPage() {
                               return <span key={hub} style={{ display: 'inline-block', fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 8, background: hc.bg, color: hc.text, border: `1px solid ${hc.border}`, marginRight: 3 }}>{hub}</span>
                             })}
                           </td>
-                          <td style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 800, color: '#2a7c9a' }}>{(inv.container_names ?? []).length}</td>
+                          <td style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 800, color: '#2a7c9a' }}>{containerCount(inv)}</td>
                         </tr>
                       ))}
                       {invoiceContainerRows.length === 0 && (

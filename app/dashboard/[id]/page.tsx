@@ -966,6 +966,39 @@ export default function InvoiceDetailPage() {
           </div>
         </div>
 
+        {/* Hub destination for invoices with no parsed container breakdown — the
+            per-container hub buttons below only exist when container_names is
+            non-empty, so a single-container invoice (no container numbers in
+            the source file) would otherwise have no way to request a hub at
+            all. Uses the invoice number itself as the "container_name" key —
+            for container_hub_requests, and in the LINE notification text. */}
+        {invoice.container_names.length === 0 && (() => {
+          const name = invoice.invoice_no
+          const hr = hubFor(name)
+          const isOtherHub = hr && hr.hub !== 'มัยลาภ'
+          const hc = hr ? hubColor(hr.hub) : null
+          const isPending = hr?.status === 'pending'
+          return (
+            <div className="mb-4">
+              <button
+                onClick={() => setHubPopup(name)}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg border cursor-pointer hover:opacity-90 transition-colors text-sm font-medium"
+                style={hc && isOtherHub ? { backgroundColor: hc.bg, color: hc.text, borderColor: hc.border } : { backgroundColor: '#f3f4f6', color: '#374151', borderColor: '#e5e7eb' }}
+                title={hr ? `Hub: ${hr.hub} (${hr.status})` : 'คลิกเพื่อตั้งปลายทาง'}
+              >
+                <span>📦 ปลายทาง Hub:</span>
+                <span className="font-bold">{isOtherHub ? hr!.hub : 'มัยลาภ'}</span>
+                {isOtherHub && isPending && (
+                  <span style={{ background: hc!.dot, color: '#fff' }} className="text-[9px] font-bold px-1.5 py-0.5 rounded-full">⏳ รอยืนยัน</span>
+                )}
+                {isOtherHub && !isPending && (
+                  <span style={{ background: hc!.dot, color: '#fff' }} className="text-[9px] font-bold px-1.5 py-0.5 rounded-full">✓ ยืนยันแล้ว</span>
+                )}
+              </button>
+            </div>
+          )
+        })()}
+
         {/* Table — fixed col widths, sticky header/footer, sticky left cols up to QTY */}
         <div className="overflow-auto rounded-xl border border-gray-200 bg-white shadow-sm max-h-[calc(100vh-380px)]">
           <table className="text-sm border-collapse table-fixed" style={{ width: tableWidth }}>
@@ -1071,7 +1104,9 @@ export default function InvoiceDetailPage() {
               </div>
 
               <p className="text-sm font-mono font-bold text-gray-700 mb-1">{hubPopup}</p>
-              <p className="text-xs text-gray-500 mb-4">Invoice: {invoice.invoice_no}</p>
+              {hubPopup !== invoice.invoice_no && (
+                <p className="text-xs text-gray-500 mb-4">Invoice: {invoice.invoice_no}</p>
+              )}
 
               <div className={`rounded-xl px-4 py-3 mb-4 ${hr?.status === 'confirmed' ? 'bg-amber-50 border border-amber-200' : 'bg-blue-50 border border-blue-200'}`}>
                 <p className="text-xs text-gray-500 mb-1">ปลายทางปัจจุบัน</p>
