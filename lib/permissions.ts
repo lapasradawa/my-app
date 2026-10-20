@@ -16,6 +16,7 @@ export type PageKey =
   | 'po-summary'
   | 'load-plan'
   | 'po-inbound-analysis'
+  | 'container-management'
 
 export interface UserPermissions {
   isAdmin: boolean
@@ -66,6 +67,7 @@ export function pathnameToPageKey(pathname: string): PageKey | null {
     case 'po-summary': return 'po-summary'
     case 'load-plan':  return 'load-plan'
     case 'po-inbound-analysis': return 'po-inbound-analysis'
+    case 'container-management': return 'container-management'
     // Weekly Inbound Plan is a sub-view reached from the Calendar dropdown,
     // not its own nav item — gate it behind the same 'calendar' permission.
     case 'weekly-inbound': return 'calendar'

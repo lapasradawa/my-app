@@ -27,6 +27,7 @@ const ALL_PAGES: { key: PageKey; label: string }[] = [
   { key: 'guide',        label: 'Guide' },
   { key: 'po-summary',  label: 'PO Summary' },
   { key: 'po-inbound-analysis', label: 'PO & Inbound Analysis' },
+  { key: 'container-management', label: 'Container Management' },
 ]
 
 export default function AdminPage() {

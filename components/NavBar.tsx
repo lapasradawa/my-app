@@ -34,7 +34,7 @@ export default function NavBar({ onUnlock, onLock }: Props) {
       ? 'text-blue-600'
       : 'text-gray-500 hover:text-gray-800 transition-colors'
 
-  const calendarActive = pathname === '/calendar' || pathname === '/weekly-inbound'
+  const calendarActive = pathname === '/calendar' || pathname === '/weekly-inbound' || pathname === '/container-management'
 
   // Summary dropdown active when on /summary or /qc/summary
   const summaryActive = pathname === '/summary' || pathname === '/qc/summary' || pathname === '/po-summary' || pathname === '/po-inbound-analysis'
@@ -70,6 +70,11 @@ export default function NavBar({ onUnlock, onLock }: Props) {
               <Link href="/weekly-inbound" className={`block px-4 py-2 text-sm hover:bg-blue-50 ${pathname === '/weekly-inbound' ? 'text-blue-600' : 'text-gray-700'}`}>
                 Weekly Inbound Plan
               </Link>
+              {canAccess('container-management') && (
+                <Link href="/container-management" className={`block px-4 py-2 text-sm hover:bg-blue-50 ${pathname === '/container-management' ? 'text-blue-600' : 'text-gray-700'}`}>
+                  Container Management
+                </Link>
+              )}
             </div>
           </div>
         </div>
