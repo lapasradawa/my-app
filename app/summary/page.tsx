@@ -455,6 +455,20 @@ export default function SummaryPage() {
   }, [])
 
   function exportExcel() {
+    if (view === 'hub') {
+      // Flattened in the same grouped/sorted order shown on screen, with Hub
+      // as the rightmost column instead of a section header.
+      const rows = hubGroups.flatMap(g => g.lines.map(l => ({
+        'Item no': l.item_code, 'Item name': l.description, 'Supplier': l.supplier,
+        'Invoice': l.invoice_no, 'QTY': l.qty, 'Hub': g.hub,
+      })))
+      const ws = XLSX.utils.json_to_sheet(rows)
+      ws['!cols'] = [{ wch: 22 }, { wch: 50 }, { wch: 18 }, { wch: 18 }, { wch: 10 }, { wch: 16 }]
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'By Hub')
+      XLSX.writeFile(wb, `by-hub-summary-${new Date().toISOString().slice(0, 10)}.xlsx`)
+      return
+    }
     const lines = selectedItem ? filteredLines.filter(l => l.item_code === selectedItem) : filteredLines
     const rows = lines.map(l => ({
       'Item no': l.item_code, 'Item name': l.description, 'Supplier': l.supplier,
@@ -864,7 +878,7 @@ export default function SummaryPage() {
                           <table style={{ fontSize: 11, width: '100%', borderCollapse: 'collapse' }}>
                             <thead>
                               <tr style={{ background: '#f0ebe0' }}>
-                                {['Item no', 'Item name', 'Supplier', 'Invoice', 'QTY'].map(h => (
+                                {['Item no', 'Item name', 'Supplier', 'Invoice', 'QTY', 'Hub'].map(h => (
                                   <th key={h} style={{ padding: '6px 10px', textAlign: h === 'QTY' ? 'right' : 'left', fontSize: 10, fontWeight: 800, color: '#8a7a6a', whiteSpace: 'nowrap', borderBottom: '1px solid #e2d8c8' }}>{h}</th>
                                 ))}
                               </tr>
@@ -879,6 +893,9 @@ export default function SummaryPage() {
                                     <Link href={`/dashboard/${l.invoice_id}`} style={{ color: '#3d8b82', textDecoration: 'none', fontWeight: 600 }}>{l.invoice_no}</Link>
                                   </td>
                                   <td style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 700, color: '#2a2a1a' }}>{l.qty.toLocaleString()}</td>
+                                  <td style={{ padding: '6px 10px', whiteSpace: 'nowrap' }}>
+                                    <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 8, background: hc.bg, color: hc.text, border: `1px solid ${hc.border}` }}>{g.hub}</span>
+                                  </td>
                                 </tr>
                               ))}
                             </tbody>
