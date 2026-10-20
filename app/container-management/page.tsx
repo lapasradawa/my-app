@@ -106,6 +106,7 @@ export default function ContainerManagementPage() {
   const [monthDate, setMonthDate] = useState(() => { const d = new Date(); d.setDate(1); return d })
   const [dark, setDark] = useState(false)
   const [heldKey, setHeldKey] = useState<string | null>(null)
+  const [hubPopover, setHubPopover] = useState<{ day: string; hub: string } | null>(null)
   const [toasts, setToasts] = useState<{ id: number; text: string; warn?: boolean }[]>([])
   const [userEmail, setUserEmail] = useState<string | null>(null)
   const dragKeyRef = useRef<string | null>(null)
@@ -419,11 +420,14 @@ export default function ContainerManagementPage() {
   }
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape' && heldKey) setHeldKey(null)
+      if (e.key === 'Escape') {
+        if (heldKey) setHeldKey(null)
+        if (hubPopover) setHubPopover(null)
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [heldKey])
+  }, [heldKey, hubPopover])
 
   const heldUnit = heldKey ? unitByKey.get(heldKey) ?? null : null
 
@@ -493,6 +497,21 @@ export default function ContainerManagementPage() {
             style={{ padding: '8px 14px', borderRadius: 8, border: 'none', background: t.text, color: t.panelBg, fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>
             ↓ ดาวน์โหลดตาราง (CSV)
           </button>
+        </div>
+
+        {/* Hub legend — maps the tiny 🏭 icons inside each day cell to a hub
+            name/color, since the icons alone are too small to label. */}
+        <div style={{ maxWidth: 1600, margin: '8px auto 0', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 10, color: t.textMuted, fontWeight: 700 }}>🏭 Hub ในปฏิทิน:</span>
+          {REAL_HUBS.map(hub => {
+            const hc = hubColor(hub)
+            return (
+              <span key={hub} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, color: t.textMuted }}>
+                <span style={{ width: 16, height: 16, borderRadius: '50%', background: hc.dot, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9 }}>🏭</span>
+                {hub}
+              </span>
+            )
+          })}
         </div>
       </div>
 
@@ -574,7 +593,7 @@ export default function ContainerManagementPage() {
           {/* ── Calendar ── */}
           <div style={{ flex: '3 1 640px', minWidth: 300 }}>
             <div style={{ overflowX: 'auto' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(110px, 1fr))', gap: 6, minWidth: 780 }}>
+              <div onClick={() => setHubPopover(null)} style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(110px, 1fr))', gap: 6, minWidth: 780 }}>
                 {['จันทร์', 'อังคาร', 'พุธ', 'พฤหัสฯ', 'ศุกร์', 'เสาร์', 'อาทิตย์'].map(d => (
                   <div key={d} style={{ fontSize: 11, fontWeight: 700, color: t.textMuted, textAlign: 'center', padding: '4px 0' }}>{d}</div>
                 ))}
@@ -593,6 +612,7 @@ export default function ContainerManagementPage() {
                       onDrop={() => onDropDay(day)}
                       onClick={() => { if (heldKey) { const u = unitByKey.get(heldKey); if (u) placeOnDay(u, day) } }}
                       style={{
+                        position: 'relative',
                         background: sunday ? t.sundayBg : over ? t.overBg : t.cardBg,
                         border: `1px solid ${over ? t.overBorder : t.border}`,
                         borderRadius: 8, padding: 6, minHeight: 100, opacity: inMonth ? 1 : 0.45,
@@ -643,22 +663,74 @@ export default function ContainerManagementPage() {
                             <div key={hub}
                               onDragOver={e => { e.preventDefault(); e.stopPropagation() }}
                               onDrop={e => { e.stopPropagation(); onDropHub(hub, day) }}
-                              onClick={e => { e.stopPropagation(); if (heldKey) { const u = unitByKey.get(heldKey); if (u) placeOnHub(u, hub, day) } }}
-                              title={`ส่งไป Hub ${hub} วันที่ ${day.getDate()} ${MONTHS_TH[day.getMonth()]}`}
+                              onClick={e => {
+                                e.stopPropagation()
+                                if (heldKey) { const u = unitByKey.get(heldKey); if (u) placeOnHub(u, hub, day); return }
+                                if (list.length > 0) setHubPopover({ day: dayStr, hub })
+                              }}
+                              title={list.length > 0 ? `คลิกเพื่อดูตู้ที่ส่งไป Hub ${hub} วันที่ ${day.getDate()} ${MONTHS_TH[day.getMonth()]}` : `ส่งไป Hub ${hub} วันที่ ${day.getDate()} ${MONTHS_TH[day.getMonth()]}`}
                               style={{
-                                position: 'relative', width: 16, height: 16, borderRadius: '50%',
+                                position: 'relative', width: 18, height: 18, borderRadius: '50%',
                                 background: list.length > 0 ? hc.dot : 'transparent', border: `1px solid ${hc.dot}`,
                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                cursor: heldKey ? 'pointer' : 'default', flexShrink: 0,
+                                cursor: heldKey || list.length > 0 ? 'pointer' : 'default', flexShrink: 0,
+                                opacity: list.length > 0 ? 1 : 0.5,
                               }}
                             >
-                              {list.length > 1 && (
-                                <span className={numFont.className} style={{ fontSize: 8, fontWeight: 700, color: '#fff' }}>{list.length}</span>
+                              {list.length > 1 ? (
+                                <span className={numFont.className} style={{ fontSize: 9, fontWeight: 700, color: '#fff' }}>{list.length}</span>
+                              ) : (
+                                <span style={{ fontSize: 10, lineHeight: 1 }}>🏭</span>
                               )}
                             </div>
                           )
                         })}
                       </div>
+
+                      {/* Anchored popover: view + drag out what's inside this
+                          day's hub — floats over the calendar instead of a
+                          full-screen modal, so other days stay visible and
+                          droppable while it's open. */}
+                      {hubPopover?.day === dayStr && (() => {
+                        const popList = byHubDay.get(`${hubPopover.day}::${hubPopover.hub}`) ?? []
+                        const phc = hubColor(hubPopover.hub)
+                        return (
+                          <div
+                            onClick={e => e.stopPropagation()}
+                            onDragOver={e => { e.preventDefault(); e.stopPropagation() }}
+                            onDrop={e => { e.stopPropagation(); onDropTray() }}
+                            style={{
+                              position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 70,
+                              background: t.cardBg, color: t.text, borderRadius: 10, padding: 10, minWidth: 180,
+                              border: `1px solid ${t.border}`, boxShadow: '0 8px 24px rgba(0,0,0,0.25)',
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                              <span style={{ width: 8, height: 8, borderRadius: '50%', background: phc.dot, flexShrink: 0 }} />
+                              <span style={{ fontWeight: 700, fontSize: 12 }}>Hub {hubPopover.hub}</span>
+                              <button onClick={() => setHubPopover(null)} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: t.textMuted, fontSize: 14, cursor: 'pointer', lineHeight: 1 }}>×</button>
+                            </div>
+                            {popList.length === 0 ? (
+                              <p style={{ fontSize: 11, color: t.textMuted, margin: 0 }}>ไม่มีตู้แล้ว</p>
+                            ) : (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, maxWidth: 160 }}>
+                                {popList.map(u => (
+                                  <div key={unitKey(u)} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                                    <Block u={u} color={invoiceColor(u.invoiceNo)} solid held={heldKey === unitKey(u)} small
+                                      numFontClass={numFont.className}
+                                      onDragStart={() => onDragStart(unitKey(u))}
+                                      onDragEnd={onDragEnd}
+                                      onClick={() => onBlockActivate(unitKey(u))}
+                                      onContextMenu={e => { e.preventDefault(); toggleSize(u) }}
+                                    />
+                                    <span style={{ fontSize: 8, color: t.textMuted }}>{u.invoiceNo}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })()}
                     </div>
                   )
                 })}
