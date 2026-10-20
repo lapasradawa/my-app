@@ -509,12 +509,18 @@ export default function ContainerManagementPage() {
       )}
 
       <div style={{ maxWidth: 1600, margin: '0 auto', padding: 16, display: 'flex', gap: 16, flexDirection: 'column' }}>
-        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
           {/* ── Tray ── */}
+          {/* Sticky + its own scroll region: scrolling through a long invoice
+              list shouldn't carry the calendar out of view along with it. */}
           <div
             onDragOver={e => e.preventDefault()}
             onDrop={onDropTray}
-            style={{ flex: '1 1 320px', minWidth: 300, maxWidth: 380, display: 'flex', flexDirection: 'column', gap: 12 }}
+            style={{
+              flex: '1 1 320px', minWidth: 300, maxWidth: 380, display: 'flex', flexDirection: 'column', gap: 12,
+              position: 'sticky', top: 12, alignSelf: 'flex-start',
+              maxHeight: 'calc(100vh - 24px)', overflowY: 'auto', paddingRight: 4,
+            }}
           >
             <div style={{ background: t.panelBg, border: `1px solid ${t.border}`, borderRadius: 10, padding: 12 }}>
               <p style={{ fontWeight: 700, fontSize: 14, margin: 0 }}>Invoice รอจัด</p>
