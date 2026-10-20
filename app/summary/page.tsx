@@ -331,14 +331,16 @@ export default function SummaryPage() {
   // invoice's containers can go to different hubs, and LineItem/allLines
   // only carries the invoice-wide total qty, not the per-container split.
   const hubLines = useMemo(() => {
-    const hubReqMap = new Map<string, string>() // `${invoice_id}::${container_name}` -> hub
-    for (const h of hubReqs) hubReqMap.set(`${h.invoice_id}::${h.container_name}`, h.hub)
+    // `${invoice_id}::${container_name}` -> {hub, hub_arrival_date}
+    const hubReqMap = new Map<string, { hub: string; date: string | null }>()
+    for (const h of hubReqs) hubReqMap.set(`${h.invoice_id}::${h.container_name}`, { hub: h.hub, date: h.hub_arrival_date })
 
     const lines: { hub: string; item_code: string; description: string; supplier: string; invoice_no: string; invoice_id: string; qty: number; month_key: string | null }[] = []
     for (const inv of invoices) {
       if (!inv.rows) continue
       const supplier = inv.supplier || '—'
-      const mk = mKey(inv.bl_date || inv.estimated_arrival)
+      // Default month bucket for a container still at มัยลาภ (unchanged).
+      const invoiceMonthKey = mKey(inv.bl_date || inv.estimated_arrival)
       // Invoices with no parsed container breakdown (row.containers is {} for
       // every row) are treated as one implicit container named after the
       // invoice itself — same convention as /weekly-inbound and the hub
@@ -354,7 +356,14 @@ export default function SummaryPage() {
           if (!qty || qty <= 0) continue
           // No confirmed hub-change request for this container → still at
           // the default hub (มัยลาภ), same convention used on /calendar.
-          const hub = hubReqMap.get(`${inv.id}::${containerName}`) ?? 'มัยลาภ'
+          const req = hubReqMap.get(`${inv.id}::${containerName}`)
+          const hub = req?.hub ?? 'มัยลาภ'
+          // Grouped by the date the container actually reaches ITS hub (not
+          // the invoice's own BL date) — a container confirmed to e.g.
+          // สุราษฎร์ธานี can arrive a full month apart from when the invoice
+          // itself was shipped, so bucketing by BL date hid it from the
+          // period it actually belongs to.
+          const mk = req?.date ? mKey(req.date) : invoiceMonthKey
           lines.push({ hub, item_code: row.code, description: row.description || '', supplier, invoice_no: inv.invoice_no, invoice_id: inv.id, qty, month_key: mk })
         }
       }
