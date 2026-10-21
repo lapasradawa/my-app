@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { IBM_Plex_Sans_Thai, Barlow_Condensed } from 'next/font/google'
 import { supabase } from '@/lib/supabase'
 import NavBar from '@/components/NavBar'
@@ -106,7 +107,13 @@ export default function ContainerManagementPage() {
   const [monthDate, setMonthDate] = useState(() => { const d = new Date(); d.setDate(1); return d })
   const [dark, setDark] = useState(false)
   const [heldKey, setHeldKey] = useState<string | null>(null)
-  const [hubPopover, setHubPopover] = useState<{ day: string; hub: string } | null>(null)
+  // Position captured from the clicked icon's own bounding box, and rendered
+  // via a portal straight into document.body — the calendar's horizontal
+  // scroll wrapper has overflowX set, which per the CSS spec silently forces
+  // overflowY to clip too, so a popover nested/anchored inside it (instead
+  // of escaping via a portal) was getting cut off/covered instead of
+  // floating visibly above the grid.
+  const [hubPopover, setHubPopover] = useState<{ day: string; hub: string; x: number; y: number } | null>(null)
   const [toasts, setToasts] = useState<{ id: number; text: string; warn?: boolean }[]>([])
   const [userEmail, setUserEmail] = useState<string | null>(null)
   const dragKeyRef = useRef<string | null>(null)
@@ -666,7 +673,10 @@ export default function ContainerManagementPage() {
                               onClick={e => {
                                 e.stopPropagation()
                                 if (heldKey) { const u = unitByKey.get(heldKey); if (u) placeOnHub(u, hub, day); return }
-                                if (list.length > 0) setHubPopover({ day: dayStr, hub })
+                                if (list.length > 0) {
+                                  const r = e.currentTarget.getBoundingClientRect()
+                                  setHubPopover({ day: dayStr, hub, x: r.left, y: r.bottom })
+                                }
                               }}
                               title={list.length > 0 ? `คลิกเพื่อดูตู้ที่ส่งไป Hub ${hub} วันที่ ${day.getDate()} ${MONTHS_TH[day.getMonth()]}` : `ส่งไป Hub ${hub} วันที่ ${day.getDate()} ${MONTHS_TH[day.getMonth()]}`}
                               style={{
@@ -687,50 +697,6 @@ export default function ContainerManagementPage() {
                         })}
                       </div>
 
-                      {/* Anchored popover: view + drag out what's inside this
-                          day's hub — floats over the calendar instead of a
-                          full-screen modal, so other days stay visible and
-                          droppable while it's open. */}
-                      {hubPopover?.day === dayStr && (() => {
-                        const popList = byHubDay.get(`${hubPopover.day}::${hubPopover.hub}`) ?? []
-                        const phc = hubColor(hubPopover.hub)
-                        return (
-                          <div
-                            onClick={e => e.stopPropagation()}
-                            onDragOver={e => { e.preventDefault(); e.stopPropagation() }}
-                            onDrop={e => { e.stopPropagation(); onDropTray() }}
-                            style={{
-                              position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 70,
-                              background: t.cardBg, color: t.text, borderRadius: 10, padding: 10, minWidth: 180,
-                              border: `1px solid ${t.border}`, boxShadow: '0 8px 24px rgba(0,0,0,0.25)',
-                            }}
-                          >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                              <span style={{ width: 8, height: 8, borderRadius: '50%', background: phc.dot, flexShrink: 0 }} />
-                              <span style={{ fontWeight: 700, fontSize: 12 }}>Hub {hubPopover.hub}</span>
-                              <button onClick={() => setHubPopover(null)} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: t.textMuted, fontSize: 14, cursor: 'pointer', lineHeight: 1 }}>×</button>
-                            </div>
-                            {popList.length === 0 ? (
-                              <p style={{ fontSize: 11, color: t.textMuted, margin: 0 }}>ไม่มีตู้แล้ว</p>
-                            ) : (
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, maxWidth: 160 }}>
-                                {popList.map(u => (
-                                  <div key={unitKey(u)} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-                                    <Block u={u} color={invoiceColor(u.invoiceNo)} solid held={heldKey === unitKey(u)} small
-                                      numFontClass={numFont.className}
-                                      onDragStart={() => onDragStart(unitKey(u))}
-                                      onDragEnd={onDragEnd}
-                                      onClick={() => onBlockActivate(unitKey(u))}
-                                      onContextMenu={e => { e.preventDefault(); toggleSize(u) }}
-                                    />
-                                    <span style={{ fontSize: 8, color: t.textMuted }}>{u.invoiceNo}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        )
-                      })()}
                     </div>
                   )
                 })}
@@ -739,6 +705,54 @@ export default function ContainerManagementPage() {
           </div>
         </div>
       </div>
+
+      {/* ── Hub day popover: view + drag out what's inside ── portal straight
+          into document.body, positioned from the clicked icon's own bounding
+          box, so it can't be clipped by the calendar's scroll wrapper. ── */}
+      {hubPopover && typeof document !== 'undefined' && createPortal((() => {
+        const popList = byHubDay.get(`${hubPopover.day}::${hubPopover.hub}`) ?? []
+        const phc = hubColor(hubPopover.hub)
+        return (
+          <>
+            <div onClick={() => setHubPopover(null)} style={{ position: 'fixed', inset: 0, zIndex: 999 }} />
+            <div
+              onClick={e => e.stopPropagation()}
+              onDragOver={e => { e.preventDefault(); e.stopPropagation() }}
+              onDrop={e => { e.stopPropagation(); onDropTray() }}
+              className={bodyFont.className}
+              style={{
+                position: 'fixed', top: hubPopover.y + 4, left: Math.min(hubPopover.x, window.innerWidth - 190), zIndex: 1000,
+                background: t.cardBg, color: t.text, borderRadius: 10, padding: 10, minWidth: 170, maxWidth: 220,
+                border: `1px solid ${t.border}`, boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: phc.dot, flexShrink: 0 }} />
+                <span style={{ fontWeight: 700, fontSize: 12 }}>Hub {hubPopover.hub}</span>
+                <button onClick={() => setHubPopover(null)} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: t.textMuted, fontSize: 14, cursor: 'pointer', lineHeight: 1 }}>×</button>
+              </div>
+              {popList.length === 0 ? (
+                <p style={{ fontSize: 11, color: t.textMuted, margin: 0 }}>ไม่มีตู้แล้ว</p>
+              ) : (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {popList.map(u => (
+                    <div key={unitKey(u)} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                      <Block u={u} color={invoiceColor(u.invoiceNo)} solid held={heldKey === unitKey(u)} small
+                        numFontClass={numFont.className}
+                        onDragStart={() => onDragStart(unitKey(u))}
+                        onDragEnd={onDragEnd}
+                        onClick={() => onBlockActivate(unitKey(u))}
+                        onContextMenu={e => { e.preventDefault(); toggleSize(u) }}
+                      />
+                      <span style={{ fontSize: 8, color: t.textMuted }}>{u.invoiceNo}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )
+      })(), document.body)}
 
       {/* ── Toasts ── */}
       <div style={{ position: 'fixed', bottom: 16, right: 16, display: 'flex', flexDirection: 'column', gap: 8, zIndex: 50 }}>
