@@ -679,9 +679,9 @@ export default function ContainerManagementPage() {
                             >
                               {list.length > 1 ? (
                                 <span className={numFont.className} style={{ fontSize: 9, fontWeight: 700, color: '#fff' }}>{list.length}</span>
-                              ) : (
+                              ) : list.length === 1 ? (
                                 <span style={{ fontSize: 10, lineHeight: 1 }}>🏭</span>
-                              )}
+                              ) : null}
                             </div>
                           )
                         })}
