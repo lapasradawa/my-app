@@ -82,6 +82,8 @@ export default function PoInsightsPage() {
     return new Set([`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`])
   })
   const [periodOpen, setPeriodOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const [projectFilter, setProjectFilter] = useState('')
   const toggleMonth = useCallback((k: string) => {
     setSelectedMonths(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n })
   }, [])
@@ -289,12 +291,17 @@ export default function PoInsightsPage() {
 
   // ── Filtered records by period ────────────────────────────────────────
   const filteredRecords = useMemo(() => {
-    if (selectedMonths.size === 0) return records
+    const q = search.trim().toLowerCase()
     return records.filter(r => {
-      const k = mKey(r.po_date)
-      return k !== null && selectedMonths.has(k)
+      if (selectedMonths.size > 0) {
+        const k = mKey(r.po_date)
+        if (k === null || !selectedMonths.has(k)) return false
+      }
+      if (projectFilter && r.project !== projectFilter) return false
+      if (q && !(r.po_rbs_ch_no ?? '').toLowerCase().includes(q)) return false
+      return true
     })
-  }, [records, selectedMonths])
+  }, [records, selectedMonths, projectFilter, search])
 
   // ── Export Excel ──────────────────────────────────────────────────────
   async function exportInsightsExcel() {
@@ -453,9 +460,22 @@ export default function PoInsightsPage() {
             </span>
           ))}
 
-          {selectedMonths.size > 0 && (
-            <span className="ml-auto text-xs text-gray-400">{filteredRecords.length} PO</span>
-          )}
+          <input
+            type="text" value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="ค้นหา PO RBS CH No..."
+            className="px-3 py-1.5 rounded-lg text-xs outline-none"
+            style={{ background: '#1e3a4a', border: '1px solid #2e5060', color: '#e5e7eb', minWidth: 170 }}
+          />
+          <select
+            value={projectFilter} onChange={e => setProjectFilter(e.target.value)}
+            className="px-3 py-1.5 rounded-lg text-xs outline-none"
+            style={{ background: '#1e3a4a', border: '1px solid #2e5060', color: '#e5e7eb' }}
+          >
+            <option value="">ทุก Project</option>
+            {allProjects.map(p => <option key={p} value={p}>{p}</option>)}
+          </select>
+
+          <span className="ml-auto text-xs text-gray-400">{filteredRecords.length} PO</span>
         </div>
 
         {/* ── Upload form ──────────────────────────────────────────────── */}
