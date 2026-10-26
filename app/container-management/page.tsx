@@ -320,6 +320,11 @@ export default function ContainerManagementPage() {
     if (error) { toast(`บันทึกไม่สำเร็จ: ${error.message}`, true); return }
     if (hub === DEFAULT_HUB) await syncInvoiceEta(u.invoiceId)
     await load()
+    // A drag-out from inside the hub popover (moving one of its own
+    // containers elsewhere) never otherwise closes it — its full-screen
+    // invisible backdrop would then keep silently swallowing every
+    // subsequent drag/drop on the page, since it sits above everything else.
+    setHubPopover(null)
   }
 
   async function unscheduleUnit(u: ContainerUnit) {
@@ -328,6 +333,7 @@ export default function ContainerManagementPage() {
     if (error) { toast(`ลบไม่สำเร็จ: ${error.message}`, true); return }
     await syncInvoiceEta(u.invoiceId)
     await load()
+    setHubPopover(null)
   }
 
   async function toggleSize(u: ContainerUnit) {
