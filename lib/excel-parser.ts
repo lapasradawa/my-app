@@ -126,14 +126,18 @@ const CNTR_RE = /(?:#\d+-)?Cntr-([A-Z][A-Z0-9]+)/i
 // Matches ISO container/seal format "CSNU2005017/CX478086" — container number is before "/"
 // Allow 6–7 digits to handle non-standard container numbers like HPCU309649
 const CNTR_ISO_RE = /([A-Z]{4}\d{6,7})\/[A-Z0-9]+/i
+// Matches YOULIDA-style banner "#1-20GP-CSNU2506683//seal-OOLKSN8148" — a size
+// code (e.g. "20GP-") before the container number, and a double slash before
+// "seal-" instead of the single slash CNTR_ISO_RE expects.
+const CNTR_SEAL_RE = /([A-Z]{4}\d{6,7})\/{1,2}seal-/i
 
-// Check if a sheet contains inline container markers (LITELON or DC30 style)
+// Check if a sheet contains inline container markers (LITELON, DC30, or YOULIDA style)
 function hasCombinedPLMarkers(sheet: XLSX.WorkSheet): boolean {
   const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' })
   for (let i = 0; i < Math.min(rows.length, 80); i++) {
     for (const cell of rows[i] as unknown[]) {
       const s = String(cell || '')
-      if (CNTR_RE.test(s) || CNTR_ISO_RE.test(s)) return true
+      if (CNTR_RE.test(s) || CNTR_ISO_RE.test(s) || CNTR_SEAL_RE.test(s)) return true
     }
   }
   return false
@@ -171,7 +175,7 @@ function parseCombinedPLSheet(sheet: XLSX.WorkSheet): { containerNames: string[]
     let isMarker = false
     for (const cell of row) {
       const s = String(cell || '')
-      const match = s.match(CNTR_RE) || s.match(CNTR_ISO_RE)
+      const match = s.match(CNTR_RE) || s.match(CNTR_ISO_RE) || s.match(CNTR_SEAL_RE)
       if (match) {
         currentContainer = match[1].toUpperCase()
         if (!containerMaps[currentContainer]) {
