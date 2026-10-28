@@ -65,6 +65,11 @@ interface Invoice {
   payment_status: string | null
   payment_date: string | null
   supplier: string | null
+  container_names: string[] | null
+}
+
+function containerCount(inv: { container_names: string[] | null }): number {
+  return Math.max((inv.container_names ?? []).length, 1)
 }
 
 function computeDueDate(blDate: string | null): Date | null {
@@ -141,7 +146,7 @@ export default function DashboardPage() {
     setLoading(true)
     const { data } = await supabase
       .from('invoices')
-      .select('id, invoice_no, filename, created_at, status, estimated_arrival, estimated_arrival_end, eta_date, bl_date, payment_status, payment_date, supplier')
+      .select('id, invoice_no, filename, created_at, status, estimated_arrival, estimated_arrival_end, eta_date, bl_date, payment_status, payment_date, supplier, container_names')
       .order('estimated_arrival', { ascending: false, nullsFirst: false })
     if (data) {
       setInvoices(data as Invoice[])
@@ -376,15 +381,16 @@ export default function DashboardPage() {
             <table className="w-full text-sm table-fixed [&_td]:align-top">
               <thead className="sticky top-0 z-10">
                 <tr className="bg-gray-50 text-gray-600 border-b border-gray-200">
-                  <th className="px-4 py-3 text-left font-medium w-[16%]">Invoice No.</th>
-                  <th className="px-4 py-3 text-center font-medium w-[12%]">Supplier</th>
-                  <th className="px-4 py-3 text-center font-medium w-[11%]">สถานะ</th>
-                  <th className="px-4 py-3 text-center font-medium w-[11%]"><span className="whitespace-nowrap">วันที่ถึงท่าเรือไทย</span><br/>(ETA)</th>
-                  <th className="px-4 py-3 text-center font-medium w-[18%]">ประมาณการเข้าคลัง</th>
-                  <th className="px-4 py-3 text-center font-medium w-[11%]">วันที่บันทึก</th>
-                  <th className="px-4 py-3 text-center font-medium w-[8%]">Due Date</th>
+                  <th className="px-4 py-3 text-left font-medium w-[15%]">Invoice No.</th>
+                  <th className="px-4 py-3 text-center font-medium w-[10%]">Supplier</th>
+                  <th className="px-4 py-3 text-center font-medium w-[6%]">จำนวนตู้</th>
+                  <th className="px-4 py-3 text-center font-medium w-[10%]">สถานะ</th>
+                  <th className="px-4 py-3 text-center font-medium w-[10%]"><span className="whitespace-nowrap">วันที่ถึงท่าเรือไทย</span><br/>(ETA)</th>
+                  <th className="px-4 py-3 text-center font-medium w-[16%]">ประมาณการเข้าคลัง</th>
+                  <th className="px-4 py-3 text-center font-medium w-[10%]">วันที่บันทึก</th>
+                  <th className="px-4 py-3 text-center font-medium w-[7%]">Due Date</th>
                   <th className="px-4 py-3 text-center font-medium w-[9%]">สถานะจ่าย</th>
-                  <th className="px-4 py-3 w-[8%]"></th>
+                  <th className="px-4 py-3 w-[7%]"></th>
                 </tr>
               </thead>
               <tbody>
@@ -435,6 +441,11 @@ export default function DashboardPage() {
                         ) : (
                           <span className="text-xs text-gray-700">{inv.supplier || <span className="text-gray-400">—</span>}</span>
                         )}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className="inline-flex items-center justify-center min-w-[1.75rem] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-700 text-xs font-semibold">
+                          {containerCount(inv)}
+                        </span>
                       </td>
                       <td className="px-4 py-3 text-center whitespace-nowrap">
                         {unlocked && displaySt !== 'เข้าคลังแล้ว' ? (
