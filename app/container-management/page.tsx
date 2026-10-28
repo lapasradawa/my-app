@@ -6,6 +6,7 @@ import { IBM_Plex_Sans_Thai, Barlow_Condensed } from 'next/font/google'
 import { supabase } from '@/lib/supabase'
 import NavBar from '@/components/NavBar'
 import { HUB_COLORS, hubColor } from '@/lib/hub-colors'
+import { syncInvoiceEta } from '@/lib/sync-invoice-eta'
 
 const bodyFont = IBM_Plex_Sans_Thai({ subsets: ['thai', 'latin'], weight: ['400', '500', '600', '700'] })
 const numFont = Barlow_Condensed({ subsets: ['latin'], weight: ['500', '600', '700'] })
@@ -294,22 +295,6 @@ export default function ContainerManagementPage() {
   }, [trayInvoices, isPlaced])
 
   // ── Writes ────────────────────────────────────────────────────────────
-  async function syncInvoiceEta(invoiceId: string) {
-    const { data } = await supabase
-      .from('container_hub_requests')
-      .select('hub_arrival_date')
-      .eq('invoice_id', invoiceId).eq('status', 'confirmed').eq('hub', DEFAULT_HUB)
-      .not('hub_arrival_date', 'is', null)
-    const dates = (data ?? []).map(r => r.hub_arrival_date as string).filter(Boolean).sort()
-    // Only ever widen/update when there's something scheduled — never clear an
-    // ETA that was set independently on Dashboard just because the tray is
-    // currently empty of explicit placements.
-    if (dates.length === 0) return
-    await supabase.from('invoices').update({
-      estimated_arrival: dates[0], estimated_arrival_end: dates[dates.length - 1],
-    }).eq('id', invoiceId)
-  }
-
   async function scheduleUnit(u: ContainerUnit, date: string | null, hub: string) {
     const { error } = await supabase.from('container_hub_requests').upsert({
       invoice_id: u.invoiceId, invoice_no: u.invoiceNo, container_name: u.containerName,
@@ -318,7 +303,7 @@ export default function ContainerManagementPage() {
       confirmed_at: new Date().toISOString(),
     }, { onConflict: 'invoice_id,container_name' })
     if (error) { toast(`บันทึกไม่สำเร็จ: ${error.message}`, true); return }
-    if (hub === DEFAULT_HUB) await syncInvoiceEta(u.invoiceId)
+    await syncInvoiceEta(supabase, u.invoiceId)
     await load()
     // A drag-out from inside the hub popover (moving one of its own
     // containers elsewhere) never otherwise closes it — its full-screen
@@ -331,7 +316,7 @@ export default function ContainerManagementPage() {
     const { error } = await supabase.from('container_hub_requests')
       .delete().eq('invoice_id', u.invoiceId).eq('container_name', u.containerName)
     if (error) { toast(`ลบไม่สำเร็จ: ${error.message}`, true); return }
-    await syncInvoiceEta(u.invoiceId)
+    await syncInvoiceEta(supabase, u.invoiceId)
     await load()
     setHubPopover(null)
   }

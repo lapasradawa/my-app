@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { syncInvoiceEta } from '@/lib/sync-invoice-eta'
 
 // Lazily constructed so a missing env var fails loudly on the first real
 // request (with a clear message in the logs) instead of at build time, and
@@ -166,6 +167,7 @@ export async function PATCH(req: NextRequest) {
     if (!data || data.length === 0) {
       return NextResponse.json({ error: 'not_found', message: 'ไม่พบคำร้องที่ยืนยันแล้วสำหรับตู้นี้' }, { status: 404 })
     }
+    await syncInvoiceEta(supabase, invoice_id)
     return NextResponse.json({ ok: true })
   }
 
@@ -185,5 +187,6 @@ export async function PATCH(req: NextRequest) {
   if (!data || data.length === 0) {
     return NextResponse.json({ error: 'already_handled', message: 'รายการนี้ถูกดำเนินการไปแล้วโดยแอดมินคนอื่น' }, { status: 409 })
   }
+  await syncInvoiceEta(supabase, invoice_id)
   return NextResponse.json({ ok: true })
 }
