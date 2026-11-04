@@ -248,8 +248,13 @@ export default function SummaryPage() {
     for (const inv of invoices) {
       if (!inv.rows || inv.rows.length === 0) continue
       const supplier = inv.supplier || '—'
-      const refDate = inv.bl_date || inv.estimated_arrival
-      const mk = mKey(refDate)
+      // Period = the month goods enter the warehouse (estimated_arrival),
+      // matching Dashboard, the containers KPI below, and the Report page's
+      // "เข้าคลัง" tab — not the BL/shipment date, which can land in an
+      // earlier month and previously made invoices vanish from their actual
+      // arrival period (e.g. an invoice with a Nov estimated_arrival but an
+      // Oct bl_date used to only count toward Oct).
+      const mk = mKey(inv.estimated_arrival)
       const resolvedVendorCode = inv.vendor_code || vendorCodeMap.get(supplier) || null
       for (const row of inv.rows) {
         if (!row.code) continue
@@ -339,8 +344,9 @@ export default function SummaryPage() {
     for (const inv of invoices) {
       if (!inv.rows) continue
       const supplier = inv.supplier || '—'
-      // Default month bucket for a container still at มัยลาภ (unchanged).
-      const invoiceMonthKey = mKey(inv.bl_date || inv.estimated_arrival)
+      // Default month bucket for a container still at มัยลาภ (unchanged) —
+      // same estimated_arrival-based period as allLines above.
+      const invoiceMonthKey = mKey(inv.estimated_arrival)
       // Invoices with no parsed container breakdown (row.containers is {} for
       // every row) are treated as one implicit container named after the
       // invoice itself — same convention as /weekly-inbound and the hub
