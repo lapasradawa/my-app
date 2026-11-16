@@ -91,9 +91,6 @@ export default function NavBar({ onUnlock, onLock }: Props) {
       {canAccess('order-plan') && (
         <Link href="/order-plan" className={cls('/order-plan')}>Order Plan</Link>
       )}
-      {canAccess('load-plan') && (
-        <Link href="/load-plan" className={cls('/load-plan')}>Branch Load</Link>
-      )}
 
       {/* Direct links when user has access to only one summary page */}
       {!showSummaryDropdown && canAccess('po-inbound-analysis') && (

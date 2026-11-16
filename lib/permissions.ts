@@ -14,7 +14,6 @@ export type PageKey =
   | 'qc'
   | 'guide'
   | 'po-summary'
-  | 'load-plan'
   | 'po-inbound-analysis'
   | 'container-management'
 
@@ -65,7 +64,6 @@ export function pathnameToPageKey(pathname: string): PageKey | null {
     case 'qc':         return 'qc'
     case 'guide':      return 'guide'
     case 'po-summary': return 'po-summary'
-    case 'load-plan':  return 'load-plan'
     case 'po-inbound-analysis': return 'po-inbound-analysis'
     case 'container-management': return 'container-management'
     // Weekly Inbound Plan is a sub-view reached from the Calendar dropdown,
