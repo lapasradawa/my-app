@@ -324,8 +324,9 @@ export default function SummaryPage() {
   }, [scopedInvoices, priceMap, vendorCodeMap])
 
   const filteredLines = useMemo(() => {
-    if (selectedMonths.size === 0) return allLines
-    return allLines.filter(l => l.month_key && selectedMonths.has(l.month_key))
+    const lines = selectedMonths.size === 0 ? allLines : allLines.filter(l => l.month_key && selectedMonths.has(l.month_key))
+    // Soonest estimated_arrival on top, going down — lines with no date yet sort last.
+    return [...lines].sort((a, b) => (a.estimated_arrival || '9999-12-31').localeCompare(b.estimated_arrival || '9999-12-31'))
   }, [allLines, selectedMonths])
 
   const supplierSummary = useMemo(() => {
@@ -503,7 +504,8 @@ export default function SummaryPage() {
     invoicesInPeriod.reduce((sum, inv) => sum + containerCount(inv), 0),
     [invoicesInPeriod])
   const invoiceContainerRows = useMemo(() =>
-    [...invoicesInPeriod].sort((a, b) => (b.estimated_arrival || '').localeCompare(a.estimated_arrival || '')),
+    // Soonest estimated_arrival on top, going down — invoices with no date yet sort last.
+    [...invoicesInPeriod].sort((a, b) => (a.estimated_arrival || '9999-12-31').localeCompare(b.estimated_arrival || '9999-12-31')),
     [invoicesInPeriod])
 
   const lineSeries = useMemo(() => {
@@ -535,6 +537,20 @@ export default function SummaryPage() {
       const wb = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(wb, ws, 'By Hub')
       XLSX.writeFile(wb, `by-hub-summary-${arrivalFileSuffix}${new Date().toISOString().slice(0, 10)}.xlsx`)
+      return
+    }
+    if (view === 'containers') {
+      // Same invoice-level rows and order (soonest estimated_arrival first) as the ตู้ต่อ Invoice table on screen.
+      const rows = invoiceContainerRows.map(inv => ({
+        'Invoice': inv.invoice_no, 'Supplier': inv.supplier || '—',
+        'เข้าคลัง': fmtRange(inv.estimated_arrival, inv.estimated_arrival_end),
+        'Hub': (invoiceHubMap.get(inv.id) ?? []).join(', '), 'จำนวนตู้': containerCount(inv),
+      }))
+      const ws = XLSX.utils.json_to_sheet(rows)
+      ws['!cols'] = [{ wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 20 }, { wch: 10 }]
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Containers per Invoice')
+      XLSX.writeFile(wb, `containers-per-invoice-${arrivalFileSuffix}${new Date().toISOString().slice(0, 10)}.xlsx`)
       return
     }
     const lines = selectedItem ? filteredLines.filter(l => l.item_code === selectedItem) : filteredLines
