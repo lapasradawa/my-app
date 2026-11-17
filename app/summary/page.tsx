@@ -109,6 +109,27 @@ function generateMonthKeys(count = 18): string[] {
   }
   return keys
 }
+function nextMonthKey(k: string): string {
+  const [y, m] = k.split('-').map(Number)
+  return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`
+}
+// Period dropdown: only months that actually have an invoice whose
+// estimated_arrival falls there — padding past months that never have data
+// (the old fixed "18 months back" window) just adds useless empty options.
+// If fewer than `minCount` months have data, pad forward with upcoming
+// (still-empty) months instead of backward, since those are the ones likely
+// to fill in as more invoices get an ETA.
+function buildPeriodMonthKeys(invoices: { estimated_arrival: string | null }[], minCount = 12): string[] {
+  const dataMonths = new Set<string>()
+  for (const inv of invoices) {
+    const mk = mKey(inv.estimated_arrival)
+    if (mk) dataMonths.add(mk)
+  }
+  const keys = Array.from(dataMonths).sort()
+  if (keys.length === 0) return generateMonthKeys(minCount)
+  while (keys.length < minCount) keys.push(nextMonthKey(keys[keys.length - 1]))
+  return keys
+}
 
 const PALETTE = ['#3d8b82','#d4962a','#c85a3a','#6b5ea8','#2a7c9a','#c87a3a','#5a9a6b','#c85a82']
 
@@ -225,7 +246,7 @@ export default function SummaryPage() {
   const [periodOpen, setPeriodOpen] = useState(false)
   const [arrivalFilter, setArrivalFilter] = useState<'all' | 'arrived' | 'not_arrived'>('all')
 
-  const allMonthKeys = useMemo(() => generateMonthKeys(18), [])
+  const allMonthKeys = useMemo(() => buildPeriodMonthKeys(invoices, 12), [invoices])
   const chart12Months = useMemo(() => generateMonthKeys(12), [])
 
   useEffect(() => {
