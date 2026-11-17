@@ -273,10 +273,21 @@ export default function SummaryPage() {
     load()
   }, [])
 
+  // po_items holds one row per uploaded PO file, so the same item/supplier
+  // can carry several historical quotes in different currencies (e.g. a
+  // supplier that re-quoted from USD to CNY partway through). Keying only
+  // by item+supplier collapses those into whichever row happened to load
+  // last, which could tag a CNY invoice's line with a leftover USD price.
+  // Keying by currency too lets each invoice line match the quote in its
+  // own currency, falling back to any quote if none exists in that currency.
   const priceMap = useMemo(() => {
-    const m = new Map<string, { price: number | null; currency: string | null }>()
-    for (const p of poItems) m.set(`${p.item_code}|${p.supplier}`, { price: p.fob_price, currency: p.currency })
-    return m
+    const exact = new Map<string, { price: number | null; currency: string | null }>()
+    const any = new Map<string, { price: number | null; currency: string | null }>()
+    for (const p of poItems) {
+      exact.set(`${p.item_code}|${p.supplier}|${p.currency ?? ''}`, { price: p.fob_price, currency: p.currency })
+      any.set(`${p.item_code}|${p.supplier}`, { price: p.fob_price, currency: p.currency })
+    }
+    return { exact, any }
   }, [poItems])
 
   const vendorCodeMap = useMemo(() => {
@@ -309,7 +320,7 @@ export default function SummaryPage() {
       const resolvedVendorCode = inv.vendor_code || vendorCodeMap.get(supplier) || null
       for (const row of inv.rows) {
         if (!row.code) continue
-        const lookup = priceMap.get(`${row.code}|${supplier}`)
+        const lookup = priceMap.exact.get(`${row.code}|${supplier}|${inv.currency ?? ''}`) ?? priceMap.any.get(`${row.code}|${supplier}`)
         const fob = lookup?.price ?? null
         lines.push({
           item_code: row.code, description: row.description || '', qty: row.qty || 0, po: row.po || '',
