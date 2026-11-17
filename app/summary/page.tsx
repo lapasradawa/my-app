@@ -133,6 +133,26 @@ function buildPeriodMonthKeys(invoices: { estimated_arrival: string | null }[], 
 
 const PALETTE = ['#3d8b82','#d4962a','#c85a3a','#6b5ea8','#2a7c9a','#c87a3a','#5a9a6b','#c85a82']
 
+// po_items is large enough (2800+ rows) to hit PostgREST's default 1000-row
+// cap on an unranged select — and with no ORDER BY, which ~1000 rows come
+// back isn't even stable between requests. That silently dropped quotes
+// (sometimes the correct-currency one for a given item), causing FOB
+// price/currency lookups to miss or be inconsistent. Page through the
+// whole table instead.
+async function fetchAllPoItems(): Promise<PoItem[]> {
+  const pageSize = 1000
+  const all: PoItem[] = []
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .from('po_items').select('item_code, supplier, fob_price, currency')
+      .range(from, from + pageSize - 1)
+    if (error || !data) break
+    all.push(...(data as PoItem[]))
+    if (data.length < pageSize) break
+  }
+  return all
+}
+
 // ─── DonutChart ───────────────────────────────────────────────────────────────
 function DonutChart({ slices, total }: { slices: { label: string; value: number; color: string }[]; total: number }) {
   const cx = 80, cy = 80, R = 68, r = 44
@@ -252,13 +272,13 @@ export default function SummaryPage() {
   useEffect(() => {
     async function load() {
       // Stage 1: metadata only — KPI / charts appear immediately
-      const [metaRes, poRes, hubRes] = await Promise.all([
+      const [metaRes, poItemsAll, hubRes] = await Promise.all([
         supabase.from('invoices').select('id, invoice_no, supplier, vendor_code, bl_date, estimated_arrival, estimated_arrival_end, currency, total_amount, exchange_rate, exchange_rates, container_names').order('bl_date', { ascending: false }),
-        supabase.from('po_items').select('item_code, supplier, fob_price, currency'),
+        fetchAllPoItems(),
         supabase.from('container_hub_requests').select('invoice_id, invoice_no, container_name, hub, hub_arrival_date').eq('status', 'confirmed'),
       ])
       if (metaRes.data) setInvoices(metaRes.data as InvoiceData[])
-      if (poRes.data) setPoItems(poRes.data as PoItem[])
+      setPoItems(poItemsAll)
       if (hubRes.data) setHubReqs(hubRes.data as HubReq[])
       setLoading(false)
 
