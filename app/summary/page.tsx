@@ -17,6 +17,7 @@ interface InvoiceData {
   vendor_code: string | null
   bl_date: string | null
   estimated_arrival: string | null
+  estimated_arrival_end: string | null
   currency: string | null
   total_amount: number | null
   exchange_rate: number | null
@@ -47,6 +48,8 @@ interface LineItem {
   supplier: string
   vendor_code: string | null
   bl_date: string | null
+  estimated_arrival: string | null
+  estimated_arrival_end: string | null
   month_key: string | null
   currency: string | null
   fob_price: number | null
@@ -85,6 +88,15 @@ function fmtFobByCurrency(map: Map<string, number>): string {
     .join(' · ')
 }
 
+function fmtDate(d: string | null): string {
+  if (!d) return ''
+  return new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+}
+function fmtRange(start: string | null, end: string | null): string {
+  if (!start) return '—'
+  if (!end || end === start) return fmtDate(start)
+  return `${fmtDate(start)} – ${fmtDate(end)}`
+}
 function fmt(n: number, dec = 2) {
   return n.toLocaleString(undefined, { minimumFractionDigits: dec, maximumFractionDigits: dec })
 }
@@ -220,7 +232,7 @@ export default function SummaryPage() {
     async function load() {
       // Stage 1: metadata only — KPI / charts appear immediately
       const [metaRes, poRes, hubRes] = await Promise.all([
-        supabase.from('invoices').select('id, invoice_no, supplier, vendor_code, bl_date, estimated_arrival, currency, total_amount, exchange_rate, exchange_rates, container_names').order('bl_date', { ascending: false }),
+        supabase.from('invoices').select('id, invoice_no, supplier, vendor_code, bl_date, estimated_arrival, estimated_arrival_end, currency, total_amount, exchange_rate, exchange_rates, container_names').order('bl_date', { ascending: false }),
         supabase.from('po_items').select('item_code, supplier, fob_price, currency'),
         supabase.from('container_hub_requests').select('invoice_id, invoice_no, container_name, hub, hub_arrival_date').eq('status', 'confirmed'),
       ])
@@ -281,7 +293,8 @@ export default function SummaryPage() {
         lines.push({
           item_code: row.code, description: row.description || '', qty: row.qty || 0, po: row.po || '',
           invoice_no: inv.invoice_no, invoice_id: inv.id, supplier, vendor_code: resolvedVendorCode,
-          bl_date: inv.bl_date, month_key: mk, currency: lookup?.currency ?? inv.currency,
+          bl_date: inv.bl_date, estimated_arrival: inv.estimated_arrival, estimated_arrival_end: inv.estimated_arrival_end,
+          month_key: mk, currency: lookup?.currency ?? inv.currency,
           fob_price: fob, fob_total: fob != null && row.qty ? fob * row.qty : null,
         })
       }
@@ -507,10 +520,11 @@ export default function SummaryPage() {
     const rows = lines.map(l => ({
       'Item no': l.item_code, 'Item name': l.description, 'Supplier': l.supplier,
       'Vendor Code': l.vendor_code || '', 'Quantity': l.qty, 'Invoice': l.invoice_no, 'PO': l.po,
+      'ประมาณการเข้าคลัง': fmtRange(l.estimated_arrival, l.estimated_arrival_end),
       'FOB Unit Price': l.fob_price ?? '', 'FOB Total Price': l.fob_total ?? '', 'Original Currency': l.currency || '',
     }))
     const ws = XLSX.utils.json_to_sheet(rows)
-    ws['!cols'] = [{ wch: 22 }, { wch: 50 }, { wch: 18 }, { wch: 16 }, { wch: 10 }, { wch: 18 }, { wch: 16 }, { wch: 15 }, { wch: 15 }, { wch: 16 }]
+    ws['!cols'] = [{ wch: 22 }, { wch: 50 }, { wch: 18 }, { wch: 16 }, { wch: 10 }, { wch: 18 }, { wch: 16 }, { wch: 22 }, { wch: 15 }, { wch: 15 }, { wch: 16 }]
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, selectedItem ? `Item_${selectedItem.slice(0, 20)}` : 'Summary')
     XLSX.writeFile(wb, `item-summary-${arrivalFileSuffix}${new Date().toISOString().slice(0, 10)}.xlsx`)
@@ -876,7 +890,7 @@ export default function SummaryPage() {
                   <table style={{ fontSize: 11, width: '100%', borderCollapse: 'collapse', minWidth: 800 }}>
                     <thead>
                       <tr style={{ background: '#f0ebe0', position: 'sticky', top: 0, zIndex: 1 }}>
-                        {['Item no', 'Item name', 'Supplier', 'Vendor Code', 'QTY', 'Invoice', 'Hub', 'PO', 'FOB Unit', 'FOB Total', 'CCY'].map(h => (
+                        {['Item no', 'Item name', 'Supplier', 'Vendor Code', 'QTY', 'Invoice', 'Hub', 'ประมาณการเข้าคลัง', 'PO', 'FOB Unit', 'FOB Total', 'CCY'].map(h => (
                           <th key={h} style={{ padding: '8px 10px', textAlign: h === 'QTY' || h === 'FOB Unit' || h === 'FOB Total' ? 'right' : 'left', fontSize: 10, fontWeight: 800, color: '#8a7a6a', whiteSpace: 'nowrap', borderBottom: '1px solid #e2d8c8' }}>{h}</th>
                         ))}
                       </tr>
@@ -900,6 +914,7 @@ export default function SummaryPage() {
                               return <span key={hub} style={{ display: 'inline-block', fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 8, background: hc.bg, color: hc.text, border: `1px solid ${hc.border}`, marginRight: 3 }}>{hub}</span>
                             })}
                           </td>
+                          <td style={{ padding: '7px 10px', color: '#6a5a4a', whiteSpace: 'nowrap' }}>{fmtRange(l.estimated_arrival, l.estimated_arrival_end)}</td>
                           <td style={{ padding: '7px 10px', color: '#9a8a7a', whiteSpace: 'nowrap' }}>{l.po || '—'}</td>
                           <td style={{ padding: '7px 10px', textAlign: 'right', color: '#5a4a3a' }}>{l.fob_price != null ? fmt(l.fob_price) : '—'}</td>
                           <td style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 700, color: '#3d7a5a' }}>{l.fob_total != null ? fmt(l.fob_total, 0) : '—'}</td>
