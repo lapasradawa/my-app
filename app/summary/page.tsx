@@ -59,6 +59,14 @@ interface LineItem {
 function containerCount(inv: { container_names: string[] | null }): number {
   return Math.max((inv.container_names ?? []).length, 1)
 }
+// Arrived = the invoice's estimated_arrival (same date shown on Dashboard)
+// is today or earlier. No date yet → treated as not arrived.
+function isArrived(inv: { estimated_arrival: string | null }): boolean {
+  if (!inv.estimated_arrival) return false
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return new Date(inv.estimated_arrival + 'T00:00:00') <= today
+}
 function mKey(d: string | null): string | null {
   if (!d) return null
   const dt = new Date(d + 'T00:00:00')
@@ -203,6 +211,7 @@ export default function SummaryPage() {
   const [itemSearch, setItemSearch] = useState('')
   const [view, setView] = useState<'items' | 'detail' | 'hub' | 'containers'>('items')
   const [periodOpen, setPeriodOpen] = useState(false)
+  const [arrivalFilter, setArrivalFilter] = useState<'all' | 'arrived' | 'not_arrived'>('all')
 
   const allMonthKeys = useMemo(() => generateMonthKeys(18), [])
   const chart12Months = useMemo(() => generateMonthKeys(12), [])
@@ -243,9 +252,18 @@ export default function SummaryPage() {
     return m
   }, [invoices])
 
+  // Independent of the month/period filter — narrows which invoices are in
+  // scope by whether their estimated_arrival has passed yet ("เข้าคลังแล้ว")
+  // or not ("ยังไม่เข้าคลัง"), before any of the line/hub/container breakdowns
+  // below are built, so every view and the export stay consistent with it.
+  const scopedInvoices = useMemo(() => {
+    if (arrivalFilter === 'all') return invoices
+    return invoices.filter(inv => arrivalFilter === 'arrived' ? isArrived(inv) : !isArrived(inv))
+  }, [invoices, arrivalFilter])
+
   const allLines = useMemo<LineItem[]>(() => {
     const lines: LineItem[] = []
-    for (const inv of invoices) {
+    for (const inv of scopedInvoices) {
       if (!inv.rows || inv.rows.length === 0) continue
       const supplier = inv.supplier || '—'
       // Period = the month goods enter the warehouse (estimated_arrival),
@@ -269,7 +287,7 @@ export default function SummaryPage() {
       }
     }
     return lines
-  }, [invoices, priceMap, vendorCodeMap])
+  }, [scopedInvoices, priceMap, vendorCodeMap])
 
   const filteredLines = useMemo(() => {
     if (selectedMonths.size === 0) return allLines
@@ -341,7 +359,7 @@ export default function SummaryPage() {
     for (const h of hubReqs) hubReqMap.set(`${h.invoice_id}::${h.container_name}`, { hub: h.hub, date: h.hub_arrival_date })
 
     const lines: { hub: string; item_code: string; description: string; supplier: string; invoice_no: string; invoice_id: string; qty: number; month_key: string | null }[] = []
-    for (const inv of invoices) {
+    for (const inv of scopedInvoices) {
       if (!inv.rows) continue
       const supplier = inv.supplier || '—'
       // Default month bucket for a container still at มัยลาภ (unchanged) —
@@ -375,7 +393,7 @@ export default function SummaryPage() {
       }
     }
     return lines
-  }, [invoices, hubReqs])
+  }, [scopedInvoices, hubReqs])
 
   const filteredHubLines = useMemo(() => {
     if (selectedMonths.size === 0) return hubLines
@@ -428,7 +446,7 @@ export default function SummaryPage() {
   // Use estimated_arrival for grouping (matches Report page "เข้าคลัง" tab)
   const totalActualThb = useMemo(() => {
     let sum = 0
-    for (const inv of invoices) {
+    for (const inv of scopedInvoices) {
       if (selectedMonths.size > 0) {
         const mk = mKey(inv.estimated_arrival)
         if (!mk || !selectedMonths.has(mk)) continue
@@ -436,17 +454,17 @@ export default function SummaryPage() {
       sum += invoiceThbMap.get(inv.id) || 0
     }
     return sum
-  }, [invoices, selectedMonths, invoiceThbMap])
+  }, [scopedInvoices, selectedMonths, invoiceThbMap])
   const totalInvoices = useMemo(() => new Set(filteredLines.map(l => l.invoice_no)).size, [filteredLines])
   const totalSuppliers = useMemo(() => new Set(filteredLines.map(l => l.supplier)).size, [filteredLines])
   // Containers entered the warehouse: sum of container_names per invoice, grouped by estimated_arrival (matches Report page "เข้าคลัง" tab)
   const invoicesInPeriod = useMemo(() => {
-    return invoices.filter(inv => {
+    return scopedInvoices.filter(inv => {
       if (selectedMonths.size === 0) return true
       const mk = mKey(inv.estimated_arrival)
       return mk !== null && selectedMonths.has(mk)
     })
-  }, [invoices, selectedMonths])
+  }, [scopedInvoices, selectedMonths])
   const totalContainers = useMemo(() =>
     invoicesInPeriod.reduce((sum, inv) => sum + containerCount(inv), 0),
     [invoicesInPeriod])
@@ -470,6 +488,7 @@ export default function SummaryPage() {
   }, [])
 
   function exportExcel() {
+    const arrivalFileSuffix = arrivalFilter === 'all' ? '' : arrivalFilter === 'arrived' ? 'arrived-' : 'not-arrived-'
     if (view === 'hub') {
       // Flattened in the same grouped/sorted order shown on screen, with Hub
       // as the rightmost column instead of a section header.
@@ -481,7 +500,7 @@ export default function SummaryPage() {
       ws['!cols'] = [{ wch: 22 }, { wch: 50 }, { wch: 18 }, { wch: 18 }, { wch: 10 }, { wch: 16 }]
       const wb = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(wb, ws, 'By Hub')
-      XLSX.writeFile(wb, `by-hub-summary-${new Date().toISOString().slice(0, 10)}.xlsx`)
+      XLSX.writeFile(wb, `by-hub-summary-${arrivalFileSuffix}${new Date().toISOString().slice(0, 10)}.xlsx`)
       return
     }
     const lines = selectedItem ? filteredLines.filter(l => l.item_code === selectedItem) : filteredLines
@@ -494,7 +513,7 @@ export default function SummaryPage() {
     ws['!cols'] = [{ wch: 22 }, { wch: 50 }, { wch: 18 }, { wch: 16 }, { wch: 10 }, { wch: 18 }, { wch: 16 }, { wch: 15 }, { wch: 15 }, { wch: 16 }]
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, selectedItem ? `Item_${selectedItem.slice(0, 20)}` : 'Summary')
-    XLSX.writeFile(wb, `item-summary-${new Date().toISOString().slice(0, 10)}.xlsx`)
+    XLSX.writeFile(wb, `item-summary-${arrivalFileSuffix}${new Date().toISOString().slice(0, 10)}.xlsx`)
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -605,6 +624,27 @@ export default function SummaryPage() {
               <button onClick={() => toggleMonth(k)} style={{ background: 'none', border: 'none', color: '#1a2d3a', fontSize: 11, cursor: 'pointer', padding: 0, lineHeight: 1, opacity: 0.7 }}>×</button>
             </div>
           ))}
+
+          {/* Arrival-status filter — narrows invoices by whether estimated_arrival
+              (the Dashboard "ประมาณการเข้าคลัง" date) has passed yet, independent
+              of the Period month filter above. */}
+          <span style={{ fontSize: 10, fontWeight: 800, color: '#5a8a9a', textTransform: 'uppercase', letterSpacing: '0.12em', marginLeft: 12 }}>สถานะ:</span>
+          <div style={{ display: 'flex', gap: 4 }}>
+            {([
+              { key: 'all', label: 'ทั้งหมด' },
+              { key: 'not_arrived', label: 'ยังไม่เข้าคลัง' },
+              { key: 'arrived', label: 'เข้าคลังแล้ว' },
+            ] as const).map(opt => (
+              <button key={opt.key} onClick={() => setArrivalFilter(opt.key)} style={{
+                padding: '6px 12px', borderRadius: 8, cursor: 'pointer', fontSize: 11, fontWeight: 700,
+                background: arrivalFilter === opt.key ? '#3d8b82' : '#1e3a4a',
+                color: arrivalFilter === opt.key ? '#fff' : '#8a9aaa',
+                border: arrivalFilter === opt.key ? '1px solid #3d8b82' : '1px solid #2e5060',
+              }}>
+                {opt.label}
+              </button>
+            ))}
+          </div>
 
           {selectedMonths.size > 0 && (
             <span style={{ color: '#4a7a8a', fontSize: 10, marginLeft: 'auto' }}>
